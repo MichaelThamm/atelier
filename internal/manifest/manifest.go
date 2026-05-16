@@ -23,16 +23,25 @@ type Manifest struct {
 
 // Module is one declared module candidate.
 type Module struct {
-	Path        string  `yaml:"path"`
-	Name        string  `yaml:"name"`
-	Description string  `yaml:"description,omitempty"`
-	Groups      []Group `yaml:"groups,omitempty"`
+	Path        string   `yaml:"path"`
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description,omitempty"`
+	Groups      []Group  `yaml:"groups,omitempty"`
+	Presets     []Preset `yaml:"presets,omitempty"`
 }
 
 // Group is a UI grouping of variables in the left pane.
 type Group struct {
 	Name      string   `yaml:"name"`
 	Variables []string `yaml:"variables"`
+}
+
+// Preset is a named bundle of variable overrides a module maintainer
+// declares. Users can apply a preset to bulk-set variables, then tweak.
+type Preset struct {
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description,omitempty"`
+	Sets        map[string]any `yaml:"sets"`
 }
 
 // Load reads and parses atelier.yaml at the given path. Returns a
@@ -112,6 +121,14 @@ func (m *Manifest) validate() error {
 			}
 			if len(g.Variables) == 0 {
 				return fmt.Errorf("manifest: modules[%d].groups[%d] (%q) needs at least one variable", i, j, g.Name)
+			}
+		}
+		for j, p := range mod.Presets {
+			if p.Name == "" {
+				return fmt.Errorf("manifest: modules[%d].presets[%d].name is required", i, j)
+			}
+			if len(p.Sets) == 0 {
+				return fmt.Errorf("manifest: modules[%d].presets[%d] (%q) needs at least one entry in sets", i, j, p.Name)
 			}
 		}
 	}

@@ -67,6 +67,12 @@ type Model struct {
 	// dirty tracks whether we have unsaved in-memory edits. Used by the
 	// auto-save path that ends each Update tick.
 	dirty bool
+
+	// presets holds resolved presets from the manifest. When non-empty, the
+	// user can press F to open the picker overlay.
+	presets      []ResolvedPreset
+	presetPicker bool // true when the picker overlay is visible
+	presetCursor int  // cursor within the picker list
 }
 
 // planState enumerates the four states the plan flow can be in: idle (no
@@ -126,6 +132,12 @@ func (m *Model) SetGroups(g []manifest.ResolvedGroup) {
 	m.groups = g
 	m.recomputeRows()
 	m.refreshEditor()
+}
+
+// SetPresets installs resolved presets from the manifest. When non-empty,
+// the user can press F from the left pane to open the preset picker.
+func (m *Model) SetPresets(p []ResolvedPreset) {
+	m.presets = p
 }
 
 func (m *Model) recomputeRows() {
@@ -299,6 +311,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Preset picker interception: the overlay owns all keys until
+	// the user applies (Enter) or cancels (Esc).
+	if m.presetPicker {
+		return m.handlePresetKey(msg)
+	}
+
 	switch msg.String() {
 	case "q":
 		if m.focus == focusLeft {
@@ -323,6 +341,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.planErr = ""
 			m.status = ""
 			return m, tea.Batch(m.startPlan(), spinnerTick())
+		}
+	case "f", "F":
+		// Open preset picker from the left pane (if presets available).
+		if m.focus == focusLeft && len(m.presets) > 0 {
+			m.presetPicker = true
+			m.presetCursor = 0
+			return m, nil
 		}
 	case "ctrl+r":
 		m.resetCurrent()
@@ -399,6 +424,47 @@ func (m *Model) SelectedPlanChange() *tfjson.ResourceChange {
 		return nil
 	}
 	return n.Change
+}
+
+// handlePresetKey routes keys while the preset picker overlay is visible.
+func (m *Model) handlePresetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.presetPicker = false
+		return m, nil
+	case "up", "k":
+		if m.presetCursor > 0 {
+			m.presetCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.presetCursor < len(m.presets)-1 {
+			m.presetCursor++
+		}
+		return m, nil
+	case "enter":
+		m.applyPreset(m.presetCursor)
+		m.presetPicker = false
+		return m, nil
+	}
+	return m, nil
+}
+
+// applyPreset applies the preset at index i: merges its values into
+// state.Values, refreshes the editor, and flashes a status message.
+func (m *Model) applyPreset(i int) {
+	if i < 0 || i >= len(m.presets) {
+		return
+	}
+	p := m.presets[i]
+	for name, val := range p.Values {
+		m.State.Values[name] = val
+	}
+	m.refreshEditor()
+	m.status = fmt.Sprintf("Applied preset: %s", p.Name)
+	m.statusLvl = statusInfo
+	m.statusAt = time.Now()
+	m.dirty = true
 }
 
 func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -513,7 +579,9 @@ func (m *Model) View() string {
 	if m.planState == planReady {
 		return m.renderPlanScreen()
 	}
-
+	if m.presetPicker {
+		return m.renderPresetPicker()
+	}
 	left := m.renderLeftPane()
 	right := m.renderRightPane()
 	status := m.renderStatus()

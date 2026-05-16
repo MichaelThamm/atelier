@@ -180,3 +180,98 @@ func TestApplyGroups_noManifest(t *testing.T) {
 		t.Errorf("variables: %+v", groups[0].Variables)
 	}
 }
+
+// --- Preset tests ---
+
+const manifestWithPresets = `
+modules:
+  - path: terraform/cos-lite
+    name: "COS Lite"
+    groups:
+      - name: "TLS"
+        variables: [internal_tls]
+    presets:
+      - name: "Minimal"
+        description: "Single-unit, no TLS."
+        sets:
+          internal_tls: false
+          alertmanager:
+            units: 1
+      - name: "HA Production"
+        description: "Multi-unit with TLS."
+        sets:
+          internal_tls: true
+          alertmanager:
+            units: 3
+`
+
+func TestParse_presets(t *testing.T) {
+	m, warnings, err := Parse(strings.NewReader(manifestWithPresets))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", warnings)
+	}
+	mod := m.FindModule("terraform/cos-lite")
+	if mod == nil {
+		t.Fatal("module not found")
+	}
+	if len(mod.Presets) != 2 {
+		t.Fatalf("expected 2 presets, got %d", len(mod.Presets))
+	}
+	p := mod.Presets[0]
+	if p.Name != "Minimal" {
+		t.Errorf("preset[0].Name = %q", p.Name)
+	}
+	if p.Description != "Single-unit, no TLS." {
+		t.Errorf("preset[0].Description = %q", p.Description)
+	}
+	if len(p.Sets) != 2 {
+		t.Errorf("preset[0].Sets = %v", p.Sets)
+	}
+	// Check nested object value is parsed correctly.
+	am, ok := p.Sets["alertmanager"].(map[string]any)
+	if !ok {
+		t.Fatalf("alertmanager not a map: %T", p.Sets["alertmanager"])
+	}
+	if am["units"] != 1 {
+		t.Errorf("alertmanager.units = %v", am["units"])
+	}
+}
+
+func TestParse_preset_missingName(t *testing.T) {
+	const src = `
+modules:
+  - path: x
+    name: X
+    presets:
+      - sets:
+          foo: bar
+`
+	_, _, err := Parse(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "presets[0].name") {
+		t.Errorf("error: %v", err)
+	}
+}
+
+func TestParse_preset_emptySets(t *testing.T) {
+	const src = `
+modules:
+  - path: x
+    name: X
+    presets:
+      - name: Empty
+        sets: {}
+`
+	_, _, err := Parse(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "at least one entry in sets") {
+		t.Errorf("error: %v", err)
+	}
+}

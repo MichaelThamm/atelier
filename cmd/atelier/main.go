@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -183,21 +184,27 @@ func parseInitArgs(args []string) (bootstrap.InitOptions, error) {
 func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	state := res.State
 
-	// Load manifest groupings for the left pane.
+	// Load manifest groupings and presets for the left pane.
 	var groups []manifest.ResolvedGroup
+	var presets []tui.ResolvedPreset
 	if man, _, _ := manifest.LoadFromRepo(filepath.Join(wrapperDir, ".atelier", "clone")); man != nil {
-		mod := man.FindModule(modulePathFromState(state))
+		modPath := modulePathFromState(state)
+		mod := man.FindModule(modPath)
 		names := make([]string, len(state.Vars))
 		for i, v := range state.Vars {
 			names[i] = v.Name
 		}
 		groups = manifest.ApplyGroups(mod, names)
+		if mod != nil && len(mod.Presets) > 0 {
+			presets = tui.ResolvePresets(mod.Presets, state.Vars)
+		}
 	}
 
 	m := tui.New(state, state.ModuleBlockName)
 	m.LiteralRef = res.LiteralRef
 	m.ResolvedSHA = res.ResolvedSHA
 	m.SetGroups(groups)
+	m.SetPresets(presets)
 
 	// Construct a Planner so pressing P in the TUI runs a real terraform
 	// plan against the wrapper. A failure to locate terraform was already
@@ -222,10 +229,18 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 }
 
 func modulePathFromState(s *wrapper.State) string {
-	// We don't currently persist the candidate path on State; the manifest
-	// lookup uses the module block name as a best-effort. This is a v2-grade
-	// improvement; for now, return empty so ApplyGroups falls back to the
-	// flat list.
-	_ = s
-	return ""
+	// Extract the module sub-path from the source attribute. Terraform git
+	// sources use "//" to separate the repo URL from the sub-directory, e.g.
+	// "git::https://host/repo.git//terraform/cos-lite?ref=main"
+	src := s.Source
+	idx := strings.LastIndex(src, "//")
+	if idx < 0 {
+		return ""
+	}
+	sub := src[idx+2:]
+	// Strip ?ref=... query suffix if present.
+	if q := strings.IndexByte(sub, '?'); q >= 0 {
+		sub = sub[:q]
+	}
+	return sub
 }

@@ -118,7 +118,12 @@ func (m *Model) statusHints() string {
 	case planReady:
 		return "[↑↓] navigate  [Enter] toggle  [P] re-plan  [Esc] back"
 	}
-	return "[Tab] switch pane  [^R] reset  [P] plan  [Q] quit"
+	hints := "[Tab] switch pane  [^R] reset  [P] plan"
+	if len(m.presets) > 0 {
+		hints += "  [F] preset"
+	}
+	hints += "  [Q] quit"
+	return hints
 }
 
 func (m *Model) bodyHeight() int {
@@ -126,6 +131,36 @@ func (m *Model) bodyHeight() int {
 		return 1
 	}
 	return m.height - 1
+}
+
+// renderPresetPicker renders the full-screen preset picker overlay.
+func (m *Model) renderPresetPicker() string {
+	var b strings.Builder
+	fmt.Fprintln(&b, styleVarHeader.Render("Select a preset"))
+	fmt.Fprintln(&b)
+
+	for i, p := range m.presets {
+		cursor := "  "
+		name := p.Name
+		if i == m.presetCursor {
+			cursor = styleCursorActive.Render("▸ ")
+			name = styleCursorActive.Render(p.Name)
+		}
+		line := cursor + name
+		if p.Description != "" {
+			line += "  " + styleDescription.Render(p.Description)
+		}
+		fmt.Fprintln(&b, line)
+	}
+
+	fmt.Fprintln(&b)
+	fmt.Fprint(&b, styleHelp.Render("[↑↓] select   [Enter] apply   [Esc] cancel"))
+
+	content := b.String()
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height).
+		Render(content)
 }
 
 // varMarker returns the modified-vs-default indicator the left pane shows
