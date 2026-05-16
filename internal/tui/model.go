@@ -316,11 +316,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = focusLeft
 		return m, nil
 	case "p", "P":
-		// Trigger the plan from anywhere in the normal mode.
-		m.planState = planLoading
-		m.planErr = ""
-		m.status = ""
-		return m, tea.Batch(m.startPlan(), spinnerTick())
+		// Trigger plan only from the left pane. In the right pane the key
+		// belongs to the editor (the user might be typing "p" into a value).
+		if m.focus == focusLeft {
+			m.planState = planLoading
+			m.planErr = ""
+			m.status = ""
+			return m, tea.Batch(m.startPlan(), spinnerTick())
+		}
 	case "ctrl+r":
 		m.resetCurrent()
 		return m, nil

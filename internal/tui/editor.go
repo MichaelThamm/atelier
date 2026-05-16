@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -40,6 +41,9 @@ func newEditor(v *tfvars.Variable, current cty.Value) Editor {
 	case tftypes.KindList, tftypes.KindSet:
 		return newListEditor(v, current)
 	case tftypes.KindMap:
+		if v.Type.Element != nil && v.Type.Element.Kind == tftypes.KindObject {
+			return newMapObjectEditor(v, current)
+		}
 		return newMapEditor(v, current)
 	case tftypes.KindObject:
 		return newObjectEditor(v, current)
@@ -444,6 +448,229 @@ func (e *mapEditor) CurrentValue() cty.Value {
 	return cty.MapVal(m)
 }
 
+// --- map(object(...)) ---
+
+// mapObjectEditor handles `map(object({...}))` variables. The user sees a
+// list of key rows; pressing Enter on a row drills into an objectEditor for
+// that entry's value. The add-row slot appends a new entry.
+//
+//	[some-key]   [edit ▸]
+//	[other-key]  [edit ▸]
+//	+ Add row
+//
+// Key bindings:
+//
+//	↑/↓      move between rows
+//	Enter    on a data row: drill into the object value editor
+//	         on add-row: append a new entry and drill into it
+//	Ctrl+D   delete the current row (no-op on add-row or while drilled in)
+//	Backspace/runes   edit the key of the focused row
+//	Esc      (when drilled in) return to the key list
+type mapObjectEditor struct {
+	v         *tfvars.Variable
+	elemType  *tftypes.Type
+	rows      []mapObjectRow
+	rowCursor int // 0..len(rows); len(rows) means the add-row slot
+
+	// drilledIn is non-nil when the user has pressed Enter on a row.
+	drilledIn    Editor
+	drilledInRow int
+}
+
+type mapObjectRow struct {
+	Key    string
+	editor Editor // objectEditor for this entry's value
+}
+
+func newMapObjectEditor(v *tfvars.Variable, current cty.Value) *mapObjectEditor {
+	me := &mapObjectEditor{v: v}
+	if v.Type != nil && v.Type.Element != nil {
+		me.elemType = v.Type.Element
+	}
+	source := current
+	if source == cty.NilVal || source.IsNull() {
+		if v != nil && v.HasDefault && !v.Default.IsNull() {
+			source = v.Default
+		}
+	}
+	if source != cty.NilVal && !source.IsNull() &&
+		(source.Type().IsMapType() || source.Type().IsObjectType()) &&
+		source.LengthInt() > 0 {
+
+		m := source.AsValueMap()
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			val := m[k]
+			row := mapObjectRow{Key: k, editor: me.newEntryEditor(val)}
+			me.rows = append(me.rows, row)
+		}
+	}
+	if len(me.rows) == 0 {
+		me.rowCursor = 0
+	}
+	return me
+}
+
+// newEntryEditor creates an objectEditor for one map entry value.
+func (e *mapObjectEditor) newEntryEditor(current cty.Value) Editor {
+	if e.elemType == nil {
+		return &readOnlyEditor{text: "(unknown element type)"}
+	}
+	fakeVar := &tfvars.Variable{
+		Name:       "entry",
+		Type:       e.elemType,
+		HasDefault: false,
+	}
+	return newEditor(fakeVar, current)
+}
+
+func (e *mapObjectEditor) onAddRow() bool { return e.rowCursor == len(e.rows) }
+
+func (e *mapObjectEditor) addRow() {
+	row := mapObjectRow{editor: e.newEntryEditor(cty.NilVal)}
+	e.rows = append(e.rows, row)
+	e.rowCursor = len(e.rows) - 1
+}
+
+func (e *mapObjectEditor) deleteRow() {
+	if e.onAddRow() || e.rowCursor < 0 || e.rowCursor >= len(e.rows) {
+		return
+	}
+	e.rows = append(e.rows[:e.rowCursor], e.rows[e.rowCursor+1:]...)
+	if e.rowCursor > len(e.rows) {
+		e.rowCursor = len(e.rows)
+	}
+}
+
+func (e *mapObjectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
+	k, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return e, nil
+	}
+
+	// Drilled-in mode: delegate to the entry's editor.
+	if e.drilledIn != nil {
+		if k.Type == tea.KeyEscape {
+			e.drilledIn = nil
+			return e, nil
+		}
+		ed, cmd := e.drilledIn.Update(msg)
+		e.drilledIn = ed
+		e.rows[e.drilledInRow].editor = ed
+		return e, cmd
+	}
+
+	switch k.Type {
+	case tea.KeyUp:
+		if e.rowCursor > 0 {
+			e.rowCursor--
+		}
+		return e, nil
+	case tea.KeyDown:
+		if e.rowCursor < len(e.rows) {
+			e.rowCursor++
+		}
+		return e, nil
+	case tea.KeyEnter:
+		if e.onAddRow() {
+			e.addRow()
+			// Immediately drill into the new row's value editor.
+			e.drilledIn = e.rows[e.rowCursor].editor
+			e.drilledInRow = e.rowCursor
+		} else {
+			e.drilledIn = e.rows[e.rowCursor].editor
+			e.drilledInRow = e.rowCursor
+		}
+		return e, nil
+	case tea.KeyCtrlD:
+		e.deleteRow()
+		return e, nil
+	case tea.KeyBackspace:
+		if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
+			key := &e.rows[e.rowCursor].Key
+			if len(*key) > 0 {
+				*key = (*key)[:len(*key)-1]
+			}
+		}
+		return e, nil
+	case tea.KeyCtrlU:
+		if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
+			e.rows[e.rowCursor].Key = ""
+		}
+		return e, nil
+	case tea.KeySpace:
+		if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
+			e.rows[e.rowCursor].Key += " "
+		}
+		return e, nil
+	case tea.KeyRunes:
+		if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
+			e.rows[e.rowCursor].Key += string(k.Runes)
+		}
+		return e, nil
+	}
+	return e, nil
+}
+
+func (e *mapObjectEditor) View() string {
+	// Drilled-in: show breadcrumb + entry editor.
+	if e.drilledIn != nil {
+		var b strings.Builder
+		key := e.rows[e.drilledInRow].Key
+		if key == "" {
+			key = "(unnamed)"
+		}
+		fmt.Fprintf(&b, "%s\n\n", styleVarHeader.Render(key))
+		b.WriteString(e.drilledIn.View())
+		fmt.Fprintf(&b, "\n\n%s", styleHelp.Render("[Esc] back to map"))
+		return b.String()
+	}
+
+	var b strings.Builder
+	for i, row := range e.rows {
+		focused := i == e.rowCursor
+		key := renderMapCell(row.Key, focused, "(key)")
+		editHint := styleHelp.Render("[edit ▸]")
+		if focused {
+			editHint = styleCursorActive.Render("[edit ▸]")
+		}
+		fmt.Fprintf(&b, "  %s  %s\n", key, editHint)
+	}
+	addLabel := "+ Add row"
+	if e.onAddRow() {
+		fmt.Fprintf(&b, "  %s\n", styleCursorActive.Render(addLabel))
+	} else {
+		fmt.Fprintf(&b, "  %s\n", styleHelp.Render(addLabel))
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprint(&b, styleHelp.Render(
+		"[↑↓] row   [Enter] edit value   [Ctrl+D] delete row"))
+	return b.String()
+}
+
+func (e *mapObjectEditor) CurrentValue() cty.Value {
+	if len(e.rows) == 0 {
+		return cty.EmptyObjectVal
+	}
+	m := map[string]cty.Value{}
+	for _, row := range e.rows {
+		if row.Key == "" {
+			continue
+		}
+		if wv, ok := row.editor.(EditorWithValue); ok {
+			m[row.Key] = wv.CurrentValue()
+		}
+	}
+	if len(m) == 0 {
+		return cty.EmptyObjectVal
+	}
+	return cty.ObjectVal(m)
+}
+
 // --- list(T) / set(T) ---
 
 type listEditor struct {
@@ -519,13 +746,18 @@ func (e *listEditor) CurrentValue() cty.Value {
 // widget that matches the field's type (space toggles a bool, typing fills
 // a string, +/- steps a number, etc.).
 //
-// For fields whose own type is a collection (object/map/list/set) we render
-// a compact placeholder rather than the sub-editor's full multi-line view —
-// drill-in for those is a separate widget pass.
+// For fields whose own type is a collection (object/map/list/set) pressing
+// Enter drills into the sub-editor. Esc returns to the parent field list.
 type objectEditor struct {
 	v      *tfvars.Variable
 	fields []objectFieldRow
 	cursor int
+
+	// drilledIn is non-nil when the user has pressed Enter on a collection
+	// field, delegating all input/view to that field's sub-editor. Esc
+	// exits the drill-in and returns to the field list.
+	drilledIn      Editor
+	drilledInField int // index into fields
 }
 
 type objectFieldRow struct {
@@ -588,16 +820,28 @@ func (e *objectEditor) ResetFocused() {
 	f.editor = newEditor(fakeVar, cty.NilVal)
 }
 
-// Update routes key events. Arrow keys (and Home/End/PgUp/PgDn) move the
-// field cursor; everything else is forwarded to the focused field's
-// sub-editor so the user can type, toggle, or step in place. Collection
-// fields don't yet accept any keys (their compact view is read-only here);
-// editing them is a follow-up via drill-in.
+// Update routes key events. When drilled into a collection field, all input
+// is delegated to the sub-editor (Esc exits). Otherwise, arrow keys move the
+// field cursor; Enter on a collection field drills in; everything else is
+// forwarded to the focused scalar field's sub-editor.
 func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return e, nil
 	}
+
+	// --- Drilled-in mode: delegate everything except Esc. ---
+	if e.drilledIn != nil {
+		if k.Type == tea.KeyEscape {
+			e.drilledIn = nil
+			return e, nil
+		}
+		ed, cmd := e.drilledIn.Update(msg)
+		e.drilledIn = ed
+		e.fields[e.drilledInField].editor = ed
+		return e, cmd
+	}
+
 	switch k.Type {
 	case tea.KeyUp:
 		if e.cursor > 0 {
@@ -627,11 +871,23 @@ func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 			e.cursor = len(e.fields) - 1
 		}
 		return e, nil
+	case tea.KeyEnter:
+		// Drill into collection fields on Enter.
+		if e.cursor >= 0 && e.cursor < len(e.fields) {
+			t := e.fields[e.cursor].Type
+			if t != nil && (t.Kind == tftypes.KindMap ||
+				t.Kind == tftypes.KindList ||
+				t.Kind == tftypes.KindSet ||
+				t.Kind == tftypes.KindObject) {
+				e.drilledIn = e.fields[e.cursor].editor
+				e.drilledInField = e.cursor
+				return e, nil
+			}
+		}
 	}
 
-	// Collections inside an object are not yet editable inline (drill-in
-	// will land separately); swallow keystrokes so the user doesn't get the
-	// false impression that they're typing into something.
+	// For collection fields that aren't drilled into, swallow non-Enter
+	// keystrokes so the user doesn't get spurious edits.
 	if e.cursor >= 0 && e.cursor < len(e.fields) {
 		t := e.fields[e.cursor].Type
 		if t != nil && (t.Kind == tftypes.KindObject ||
@@ -651,6 +907,19 @@ func (e *objectEditor) View() string {
 	if len(e.fields) == 0 {
 		return styleDescription.Render("(empty object)")
 	}
+
+	// Drilled-in: show breadcrumb + sub-editor.
+	if e.drilledIn != nil {
+		var b strings.Builder
+		fieldName := e.fields[e.drilledInField].Name
+		fmt.Fprintf(&b, "%s > %s\n\n",
+			styleVarHeader.Render(e.v.Name),
+			styleVarHeader.Render(fieldName))
+		b.WriteString(e.drilledIn.View())
+		fmt.Fprintf(&b, "\n\n%s", styleHelp.Render("[Esc] back"))
+		return b.String()
+	}
+
 	var b strings.Builder
 	for i, f := range e.fields {
 		focused := i == e.cursor
@@ -690,7 +959,8 @@ func compactFieldView(f objectFieldRow) string {
 		count := compactObjectCount(f.editor)
 		return styleDescription.Render(fmt.Sprintf("(object: %d fields)", count))
 	case tftypes.KindMap:
-		return styleDescription.Render("(map)")
+		count := compactMapCount(f.editor)
+		return styleDescription.Render(fmt.Sprintf("(map: %d entries)", count))
 	case tftypes.KindList:
 		return styleDescription.Render("(list)")
 	case tftypes.KindSet:
@@ -704,6 +974,14 @@ func compactFieldView(f objectFieldRow) string {
 func compactObjectCount(ed Editor) int {
 	if o, ok := ed.(*objectEditor); ok {
 		return len(o.fields)
+	}
+	return 0
+}
+
+// compactMapCount peeks into a nested mapEditor for its entry count.
+func compactMapCount(ed Editor) int {
+	if m, ok := ed.(*mapEditor); ok {
+		return len(m.rows)
 	}
 	return 0
 }
@@ -722,7 +1000,7 @@ func typeSpecificHint(t *tftypes.Type) string {
 	case tftypes.KindNumber:
 		return "type digits, '.', '-', 'e'"
 	case tftypes.KindObject, tftypes.KindMap, tftypes.KindList, tftypes.KindSet:
-		return "nested editing — coming soon"
+		return "[Enter] drill in"
 	}
 	return ""
 }

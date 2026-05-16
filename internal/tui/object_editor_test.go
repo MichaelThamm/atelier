@@ -213,7 +213,7 @@ func TestObjectEditor_view_collectionFieldsRenderCompact(t *testing.T) {
 	plain := stripANSI(oe.View())
 	// storage_directives (map) and config (object) should appear with
 	// compact placeholders, not multi-line nested editor output.
-	if !strings.Contains(plain, "(map)") {
+	if !strings.Contains(plain, "(map:") {
 		t.Errorf("map field should render compact; got:\n%s", plain)
 	}
 	if !strings.Contains(plain, "(object:") {

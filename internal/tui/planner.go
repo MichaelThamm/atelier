@@ -33,10 +33,11 @@ type TfexecPlanner struct {
 	initialised bool
 }
 
-// EnsureInit runs `terraform init` if `.terraform/` does not yet exist in
-// the wrapper. The check is filesystem-based — cheap and matches Terraform's
-// own first-run convention. We deliberately do not pass -upgrade; the user
-// gets to manage provider upgrades themselves.
+// EnsureInit runs `terraform init` if modules have not been installed in
+// the wrapper. The check looks for .terraform/modules/modules.json which
+// Terraform writes when module sources are fetched. This catches the case
+// where .terraform/ exists (from provider init) but the module block's
+// source was added or changed since the last init.
 func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	if p == nil || p.Tf == nil {
 		return errors.New("planner not configured")
@@ -44,8 +45,8 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	if p.initialised {
 		return nil
 	}
-	dotTerraform := filepath.Join(p.WrapperDir, ".terraform")
-	if _, err := os.Stat(dotTerraform); err == nil {
+	modulesJSON := filepath.Join(p.WrapperDir, ".terraform", "modules", "modules.json")
+	if _, err := os.Stat(modulesJSON); err == nil {
 		p.initialised = true
 		return nil
 	}
