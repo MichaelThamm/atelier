@@ -4,9 +4,9 @@ A terminal UI for configuring Terraform modules.
 
 Atelier sits between you and `terraform`. Point it at a Terraform module
 (typically a public git repo) and it presents the module's variables as a
-visual configuration surface — checkboxes for booleans, text inputs for
-strings, sub-forms for object types, key-value rows for maps. When you're
-done, Atelier writes a small wrapper Terraform project to the current
+visual configuration surface e.g. checkboxes, text inputs, sub-forms.
+
+When you're done, Atelier writes a small wrapper Terraform project to the current
 directory: a `main.tf` calling the module via its git source, your variable
 overrides, plus `versions.tf`, `providers.tf`, `.gitignore`, and `README.md`.
 
@@ -19,10 +19,7 @@ and [`docs/SPEC.md`](docs/SPEC.md) for the full picture.
 
 ## Status
 
-Pre-release. The core data model, HCL read/write, candidate discovery, git
-and terraform integration, manifest parsing, session handling, the plan
-view, and a working TUI are all implemented and tested (116 tests across 11
-packages). Known gaps in this build:
+Known gaps in this build:
 
 - Provider attributes from `terraform providers schema -json` are fetched
   via [`internal/tfexec`](internal/tfexec) but the bootstrap doesn't yet
@@ -30,9 +27,7 @@ packages). Known gaps in this build:
   manually for now.
 - `terraform validate` debounce on edit (ADR-0012) isn't connected, so the
   status bar always reads `✓ Valid`.
-
-The wrapper format and on-disk semantics are stable; the gaps above are
-additive and will land without changing what's already on disk.
+- `(map)` types are not yet editable.
 
 ## Prerequisites
 
@@ -82,10 +77,10 @@ you to pick.
 ### Bootstrap from a local module (no network)
 
 ```sh
-git clone --depth 1 https://github.com/canonical/observability-stack.git ~/obs-stack
+git clone --depth 1 https://github.com/canonical/observability-stack.git ~/o11y-stack
 
 mkdir -p ~/cos-lite-local && cd ~/cos-lite-local
-atelier init --source ~/obs-stack/terraform/cos-lite
+atelier init --source ~/o11y-stack/terraform/cos-lite
 ```
 
 ### Re-open a wrapper
@@ -126,7 +121,6 @@ Works on any machine with Terraform — Atelier need not be installed.
 | `←` / `Esc`           | Return focus to the variable list (left pane)   |
 | `Tab`                 | Toggle focus between panes                      |
 | `space`               | Toggle boolean widget                           |
-| `+` / `-`             | Step a number widget                            |
 | `a`                   | Add a row to a list/map widget                  |
 | `d`                   | Delete the last row of a list/map widget        |
 | `P`                   | Run `terraform plan` and open the plan view     |
