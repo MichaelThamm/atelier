@@ -241,30 +241,101 @@ func (e *numberEditor) CurrentValue() cty.Value {
 
 // --- map(string) ---
 
+// mapEditor is the widget for `map(string)` variables. The user navigates a
+// 2-column grid (key, value) plus an "Add row" affordance at the bottom.
+//
+//	[some-key]   = [some-value]
+//	[other-key]  = [other-value]
+//	+ Add row
+//
+// Key bindings inside the editor:
+//
+//	↑/↓      move between rows; the add-row slot is one past the last data row
+//	←/→      switch between key and value cells within the current row
+//	Enter    on add-row: append a new empty row and focus its key
+//	Ctrl+D   delete the current row (no-op on add-row)
+//	Ctrl+U   clear the current cell
+//	Backspace remove the last char from the current cell
+//	(any printable rune) append to the current cell
+//
+// Non-string element types fall back to a read-only message — the
+// dispatching in newEditor handles that branch.
 type mapEditor struct {
-	v     *tfvars.Variable
-	keys  []string
-	vals  []string
-	focus int    // index into keys; -1 means we're on the key, +N means on value of row N
-	add   string // a pending new-key/value buffer
+	v         *tfvars.Variable
+	rows      []mapRow
+	rowCursor int // 0..len(rows); len(rows) means the add-row slot
+	colCursor int // 0 = key, 1 = value
+}
+
+type mapRow struct {
+	Key string
+	Val string
 }
 
 func newMapEditor(v *tfvars.Variable, current cty.Value) *mapEditor {
 	me := &mapEditor{v: v}
-	if current != cty.NilVal && !current.IsNull() && (current.Type().IsMapType() || current.Type().IsObjectType()) {
-		m := current.AsValueMap()
-		for k, val := range m {
-			me.keys = append(me.keys, k)
-			if val.IsNull() {
-				me.vals = append(me.vals, "")
-			} else if val.Type() == cty.String {
-				me.vals = append(me.vals, val.AsString())
-			} else {
-				me.vals = append(me.vals, val.GoString())
-			}
+	source := current
+	if source == cty.NilVal || source.IsNull() {
+		if v != nil && v.HasDefault && !v.Default.IsNull() {
+			source = v.Default
 		}
 	}
+	if source != cty.NilVal && !source.IsNull() &&
+		(source.Type().IsMapType() || source.Type().IsObjectType()) &&
+		source.LengthInt() > 0 {
+
+		m := source.AsValueMap()
+		// Sort by key for stable display — map iteration in Go is randomised
+		// and we don't want rows shuffling between repaints.
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			val := m[k]
+			row := mapRow{Key: k}
+			if !val.IsNull() && val.Type() == cty.String {
+				row.Val = val.AsString()
+			}
+			me.rows = append(me.rows, row)
+		}
+	}
+	// Start on the add-row when the map is empty, otherwise on the first
+	// row's key.
+	if len(me.rows) == 0 {
+		me.rowCursor = 0 // == len(rows); add-row
+	}
 	return me
+}
+
+func (e *mapEditor) onAddRow() bool { return e.rowCursor == len(e.rows) }
+
+func (e *mapEditor) currentCell() *string {
+	if e.onAddRow() || e.rowCursor < 0 || e.rowCursor >= len(e.rows) {
+		return nil
+	}
+	if e.colCursor == 0 {
+		return &e.rows[e.rowCursor].Key
+	}
+	return &e.rows[e.rowCursor].Val
+}
+
+func (e *mapEditor) addRow() {
+	e.rows = append(e.rows, mapRow{})
+	e.rowCursor = len(e.rows) - 1
+	e.colCursor = 0
+}
+
+func (e *mapEditor) deleteRow() {
+	if e.onAddRow() || e.rowCursor < 0 || e.rowCursor >= len(e.rows) {
+		return
+	}
+	e.rows = append(e.rows[:e.rowCursor], e.rows[e.rowCursor+1:]...)
+	if e.rowCursor > len(e.rows) {
+		e.rowCursor = len(e.rows)
+	}
+	e.colCursor = 0
 }
 
 func (e *mapEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
@@ -272,35 +343,103 @@ func (e *mapEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 	if !ok {
 		return e, nil
 	}
-	switch k.String() {
-	case "a", "+":
-		// Add a placeholder entry the user fills in.
-		e.keys = append(e.keys, fmt.Sprintf("key%d", len(e.keys)+1))
-		e.vals = append(e.vals, "")
-	case "d", "-":
-		if len(e.keys) > 0 {
-			e.keys = e.keys[:len(e.keys)-1]
-			e.vals = e.vals[:len(e.vals)-1]
+	switch k.Type {
+	case tea.KeyUp:
+		if e.rowCursor > 0 {
+			e.rowCursor--
 		}
+		return e, nil
+	case tea.KeyDown:
+		if e.rowCursor < len(e.rows) {
+			e.rowCursor++
+		}
+		return e, nil
+	case tea.KeyLeft:
+		e.colCursor = 0
+		return e, nil
+	case tea.KeyRight:
+		if !e.onAddRow() {
+			e.colCursor = 1
+		}
+		return e, nil
+	case tea.KeyEnter:
+		if e.onAddRow() {
+			e.addRow()
+		}
+		return e, nil
+	case tea.KeyBackspace:
+		if cell := e.currentCell(); cell != nil && len(*cell) > 0 {
+			*cell = (*cell)[:len(*cell)-1]
+		}
+		return e, nil
+	case tea.KeyCtrlU:
+		if cell := e.currentCell(); cell != nil {
+			*cell = ""
+		}
+		return e, nil
+	case tea.KeyCtrlD:
+		e.deleteRow()
+		return e, nil
+	case tea.KeySpace:
+		if cell := e.currentCell(); cell != nil {
+			*cell += " "
+		}
+		return e, nil
+	case tea.KeyRunes:
+		if cell := e.currentCell(); cell != nil {
+			*cell += string(k.Runes)
+		}
+		return e, nil
 	}
 	return e, nil
 }
+
 func (e *mapEditor) View() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "map(%d entries)\n", len(e.keys))
-	for i, k := range e.keys {
-		fmt.Fprintf(&b, "  %s = %q\n", k, e.vals[i])
+	for i, row := range e.rows {
+		keyFocused := i == e.rowCursor && e.colCursor == 0
+		valFocused := i == e.rowCursor && e.colCursor == 1
+		key := renderMapCell(row.Key, keyFocused, "(key)")
+		val := renderMapCell(row.Val, valFocused, "(value)")
+		fmt.Fprintf(&b, "  %s = %s\n", key, val)
 	}
-	fmt.Fprint(&b, "\n", styleHelp.Render("[a] add  [d] del"))
+	addLabel := "+ Add row"
+	if e.onAddRow() {
+		fmt.Fprintf(&b, "  %s\n", styleCursorActive.Render(addLabel))
+	} else {
+		fmt.Fprintf(&b, "  %s\n", styleHelp.Render(addLabel))
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprint(&b, styleHelp.Render(
+		"[↑↓] row   [←→] cell   [Enter] add row   [Ctrl+D] delete row"))
 	return b.String()
 }
+
+// renderMapCell renders one cell, with a bracket wrapper. Empty unfocused
+// cells show a dim placeholder so the user knows what goes there.
+func renderMapCell(value string, focused bool, placeholder string) string {
+	if focused {
+		return styleCursorActive.Render("[" + value + "]")
+	}
+	if value == "" {
+		return "[" + styleHelp.Render(placeholder) + "]"
+	}
+	return "[" + value + "]"
+}
+
 func (e *mapEditor) CurrentValue() cty.Value {
-	if len(e.keys) == 0 {
+	if len(e.rows) == 0 {
 		return cty.MapValEmpty(cty.String)
 	}
 	m := map[string]cty.Value{}
-	for i, k := range e.keys {
-		m[k] = cty.StringVal(e.vals[i])
+	for _, row := range e.rows {
+		if row.Key == "" {
+			continue // skip in-progress rows
+		}
+		m[row.Key] = cty.StringVal(row.Val)
+	}
+	if len(m) == 0 {
+		return cty.MapValEmpty(cty.String)
 	}
 	return cty.MapVal(m)
 }
