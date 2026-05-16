@@ -309,7 +309,7 @@ See [ADR-0006](adr/0006-two-pane-ui-layout.md) and [ADR-0011](adr/0011-plan-outp
 | `string`                                  | single-line text input                                                                  |
 | `string` with `validation { contains([…], var.x) }` parsed as enum | dropdown (best-effort enum parsing; fallback to text)                  |
 | `bool`                                    | checkbox                                                                                |
-| `number`                                  | numeric input with `+`/`-` keys                                                         |
+| `number`                                  | free-text input; accepts digits, `.`, `-`, `+`, `e`, `E` (scientific notation); invalid input highlighted |
 | nullable scalar                           | above widget; empty input means `null` when the declared default is `null`              |
 | `object({...})`                           | expandable sub-form, one row per field; nested objects drill in                         |
 | `map(string)`                             | rows of `[key] = [value] [-]`, with `[+ Add row]` below                                  |
