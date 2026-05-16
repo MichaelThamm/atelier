@@ -163,12 +163,34 @@ When the user types a ref (e.g. `main`, `v1.2.0`, `abc123`), Atelier:
 - Stores the user's literal input in the wrapper's `module { source = "...?ref=..." }` clause.
 - Resolves the ref to a commit SHA via `git ls-remote` and displays it in the
   TUI alongside the literal.
-- Provides an explicit "Pin to current commit" action that rewrites the
-  literal to the resolved SHA.
 
 Following a moving ref (e.g. `main`) is a deliberate user choice; pinning to a
-SHA is one keystroke away. See [ADR-0007](adr/0007-sparse-wrapper-write-rule.md)
-for the related write rule.
+SHA can be done by typing the SHA into the ref prompt. See
+[ADR-0007](adr/0007-sparse-wrapper-write-rule.md) for the related write rule.
+
+### 5.3.1 In-TUI ref switching
+
+The user can switch the module ref from within the TUI by pressing `R` from
+the left pane. This opens a modal prompt showing the module name and source
+URL for context, pre-filled with the current ref.
+On confirmation, Atelier:
+
+1. Re-clones the module at the new ref.
+2. Carries over existing user values for variables that still exist in the
+   new ref into the wrapper before running init (required variables must be
+   present in the HCL for init to succeed).
+3. Runs `terraform init -upgrade` in the wrapper to fetch the new module
+   revision and update providers.
+4. Re-parses variables from the new ref.
+5. Preserves all existing user overrides. Variables that no longer exist in
+   the new ref are kept in state as orphaned overrides (recoverable if the
+   user switches back).
+6. Displays a status message summarising the switch and listing any orphaned
+   variable names.
+
+This enables cross-ref upgrade comparison: the user configures at ref `v1.0`,
+runs a plan, switches to `v2.0`, and plans again to see the infrastructure
+delta. See [ADR-0003](adr/0003-gitops-loading.md).
 
 ### 5.4 Default-change surfacing on ref bump
 
@@ -269,11 +291,24 @@ The TUI is a two-pane layout with a status pane at the bottom.
 - Persistent indicators:
   - Validation status: `✓ Valid` or `N errors`.
   - Module info: candidate name, ref (literal), resolved SHA short form.
-  - Key hints: `[P] Plan`, `[?] Help`, `[Esc] Back`.
-- When validation or plan emits errors, the status pane expands upward to
-  show error text. Non-blocking; the user can keep editing.
+  - Key hints: `[P] Plan`, `[R] Ref`, `[E] Error` (when error present),
+    `[Esc] Back`.
+- When validation or plan emits errors, the first line of the error is shown
+  in the status bar. Pressing `E` opens a full-screen error detail modal
+  with the complete multi-line output; `Esc` dismisses it.
+- On the first plan of each session, Atelier runs `terraform init` to
+  ensure the module cache matches the wrapper's current source. After a ref
+  switch, it uses `terraform init -upgrade` instead.
 
-### 7.4 Plan view (modal-ish)
+### 7.4 Ref switch view (modal)
+
+Triggered by `R` from the left pane. Shows the module name, git source URL,
+current ref (with resolved SHA), and an input field for the new ref. On
+`Enter`, the module is re-cloned and reinitialised; a spinner shows progress.
+On completion, the user returns to the editor with the new ref active. See
+§5.3.1.
+
+### 7.5 Plan view (modal-ish)
 
 Triggered by `P`. Replaces the right pane (and optionally expands across both)
 with the plan output:

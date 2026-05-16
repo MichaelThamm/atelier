@@ -57,15 +57,6 @@ func TestTheme_varMarkers_areColoured(t *testing.T) {
 	}
 }
 
-func TestTheme_statusBar_validRendersGreenMark(t *testing.T) {
-	m := New(sampleState(t), "cos_lite")
-	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	bar := m.renderStatus()
-	if !strings.Contains(bar, "✓ Valid") {
-		t.Errorf("status bar missing ✓ Valid; got: %q", bar)
-	}
-}
-
 func TestTheme_statusBar_planLoadingShowsSpinner(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})

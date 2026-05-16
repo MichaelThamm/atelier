@@ -30,7 +30,17 @@ type TfexecPlanner struct {
 	Tf         *tfexec.Terraform
 	WrapperDir string
 
-	initialised bool
+	initialised  bool
+	needsUpgrade bool // set by ResetInit after a ref switch
+}
+
+// ResetInit clears the cached init state so the next EnsureInit call will
+// run init -upgrade. Called after a ref switch rewrites the module source.
+func (p *TfexecPlanner) ResetInit() {
+	if p != nil {
+		p.initialised = false
+		p.needsUpgrade = true
+	}
 }
 
 // EnsureInit runs `terraform init` if modules have not been installed in
@@ -45,11 +55,19 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	if p.initialised {
 		return nil
 	}
-	modulesJSON := filepath.Join(p.WrapperDir, ".terraform", "modules", "modules.json")
-	if _, err := os.Stat(modulesJSON); err == nil {
+	// After a ref switch we must run -upgrade to re-fetch the module even
+	// though the base URL hasn't changed (only the ?ref= query did).
+	if p.needsUpgrade {
+		if err := p.Tf.InitUpgrade(ctx); err != nil {
+			return fmt.Errorf("terraform init -upgrade: %w", err)
+		}
+		p.needsUpgrade = false
 		p.initialised = true
 		return nil
 	}
+	// Always run `terraform init` on the first plan of a session. This is
+	// idempotent and fast when nothing changed, but catches stale
+	// .terraform/modules state from a previous session with a different ref.
 	if err := p.Tf.Init(ctx); err != nil {
 		return fmt.Errorf("terraform init: %w", err)
 	}

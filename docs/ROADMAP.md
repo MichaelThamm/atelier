@@ -32,6 +32,8 @@ Concretely, v1 ships:
 - `terraform plan -json` rendering as a module-path tree with attribute diffs
   in a side pane.
 - Default-change surfacing on ref bump.
+- In-TUI ref switching (`R` key): re-clone, `terraform init -upgrade`,
+  preserve user overrides, enabling cross-ref upgrade comparison workflows.
 - Single static Go binary; snap packaging.
 
 ## Deferred to v2 or later

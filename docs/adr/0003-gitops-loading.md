@@ -93,7 +93,12 @@ Atelier's local state.
   default-change-surfacing behaviour).
 - Wrappers are portable: any machine with `terraform` can apply them. CI
   works.
-- Refs are user-editable in the TUI. Atelier stores the literal user input
-  (e.g., `main`, `v1.2.0`, `abc123`) in the wrapper and displays the resolved
-  SHA alongside, with an explicit "Pin to current commit" action that
-  rewrites the literal to the SHA.
+- Refs are user-editable in the TUI via a modal prompt (`R` key). The modal
+  shows the module name and source URL for context. Atelier stores the
+  literal user input (e.g., `main`, `v1.2.0`, `abc123`) in the wrapper and
+  displays the resolved SHA alongside. Switching refs carries over existing
+  variable values, re-clones the module, and runs `terraform init -upgrade`;
+  orphaned variable names are listed in the status bar. This enables
+  cross-ref upgrade comparisons (e.g., planning at `v1.0` then switching to
+  `v2.0` to see the infrastructure delta). Pinning to a SHA is done by
+  typing the SHA into the ref prompt.

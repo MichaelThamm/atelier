@@ -92,8 +92,13 @@ func (m *Model) renderStatus() string {
 			styleStatusBusy.Render("Running terraform plan…"),
 			m.moduleBanner())
 	case m.statusLvl == statusError && m.status != "":
+		// Truncate to first line to keep the status bar single-height.
+		errText := m.status
+		if idx := strings.IndexByte(errText, '\n'); idx >= 0 {
+			errText = errText[:idx]
+		}
 		left = fmt.Sprintf("%s · %s",
-			styleStatusError.Render("✗ "+m.status),
+			styleStatusError.Render("✗ "+errText),
 			m.moduleBanner())
 	case m.status != "":
 		left = fmt.Sprintf("%s · %s", m.status, m.moduleBanner())
@@ -120,6 +125,12 @@ func (m *Model) statusHints() string {
 	if len(m.presets) > 0 {
 		hints += "  [F] preset"
 	}
+	if m.RefSwitcher != nil {
+		hints += "  [R] ref"
+	}
+	if m.statusLvl == statusError && m.statusDetail != "" {
+		hints += "  [E] error"
+	}
 	hints += "  [Q] quit"
 	return hints
 }
@@ -129,6 +140,23 @@ func (m *Model) bodyHeight() int {
 		return 1
 	}
 	return m.height - 1
+}
+
+// renderErrorDetail renders a full-screen modal showing the complete error
+// output. Invoked by pressing E when an error is present.
+func (m *Model) renderErrorDetail() string {
+	var b strings.Builder
+	fmt.Fprintln(&b, styleVarHeader.Render("Error details"))
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.statusDetail)
+	fmt.Fprintln(&b)
+	fmt.Fprint(&b, styleHelp.Render("[Esc] close"))
+
+	content := b.String()
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height).
+		Render(content)
 }
 
 // renderPresetPicker renders the full-screen preset picker overlay.
@@ -190,4 +218,48 @@ func varMarker(state *wrapper.State, name string) string {
 		return styleMarkerAtDefault.Render("[ ]")
 	}
 	return styleMarkerModified.Render("[✓]")
+}
+
+// renderRefModal renders the ref switch prompt or the in-flight spinner.
+func (m *Model) renderRefModal() string {
+	var b strings.Builder
+
+	if m.refSwitching {
+		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
+		fmt.Fprintln(&b, styleVarHeader.Render("Switching ref"))
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "%s %s\n",
+			styleStatusBusy.Render(frame),
+			styleStatusBusy.Render("Cloning and reinitialising…"))
+	} else {
+		fmt.Fprintln(&b, styleVarHeader.Render("Switch module ref"))
+		fmt.Fprintln(&b)
+		if m.ModuleName != "" {
+			fmt.Fprintf(&b, "Module:  %s\n", styleDescription.Render(m.ModuleName))
+		}
+		if m.SourceURL != "" {
+			fmt.Fprintf(&b, "Source:  %s\n", styleDescription.Render(m.SourceURL))
+		}
+		fmt.Fprintf(&b, "Current: %s", styleDescription.Render(m.LiteralRef))
+		if m.ResolvedSHA != "" {
+			fmt.Fprintf(&b, " (%s)", shortSHA(m.ResolvedSHA))
+		}
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "New ref: %s%s\n", m.refInput, styleCursorActive.Render("▏"))
+		fmt.Fprintln(&b)
+		if m.refErr != "" {
+			fmt.Fprintln(&b, styleStatusError.Render("Error: "+m.refErr))
+			fmt.Fprintln(&b)
+		}
+		fmt.Fprint(&b, styleHelp.Render("[Enter] switch   [Esc] cancel"))
+	}
+
+	content := b.String()
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height).
+		PaddingLeft(2).
+		PaddingTop(1).
+		Render(content)
 }

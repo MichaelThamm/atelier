@@ -87,6 +87,13 @@ func (t *Terraform) Init(ctx context.Context) error {
 	return t.tf.Init(ctx, tfexec.Upgrade(false))
 }
 
+// InitUpgrade runs `terraform init -upgrade` to update module sources and
+// providers to the latest allowed versions. Used after a ref switch so
+// Terraform fetches the new module revision.
+func (t *Terraform) InitUpgrade(ctx context.Context) error {
+	return t.tf.Init(ctx, tfexec.Upgrade(true))
+}
+
 // Validate runs `terraform validate -json`.
 func (t *Terraform) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
 	return t.tf.Validate(ctx)

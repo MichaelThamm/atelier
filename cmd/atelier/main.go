@@ -19,12 +19,17 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/canonical/atelier/internal/bootstrap"
 	"github.com/canonical/atelier/internal/manifest"
+	"github.com/canonical/atelier/internal/session"
 	"github.com/canonical/atelier/internal/tfexec"
+	"github.com/canonical/atelier/internal/tfvars"
 	"github.com/canonical/atelier/internal/tui"
 	"github.com/canonical/atelier/internal/wrapper"
 )
@@ -115,7 +120,10 @@ func runInit(args []string) error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+
+	stop := startSpinner("Cloning and preparing module…")
 	res, err := bootstrap.InitNew(ctx, opts)
+	stop()
 	if err != nil {
 		return err
 	}
@@ -203,6 +211,7 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	m := tui.New(state, state.ModuleBlockName)
 	m.LiteralRef = res.LiteralRef
 	m.ResolvedSHA = res.ResolvedSHA
+	m.SourceURL = sourceURLFromState(state)
 	m.SetGroups(groups)
 	m.SetPresets(presets)
 
@@ -215,6 +224,18 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		m.Planner = &tui.TfexecPlanner{Tf: tf, WrapperDir: wrapperDir}
 	} else {
 		fmt.Fprintln(os.Stderr, "warning: planner unavailable:", err)
+	}
+
+	// Construct a RefSwitcher for non-local-source wrappers. Local sources
+	// (--source path) don't have a git remote to switch refs on.
+	if res.LiteralRef != "" || res.ResolvedSHA != "" {
+		m.RefSwitcher = &prodRefSwitcher{
+			wrapperDir:    wrapperDir,
+			sourceURL:     sourceURLFromState(state),
+			modulePath:    modulePathFromState(state),
+			currentVars:   state.Vars,
+			currentValues: state.Values,
+		}
 	}
 
 	prog := tea.NewProgram(m, tea.WithAltScreen())
@@ -243,4 +264,159 @@ func modulePathFromState(s *wrapper.State) string {
 		sub = sub[:q]
 	}
 	return sub
+}
+
+// sourceURLFromState extracts the git remote URL from the state's Source,
+// stripping the git:: prefix, module path suffix, and ?ref= query.
+func sourceURLFromState(s *wrapper.State) string {
+	src := s.Source
+	src = strings.TrimPrefix(src, "git::")
+	// Strip ?ref= query first (it's always at the end).
+	if idx := strings.Index(src, "?ref="); idx >= 0 {
+		src = src[:idx]
+	}
+	// Strip module sub-path indicated by "//" after the host/repo portion.
+	// Skip past the scheme's "://" to avoid matching it.
+	searchFrom := 0
+	if schemeEnd := strings.Index(src, "://"); schemeEnd >= 0 {
+		searchFrom = schemeEnd + 3
+	}
+	if idx := strings.Index(src[searchFrom:], "//"); idx >= 0 {
+		src = src[:searchFrom+idx]
+	}
+	return src
+}
+
+// prodRefSwitcher implements tui.RefSwitcher by re-cloning the module at a
+// new ref, re-parsing variables, and running terraform init -upgrade.
+type prodRefSwitcher struct {
+	wrapperDir    string
+	sourceURL     string
+	modulePath    string
+	currentVars   []tfvars.Variable
+	currentValues map[string]cty.Value
+}
+
+func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.RefSwitchResult, error) {
+	// Re-clone at the new ref.
+	cloneDir, sha, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
+		WrapperDir: s.wrapperDir,
+		Source:     s.sourceURL,
+		Ref:        newRef,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Re-parse variables from the new clone.
+	state, err := bootstrap.PrepareState(s.wrapperDir, cloneDir, s.modulePath, sha, newRef, s.sourceURL)
+	if err != nil {
+		return nil, err
+	}
+
+	// Write the wrapper main.tf with the new source (ref) before running init,
+	// so Terraform sees the updated module source during initialisation.
+	// Carry over existing user values for variables that still exist in the
+	// new ref — required variables must be present in the HCL for init to
+	// succeed.
+	if state.Values == nil {
+		state.Values = make(map[string]cty.Value)
+	}
+	newVarNames := make(map[string]bool, len(state.Vars))
+	for _, v := range state.Vars {
+		newVarNames[v.Name] = true
+	}
+	for name, val := range s.currentValues {
+		if newVarNames[name] {
+			state.Values[name] = val
+		}
+	}
+	if err := state.Write(); err != nil {
+		return nil, fmt.Errorf("write wrapper: %w", err)
+	}
+
+	// Run terraform init -upgrade so Terraform fetches the new module revision.
+	tf, err := tfexec.New(s.wrapperDir, "")
+	if err != nil {
+		return nil, fmt.Errorf("terraform init -upgrade: %w", err)
+	}
+	if err := tf.InitUpgrade(ctx); err != nil {
+		return nil, fmt.Errorf("terraform init -upgrade: %w", err)
+	}
+
+	// Determine orphaned variables (user had values but no longer in module).
+	oldVarNames := make(map[string]bool, len(s.currentVars))
+	for _, v := range s.currentVars {
+		oldVarNames[v.Name] = true
+	}
+
+	var orphaned []string
+	for _, v := range s.currentVars {
+		if !newVarNames[v.Name] {
+			orphaned = append(orphaned, v.Name)
+		}
+	}
+	var newVars []tfvars.Variable
+	for _, v := range state.Vars {
+		if !oldVarNames[v.Name] {
+			newVars = append(newVars, v)
+		}
+	}
+
+	// Update the switcher's current vars and values for future switches.
+	s.currentVars = state.Vars
+	s.currentValues = state.Values
+
+	// Save session with new ref.
+	if err := session.Save(s.wrapperDir, &session.Session{
+		SourceURL:           s.sourceURL,
+		LiteralRef:          newRef,
+		ResolvedSHA:         sha,
+		ModuleCandidatePath: s.modulePath,
+		ModuleBlockName:     state.ModuleBlockName,
+		LastOpened:          time.Now().UTC(),
+	}); err != nil {
+		return nil, fmt.Errorf("save session: %w", err)
+	}
+
+	return &tui.RefSwitchResult{
+		State:        state,
+		ResolvedSHA:  sha,
+		LiteralRef:   newRef,
+		OrphanedVars: orphaned,
+		NewVars:      newVars,
+	}, nil
+}
+
+// startSpinner launches a background goroutine that prints a braille spinner
+// animation to stderr. It returns a stop function that clears the spinner
+// line and waits for the goroutine to exit.
+func startSpinner(msg string) func() {
+	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	var once sync.Once
+	done := make(chan struct{})
+
+	go func() {
+		i := 0
+		for {
+			select {
+			case <-done:
+				// Clear the spinner line.
+				fmt.Fprintf(os.Stderr, "\r\033[K")
+				return
+			default:
+				fmt.Fprintf(os.Stderr, "\r%s %s", frames[i%len(frames)], msg)
+				i++
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+
+	return func() {
+		once.Do(func() {
+			close(done)
+			// Give the goroutine a moment to clear the line.
+			time.Sleep(20 * time.Millisecond)
+		})
+	}
 }

@@ -30,6 +30,7 @@ type Model struct {
 	ModuleName   string
 	LiteralRef   string
 	ResolvedSHA  string
+	SourceURL    string
 	ManifestPath string
 
 	groups []manifest.ResolvedGroup
@@ -44,9 +45,11 @@ type Model struct {
 	editor Editor
 
 	// status text shown at the bottom. Cleared when a new edit lands.
-	status     string
-	statusLvl  statusLevel
-	statusAt   time.Time
+	status       string
+	statusLvl    statusLevel
+	statusAt     time.Time
+	statusDetail string // full multi-line error for [E] detail view
+	errorDetail  bool   // true when the error detail modal is visible
 
 	// Planner runs `terraform plan` asynchronously when the user presses P.
 	// May be nil (e.g. in tests or read-only contexts); the P key just
@@ -73,6 +76,17 @@ type Model struct {
 	presets      []ResolvedPreset
 	presetPicker bool // true when the picker overlay is visible
 	presetCursor int  // cursor within the picker list
+
+	// RefSwitcher handles the backend logic of switching module refs.
+	// May be nil (e.g., local source wrappers where ref switching is N/A).
+	RefSwitcher RefSwitcher
+
+	// refModal state: tracks the ref-switch prompt and in-flight switch.
+	refModal     bool   // true when the ref input prompt is visible
+	refInput     string // current text in the ref input field
+	refSwitching bool   // true when a ref switch is in flight (spinner)
+	refErr       string // error from last ref switch attempt
+	refOrphaned  []string // vars that no longer exist after a ref switch
 }
 
 // planState enumerates the four states the plan flow can be in: idle (no
@@ -206,6 +220,16 @@ type planErrorMsg struct {
 // spinnerTickMsg drives the in-flight spinner animation.
 type spinnerTickMsg time.Time
 
+// refSwitchResultMsg carries a successful ref switch back to the UI thread.
+type refSwitchResultMsg struct {
+	result *RefSwitchResult
+}
+
+// refSwitchErrorMsg carries a ref-switch failure back to the UI thread.
+type refSwitchErrorMsg struct {
+	err error
+}
+
 // startPlan composes the async pipeline behind the P key: save state, run
 // `terraform init` if needed, run `terraform plan`, return the parsed plan.
 // Errors are funnelled through planErrorMsg so the UI can surface them
@@ -244,6 +268,21 @@ func spinnerTick() tea.Cmd {
 	})
 }
 
+// startRefSwitch runs the ref switch in a goroutine and returns result/error
+// messages to the TUI.
+func (m *Model) startRefSwitch(newRef string) tea.Cmd {
+	switcher := m.RefSwitcher
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		result, err := switcher.SwitchRef(ctx, newRef)
+		if err != nil {
+			return refSwitchErrorMsg{err: err}
+		}
+		return refSwitchResultMsg{result: result}
+	}
+}
+
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
 	return nil
@@ -267,14 +306,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.planState = planIdle
 		m.planErr = msg.err.Error()
 		m.status = "plan failed: " + msg.err.Error()
+		m.statusDetail = msg.err.Error()
 		m.statusLvl = statusError
 		m.statusAt = time.Now()
 		return m, nil
 	case spinnerTickMsg:
-		if m.planState == planLoading {
+		if m.planState == planLoading || m.refSwitching {
 			m.planSpinnerFrame = (m.planSpinnerFrame + 1) % len(spinnerFrames)
 			return m, spinnerTick()
 		}
+		return m, nil
+	case refSwitchResultMsg:
+		m.applyRefSwitch(msg.result)
+		return m, nil
+	case refSwitchErrorMsg:
+		m.refSwitching = false
+		m.refErr = msg.err.Error()
+		m.status = "ref switch failed: " + msg.err.Error()
+		m.statusDetail = msg.err.Error()
+		m.statusLvl = statusError
+		m.statusAt = time.Now()
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -317,6 +368,22 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePresetKey(msg)
 	}
 
+	// Ref modal interception: text input + confirm/cancel.
+	if m.refModal {
+		return m.handleRefModalKey(msg)
+	}
+	// While ref switch is in flight only Ctrl+C does anything.
+	if m.refSwitching {
+		return m, nil
+	}
+	// Error detail modal: Esc dismisses.
+	if m.errorDetail {
+		if msg.String() == "esc" || msg.String() == "q" || msg.String() == "e" || msg.String() == "E" {
+			m.errorDetail = false
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "q":
 		if m.focus == focusLeft {
@@ -347,6 +414,21 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == focusLeft && len(m.presets) > 0 {
 			m.presetPicker = true
 			m.presetCursor = 0
+			return m, nil
+		}
+	case "r", "R":
+		// Open ref switch modal from the left pane (if RefSwitcher is configured).
+		if m.focus == focusLeft && m.RefSwitcher != nil {
+			m.refModal = true
+			m.refInput = m.LiteralRef
+			m.refErr = ""
+			m.refOrphaned = nil
+			return m, nil
+		}
+	case "e", "E":
+		// Open error detail modal when an error is present.
+		if m.focus == focusLeft && m.statusLvl == statusError && m.statusDetail != "" {
+			m.errorDetail = true
 			return m, nil
 		}
 	case "ctrl+r":
@@ -467,6 +549,84 @@ func (m *Model) applyPreset(i int) {
 	m.dirty = true
 }
 
+// handleRefModalKey routes keys while the ref input prompt is visible.
+func (m *Model) handleRefModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.refModal = false
+		return m, nil
+	case "enter":
+		newRef := strings.TrimSpace(m.refInput)
+		if newRef == "" || newRef == m.LiteralRef {
+			m.refModal = false
+			return m, nil
+		}
+		m.refModal = false
+		m.refSwitching = true
+		m.refErr = ""
+		m.status = ""
+		return m, tea.Batch(m.startRefSwitch(newRef), spinnerTick())
+	case "backspace":
+		if len(m.refInput) > 0 {
+			m.refInput = m.refInput[:len(m.refInput)-1]
+		}
+		return m, nil
+	case "ctrl+u":
+		m.refInput = ""
+		return m, nil
+	default:
+		// Accept printable characters for the ref input.
+		if len(msg.String()) == 1 && msg.String()[0] >= 32 {
+			m.refInput += msg.String()
+		}
+		return m, nil
+	}
+}
+
+// applyRefSwitch merges a successful ref switch result into the model,
+// preserving user overrides and recording orphaned variables.
+func (m *Model) applyRefSwitch(result *RefSwitchResult) {
+	m.refSwitching = false
+	m.refOrphaned = result.OrphanedVars
+
+	// Preserve existing user values — only drop them from the active var list,
+	// not from state.Values. This allows switching back to recover them.
+	oldValues := m.State.Values
+
+	// Replace state with the new one from the switched ref.
+	m.State = result.State
+	m.LiteralRef = result.LiteralRef
+	m.ResolvedSHA = result.ResolvedSHA
+
+	// Re-apply user overrides that still have matching variables.
+	if m.State.Values == nil {
+		m.State.Values = make(map[string]cty.Value)
+	}
+	for name, val := range oldValues {
+		m.State.Values[name] = val
+	}
+
+	// Rebuild the UI.
+	m.recomputeRows()
+	m.refreshEditor()
+	m.dirty = true
+
+	// Reset planner init state so the next plan re-checks modules.
+	if p, ok := m.Planner.(*TfexecPlanner); ok {
+		p.ResetInit()
+	}
+
+	// Status message.
+	msg := fmt.Sprintf("Switched to ref: %s (%s)", result.LiteralRef, shortSHA(result.ResolvedSHA))
+	if len(result.OrphanedVars) > 0 {
+		names := strings.Join(result.OrphanedVars, ", ")
+		msg += fmt.Sprintf(" · %d orphaned: %s", len(result.OrphanedVars), names)
+	}
+	m.status = msg
+	m.statusLvl = statusInfo
+	m.statusAt = time.Now()
+}
+
 func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
@@ -579,8 +739,14 @@ func (m *Model) View() string {
 	if m.planState == planReady {
 		return m.renderPlanScreen()
 	}
+	if m.errorDetail {
+		return m.renderErrorDetail()
+	}
 	if m.presetPicker {
 		return m.renderPresetPicker()
+	}
+	if m.refModal || m.refSwitching {
+		return m.renderRefModal()
 	}
 	left := m.renderLeftPane()
 	right := m.renderRightPane()

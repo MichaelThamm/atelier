@@ -150,7 +150,6 @@ var (
 			Foreground(colorText).
 			Padding(0, 1)
 
-	styleStatusValid = lipgloss.NewStyle().Foreground(colorSuccess).Bold(true)
 	styleStatusError = lipgloss.NewStyle().Foreground(colorDanger).Bold(true)
 	styleStatusBusy  = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
 
