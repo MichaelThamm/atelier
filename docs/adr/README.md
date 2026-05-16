@@ -1,0 +1,31 @@
+# Architecture Decision Records
+
+Each ADR records a single architectural decision: its context, what was
+decided, what alternatives were considered, and what the consequences are.
+Format follows the Michael Nygard template, lightly extended.
+
+## Index
+
+| #    | Title                                                                            | Status   |
+|------|----------------------------------------------------------------------------------|----------|
+| 0001 | [Wrapper module as durable artifact](0001-wrapper-as-durable-artifact.md)        | Accepted |
+| 0002 | [Author + plan scope; no in-TUI apply for v1](0002-author-and-plan-scope.md)     | Accepted |
+| 0003 | [GitOps loading model](0003-gitops-loading.md)                                   | Accepted |
+| 0004 | [Wrapper layout: Shape A](0004-wrapper-layout-shape-a.md)                        | Accepted |
+| 0005 | [Implementation language: Go](0005-implementation-language-go.md)                | Accepted |
+| 0006 | [Two-pane TUI layout with grouping](0006-two-pane-ui-layout.md)                  | Accepted |
+| 0007 | [Sparse-plus-required wrapper-write rule](0007-sparse-wrapper-write-rule.md)     | Accepted |
+| 0008 | [Provider schema via `terraform providers schema -json`](0008-provider-schema-discovery.md) | Accepted |
+| 0009 | [Secrets handling in v1](0009-secrets-handling-v1.md)                            | Accepted |
+| 0010 | [Manifest format: `atelier.yaml`](0010-manifest-format.md)                       | Accepted |
+| 0011 | [Plan output as module-path tree](0011-plan-output-tree.md)                      | Accepted |
+| 0012 | [Validation via `terraform validate`](0012-validation-via-terraform-validate.md) | Accepted |
+
+## Conventions
+
+- Numbering is sequential; do not renumber.
+- Status values: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
+- An ADR is immutable once `Accepted`. Changes are made by writing a new ADR
+  that supersedes it.
+- Cross-reference related ADRs by number; backlink from the superseded ADR if
+  applicable.

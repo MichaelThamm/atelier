@@ -1,0 +1,48 @@
+# Example atelier.yaml for the canonical/observability-stack repository.
+#
+# This file would live at the repository root and declares the module
+# candidates Atelier exposes when a user runs `atelier init
+# https://github.com/canonical/observability-stack.git`. Without this file,
+# Atelier would still discover candidates heuristically; the manifest just
+# provides better names, descriptions, and a grouped left pane.
+
+modules:
+  - path: terraform/cos-lite
+    name: "COS Lite"
+    description: |
+      Production-ready Charmed Observability Stack: Alertmanager, Catalogue,
+      Grafana, Loki, Prometheus, self-signed certificates, and Traefik, with
+      TLS and ingress wired up. Suitable as a deployment target for Juju
+      models that need a turnkey observability surface.
+    groups:
+      - name: "TLS"
+        variables:
+          - internal_tls
+          - external_certificates_offer_url
+          - external_ca_cert_offer_url
+      - name: "Ingress"
+        variables:
+          - ingress
+      - name: "Applications"
+        variables:
+          - alertmanager
+          - catalogue
+          - grafana
+          - loki
+          - prometheus
+          - ssc
+          - traefik
+
+  - path: terraform/cos
+    name: "COS"
+    description: |
+      Standalone Charmed Observability Stack for environments that need
+      finer-grained control over the individual components than COS Lite
+      offers.
+
+  - path: terraform/cos-dev
+    name: "COS (development)"
+    description: |
+      Development variant of COS, with looser pinning and additional tooling
+      for charm developers iterating on observability-stack itself. Not
+      intended for production use.
