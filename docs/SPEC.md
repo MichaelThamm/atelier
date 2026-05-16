@@ -56,8 +56,8 @@ their existing workflow.
 - `any` and `tuple([...])` variable types as first-class widgets. Rendered as
   read-only HCL with an "edit in `$EDITOR`" affordance in v1.
 - Multiple instances of the same provider via `alias`.
-- Module-maintainer-declared "features" as a first-class concept (presets,
-  scenario toggles, test-derived configurations). See [ROADMAP](ROADMAP.md).
+- Module-maintainer-declared test-derived presets (auto-discovery from
+  `.tftest.hcl` run blocks). See [ROADMAP](ROADMAP.md).
 
 ## 3. Glossary
 
@@ -431,6 +431,14 @@ modules:
         variables: [ingress]
       - name: "Applications"
         variables: [alertmanager, catalogue, grafana, loki, prometheus, ssc, traefik]
+    presets:
+      - name: production
+        description: "Stable channel, TLS enabled, HA replicas."
+        sets:
+          risk: "stable"
+          internal_tls: true
+          alertmanager:
+            units: 3
 
   - path: terraform/cos
     name: "COS"
@@ -446,10 +454,17 @@ modules:
   order declared. Variables not listed in any group appear in an implicit
   trailing `Other` group. If absent, all variables appear flat in declaration
   order.
+- `presets` — optional. Named bundles of variable overrides users can apply
+  in bulk from the TUI. Each preset entry has:
+  - `name` — required. Display name in the preset picker.
+  - `description` — optional. Shown below the name in the picker.
+  - `sets` — required. A map of variable names to values. Values follow YAML
+    natural typing and are converted to the variable's declared Terraform type
+    at load time. Variables referenced in `sets` that don't exist in the
+    module are silently dropped.
 
 ### 11.2 What v1 does *not* support in the manifest
 
-- Feature/preset declarations (parked; see [ROADMAP](ROADMAP.md)).
 - Variable annotations (descriptions, friendly labels, value hints).
 - Required-version constraints for Atelier itself.
 

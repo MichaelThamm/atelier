@@ -98,9 +98,7 @@ func (m *Model) renderStatus() string {
 	case m.status != "":
 		left = fmt.Sprintf("%s · %s", m.status, m.moduleBanner())
 	default:
-		left = fmt.Sprintf("%s · %s",
-			styleStatusValid.Render("✓ Valid"),
-			m.moduleBanner())
+		left = m.moduleBanner()
 	}
 	hints := styleHelp.Render(m.statusHints())
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(hints)

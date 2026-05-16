@@ -23,6 +23,8 @@ Concretely, v1 ships:
 - Sparse-plus-required wrapper writes via `hcl/v2`, with hand-edit
   round-tripping.
 - Module candidate discovery (heuristic + `atelier.yaml` manifest override).
+- Manifest-declared presets: named bundles of variable values users can apply
+  in bulk via the `F` key, then customise per-variable.
 - Provider configuration via `terraform providers schema -json`, including
   sensitive-attribute handling via variable indirection and gitignored
   `secrets.auto.tfvars`.
@@ -105,13 +107,15 @@ ecosystem (gum, glow, soft-serve) for design language.
 ### Manifest schema growth
 
 v1's `atelier.yaml` schema is intentionally minimal (`modules:` list with
-`path`, `name`, `description`, optional `groups`). v2 candidates:
+`path`, `name`, `description`, optional `groups`, optional `presets`). v2
+candidates:
 
 - Variable annotations: friendly labels overriding raw variable names; richer
   per-variable descriptions; value hints / examples.
 - Required Atelier version constraint.
 - Comment-marker parsing as an alternative to manifest groups (e.g.,
   `## section: TLS` in `variables.tf` as an implicit group divider).
+- Test-driven preset discovery from `.tftest.hcl` run blocks.
 
 ## Parked
 
@@ -121,42 +125,19 @@ Threads we explored, set aside, and may revisit with more information.
 
 The original vision included module maintainers declaring **features** —
 named higher-level toggles that map to one or more variable settings, with a
-proposed mechanism of auto-discovery from `tftest.hcl` run blocks. We parked
-this during design after concluding the concept was under-specified.
+proposed mechanism of auto-discovery from `tftest.hcl` run blocks.
 
-What we currently believe:
+**Presets are now shipped.** Module maintainers declare `presets:` in
+`atelier.yaml` and users apply them with `F` in the TUI. See [SPEC §11](SPEC.md#11-manifest-schema-atelieryaml)
+for schema details and [docs/examples/](examples/) for a worked example.
 
-- Features map most naturally to manifest-declared **presets**: named bundles
-  of variable values the user can apply with one action and then tweak.
-- Test-driven discovery works well for *enumerable scenarios* (a test file
-  whose `run` blocks enumerate alternative configurations, e.g.
-  `conditional_ingress.tftest.hcl` with `ingress_all_disabled`,
-  `ingress_only_grafana`, etc.). Each `run` block's `variables {}` overrides
-  become a candidate preset.
-- Test-driven discovery works *poorly* for *contract-style tests*
-  (`revision_pin.tftest.hcl` tests an invariant, not a preset). We'd need to
-  either ignore those or distinguish them somehow.
-- The v1 manifest does not include features; the v1 TUI does not surface
-  them. Adding them later does not break the v1 wrapper format.
+What remains parked:
 
-When we revisit, the v2 manifest extension might look like:
-
-```yaml
-modules:
-  - path: terraform/cos-lite
-    name: "COS Lite"
-    features:
-      - name: "Ingress all disabled"
-        description: "Turns off all ingress integrations."
-        derived_from: tests/conditional_ingress.tftest.hcl#ingress_all_disabled
-        sets:
-          ingress:
-            alertmanager: false
-            catalogue: false
-            grafana: false
-            loki: false
-            prometheus: false
-```
+- Test-driven discovery: automatically deriving presets from `.tftest.hcl`
+  run blocks. Works well for *enumerable scenarios* (a test file whose `run`
+  blocks enumerate alternative configurations) but poorly for
+  *contract-style tests*. Deferred until we have more field experience with
+  manifest-declared presets.
 
 This is speculative; the actual design will be informed by what users do with
 v1.

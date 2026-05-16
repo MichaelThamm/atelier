@@ -4,7 +4,7 @@
 # candidates Atelier exposes when a user runs `atelier init
 # https://github.com/canonical/observability-stack.git`. Without this file,
 # Atelier would still discover candidates heuristically; the manifest just
-# provides better names, descriptions, and a grouped left pane.
+# provides better names, descriptions, a grouped left pane, and presets.
 
 modules:
   - path: terraform/cos-lite
@@ -32,6 +32,28 @@ modules:
           - prometheus
           - ssc
           - traefik
+    presets:
+      - name: minimal
+        description: "Minimal COS: edge channel, no TLS, single units."
+        sets:
+          risk: "edge"
+          internal_tls: false
+          alertmanager:
+            units: 1
+      - name: production
+        description: "Production-ready: stable channel, TLS, HA replicas."
+        sets:
+          risk: "stable"
+          internal_tls: true
+          alertmanager:
+            units: 3
+            constraints: "arch=amd64 cores=2 mem=4G"
+          ingress:
+            alertmanager: true
+            catalogue: true
+            grafana: true
+            loki: true
+            prometheus: true
 
   - path: terraform/cos
     name: "COS"
