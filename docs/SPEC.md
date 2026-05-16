@@ -56,8 +56,6 @@ their existing workflow.
 - `any` and `tuple([...])` variable types as first-class widgets. Rendered as
   read-only HCL with an "edit in `$EDITOR`" affordance in v1.
 - Multiple instances of the same provider via `alias`.
-- Module-maintainer-declared test-derived presets (auto-discovery from
-  `.tftest.hcl` run blocks). See [ROADMAP](ROADMAP.md).
 
 ## 3. Glossary
 
