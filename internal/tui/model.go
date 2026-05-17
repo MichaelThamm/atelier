@@ -103,6 +103,8 @@ type Model struct {
 	refSwitching bool   // true when a ref switch is in flight (spinner)
 	refErr       string // error from last ref switch attempt
 	refOrphaned  []string // vars that no longer exist after a ref switch
+
+	helpModal bool // true when the [?] help overlay is visible
 }
 
 // planState enumerates the four states the plan flow can be in: idle (no
@@ -463,6 +465,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		m.quit = true
 		return m, tea.Quit
+	case "?":
+		m.helpModal = !m.helpModal
+		return m, nil
+	}
+
+	// Help modal: absorbs all other keys until dismissed.
+	if m.helpModal {
+		if msg.String() == "esc" || msg.String() == "q" {
+			m.helpModal = false
+		}
+		return m, nil
 	}
 
 	// Error detail modal: takes priority over all other views.
@@ -872,6 +885,9 @@ func (m *Model) View() string {
 		return "Loading…"
 	}
 
+	if m.helpModal {
+		return m.renderHelpModal()
+	}
 	if m.errorDetail {
 		return m.renderErrorDetail()
 	}

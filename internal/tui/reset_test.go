@@ -160,8 +160,11 @@ func TestReset_setsStatusMessage(t *testing.T) {
 // can discover it.
 func TestReset_appearsInStatusHints(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
-	hints := m.statusHints()
-	if !strings.Contains(hints, "^R") && !strings.Contains(hints, "Ctrl+R") {
-		t.Errorf("status hints should advertise reset; got %q", hints)
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	// Ctrl+R is shown in the help modal, not the compact status hints.
+	m.helpModal = true
+	view := m.View()
+	if !strings.Contains(view, "Ctrl+R") {
+		t.Errorf("help modal should advertise Ctrl+R reset; got %q", view)
 	}
 }

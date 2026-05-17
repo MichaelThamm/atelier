@@ -116,41 +116,87 @@ func (m *Model) renderStatus() string {
 		}
 	}
 	hints := styleHelp.Render(m.statusHints())
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(hints)
+	hintsW := lipgloss.Width(hints)
+	leftW := lipgloss.Width(left)
+	// styleStatusBar has Padding(0,1) which adds 2 chars of horizontal padding.
+	padW := 2
+	gap := m.width - leftW - hintsW - padW
 	if gap < 1 {
 		gap = 1
 	}
 	bar := left + strings.Repeat(" ", gap) + hints
-	return styleStatusBar.Width(m.width).Render(bar)
+	return styleStatusBar.MaxWidth(m.width).Render(bar)
 }
 
 func (m *Model) statusHints() string {
 	switch m.planState {
 	case planLoading:
-		return "[Esc] cancel"
+		return "[Esc] cancel  [?] help"
 	case planReady:
-		hints := "[↑↓] navigate  [Enter] toggle  [P] re-plan"
+		hints := "[↑↓] navigate  [P] re-plan"
 		if m.Applier != nil && m.applyState != applyLoading {
 			hints += "  [A] apply"
 		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			hints += "  [E] error"
 		}
-		hints += "  [Esc] back"
+		hints += "  [?] help"
 		return hints
 	}
-	hints := "[Tab] switch pane  [^R] reset  [P] plan"
-	if len(m.presets) > 0 {
-		hints += "  [F] preset"
-	}
-	if m.RefSwitcher != nil {
-		hints += "  [R] ref"
-	}
+	hints := "[Tab] pane  [P] plan"
 	if m.statusLvl == statusError && m.statusDetail != "" {
 		hints += "  [E] error"
 	}
-	hints += "  [Q] quit"
+	hints += "  [Q] quit  [?] help"
 	return hints
+}
+
+// renderHelpModal renders a full-screen overlay listing all keyboard shortcuts.
+func (m *Model) renderHelpModal() string {
+	var b strings.Builder
+	fmt.Fprintln(&b, styleVarHeader.Render("Keyboard shortcuts"))
+	fmt.Fprintln(&b)
+
+	switch {
+	case m.planState == planReady:
+		fmt.Fprintln(&b, "  ↑/k  ↓/j      Navigate plan tree")
+		fmt.Fprintln(&b, "  Enter/Space    Toggle collapse/expand")
+		fmt.Fprintln(&b, "  P              Re-run terraform plan")
+		if m.Applier != nil {
+			fmt.Fprintln(&b, "  A              Apply the current plan")
+		}
+		if m.statusLvl == statusError && m.statusDetail != "" {
+			fmt.Fprintln(&b, "  E              Show error details")
+		}
+		fmt.Fprintln(&b, "  Esc/q          Return to editor")
+	default:
+		fmt.Fprintln(&b, "  Tab            Switch pane (left ↔ right)")
+		fmt.Fprintln(&b, "  ↑/k  ↓/j      Move cursor")
+		fmt.Fprintln(&b, "  Enter/→/l      Focus right pane")
+		fmt.Fprintln(&b, "  Esc/←          Focus left pane")
+		fmt.Fprintln(&b, "  Ctrl+R         Reset variable to default")
+		fmt.Fprintln(&b, "  P              Run terraform plan")
+		if len(m.presets) > 0 {
+			fmt.Fprintln(&b, "  F              Open preset picker")
+		}
+		if m.RefSwitcher != nil {
+			fmt.Fprintln(&b, "  R              Switch module ref")
+		}
+		if m.statusLvl == statusError && m.statusDetail != "" {
+			fmt.Fprintln(&b, "  E              Show error details")
+		}
+		fmt.Fprintln(&b, "  Q              Quit (auto-saves)")
+	}
+
+	fmt.Fprintln(&b, "  Ctrl+C         Quit immediately")
+	fmt.Fprintln(&b, "  ?              Toggle this help")
+	fmt.Fprintln(&b)
+	fmt.Fprint(&b, styleHelp.Render("[Esc] or [?] to close"))
+
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height).
+		Render(b.String())
 }
 
 func (m *Model) bodyHeight() int {
