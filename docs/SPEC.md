@@ -71,8 +71,7 @@ their existing workflow.
   module via its git source, the user's variable overrides, and supporting
   files.
 - **Manifest** — `atelier.yaml` at the root of a module repository. Optional;
-  declares friendly names, descriptions, and variable groupings for module
-  candidates.
+  declares friendly names, descriptions, and presets for module candidates.
 - **Session** — one invocation of `atelier` against a wrapper directory.
 - **`.atelier/`** — a hidden subdirectory inside the wrapper holding
   Atelier-managed internal state (module clone cache, session metadata).
@@ -267,8 +266,7 @@ The TUI is a two-pane layout with a status pane at the bottom.
 
 ### 7.1 Left pane — variable list
 
-- Shows groups (from manifest) and variables within them. Without a manifest,
-  variables appear flat in declaration order.
+- Variables appear in declaration order.
 - Each variable has a modified-vs-default marker:
   - `[ ]` — at default
   - `[✓]` — modified
@@ -457,13 +455,6 @@ modules:
     description: |
       Production-ready Charmed Observability Stack: Alertmanager, Catalogue,
       Grafana, Loki, Prometheus, with TLS and ingress.
-    groups:
-      - name: "TLS"
-        variables: [internal_tls, external_certificates_offer_url, external_ca_cert_offer_url]
-      - name: "Ingress"
-        variables: [ingress]
-      - name: "Applications"
-        variables: [alertmanager, catalogue, grafana, loki, prometheus, ssc, traefik]
     presets:
       - name: production
         description: "Stable channel, TLS enabled, HA replicas."
@@ -483,10 +474,6 @@ modules:
 - `path` — required. Relative to the repository root.
 - `name` — required. Display name in the candidate picker.
 - `description` — optional. Falls back to README first paragraph, then path.
-- `groups` — optional. If present, the left pane shows these groups in the
-  order declared. Variables not listed in any group appear in an implicit
-  trailing `Other` group. If absent, all variables appear flat in declaration
-  order.
 - `presets` — optional. Named bundles of variable overrides users can apply
   in bulk from the TUI. Each preset entry has:
   - `name` — required. Display name in the preset picker.

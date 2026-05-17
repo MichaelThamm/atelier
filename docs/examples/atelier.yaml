@@ -4,7 +4,7 @@
 # candidates Atelier exposes when a user runs `atelier init
 # https://github.com/canonical/observability-stack.git`. Without this file,
 # Atelier would still discover candidates heuristically; the manifest just
-# provides better names, descriptions, a grouped left pane, and presets.
+# provides better names, descriptions, and presets.
 
 modules:
   - path: terraform/cos-lite
@@ -14,24 +14,6 @@ modules:
       Grafana, Loki, Prometheus, self-signed certificates, and Traefik, with
       TLS and ingress wired up. Suitable as a deployment target for Juju
       models that need a turnkey observability surface.
-    groups:
-      - name: "TLS"
-        variables:
-          - internal_tls
-          - external_certificates_offer_url
-          - external_ca_cert_offer_url
-      - name: "Ingress"
-        variables:
-          - ingress
-      - name: "Applications"
-        variables:
-          - alertmanager
-          - catalogue
-          - grafana
-          - loki
-          - prometheus
-          - ssc
-          - traefik
     presets:
       - name: minimal
         description: "Minimal COS: edge channel, no TLS, single units."

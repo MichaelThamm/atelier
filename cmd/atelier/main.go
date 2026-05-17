@@ -192,17 +192,11 @@ func parseInitArgs(args []string) (bootstrap.InitOptions, error) {
 func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	state := res.State
 
-	// Load manifest groupings and presets for the left pane.
-	var groups []manifest.ResolvedGroup
+	// Load manifest presets for the left pane.
 	var presets []tui.ResolvedPreset
 	if man, _, _ := manifest.LoadFromRepo(filepath.Join(wrapperDir, ".atelier", "clone")); man != nil {
 		modPath := modulePathFromState(state)
 		mod := man.FindModule(modPath)
-		names := make([]string, len(state.Vars))
-		for i, v := range state.Vars {
-			names[i] = v.Name
-		}
-		groups = manifest.ApplyGroups(mod, names)
 		if mod != nil && len(mod.Presets) > 0 {
 			presets = tui.ResolvePresets(mod.Presets, state.Vars)
 		}
@@ -212,7 +206,6 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	m.LiteralRef = res.LiteralRef
 	m.ResolvedSHA = res.ResolvedSHA
 	m.SourceURL = sourceURLFromState(state)
-	m.SetGroups(groups)
 	m.SetPresets(presets)
 
 	// Construct a Planner so pressing P in the TUI runs a real terraform

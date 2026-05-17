@@ -7,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/manifest"
 	"github.com/canonical/atelier/internal/tftypes"
 	"github.com/canonical/atelier/internal/tfvars"
 	"github.com/canonical/atelier/internal/wrapper"
@@ -96,25 +95,6 @@ func TestArrowKeys_moveBetweenVariables(t *testing.T) {
 	m = feed(m, key("up"))
 	if v := m.SelectedVariable(); v == nil || v.Name != "internal_tls" {
 		t.Errorf("after up, got %v", v)
-	}
-}
-
-func TestGroups_skipsHeadersOnNavigation(t *testing.T) {
-	m := New(sampleState(t), "cos_lite")
-	m.SetGroups([]manifest.ResolvedGroup{
-		{Name: "Identity", Variables: []string{"model_uuid"}},
-		{Name: "TLS", Variables: []string{"internal_tls"}},
-		{Name: "Other", Variables: []string{"count"}},
-	})
-	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// First variable should be model_uuid.
-	if v := m.SelectedVariable(); v == nil || v.Name != "model_uuid" {
-		t.Fatalf("first selection: %v", v)
-	}
-	m = feed(m, key("down"))
-	if v := m.SelectedVariable(); v == nil || v.Name != "internal_tls" {
-		t.Errorf("after one down (skipping group header): %v", v)
 	}
 }
 

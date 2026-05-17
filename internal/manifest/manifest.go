@@ -1,7 +1,7 @@
 // Package manifest parses Atelier's optional atelier.yaml manifest file
 // (SPEC §11, ADR-0010). The v1 schema is intentionally minimal: a single
 // top-level modules: list, each module declaring path/name/optional
-// description/optional groups.
+// description.
 //
 // Parsing is strict in the sense that unknown top-level keys produce a
 // warning the caller can surface; structural errors produce a hard error.
@@ -26,14 +26,7 @@ type Module struct {
 	Path        string   `yaml:"path"`
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description,omitempty"`
-	Groups      []Group  `yaml:"groups,omitempty"`
 	Presets     []Preset `yaml:"presets,omitempty"`
-}
-
-// Group is a UI grouping of variables in the left pane.
-type Group struct {
-	Name      string   `yaml:"name"`
-	Variables []string `yaml:"variables"`
 }
 
 // Preset is a named bundle of variable overrides a module maintainer
@@ -115,14 +108,6 @@ func (m *Manifest) validate() error {
 			return fmt.Errorf("manifest: duplicate module path %q", mod.Path)
 		}
 		seenPaths[mod.Path] = true
-		for j, g := range mod.Groups {
-			if g.Name == "" {
-				return fmt.Errorf("manifest: modules[%d].groups[%d].name is required", i, j)
-			}
-			if len(g.Variables) == 0 {
-				return fmt.Errorf("manifest: modules[%d].groups[%d] (%q) needs at least one variable", i, j, g.Name)
-			}
-		}
 		for j, p := range mod.Presets {
 			if p.Name == "" {
 				return fmt.Errorf("manifest: modules[%d].presets[%d].name is required", i, j)
@@ -149,51 +134,4 @@ func (m *Manifest) FindModule(path string) *Module {
 	return nil
 }
 
-// ApplyGroups returns the ordered grouping of the variable names supplied,
-// based on the module's manifest. Variables declared in the manifest but not
-// present in `vars` are dropped (with a warning logged by the caller);
-// variables present in `vars` but unmentioned in the manifest land in an
-// implicit "Other" trailing group.
-//
-// If the module declares no groups (or no manifest is present), all
-// variables appear in a single unnamed group in declaration order.
-func ApplyGroups(mod *Module, vars []string) []ResolvedGroup {
-	if mod == nil || len(mod.Groups) == 0 {
-		return []ResolvedGroup{{Name: "", Variables: append([]string(nil), vars...)}}
-	}
-	present := map[string]bool{}
-	for _, v := range vars {
-		present[v] = true
-	}
-	var out []ResolvedGroup
-	seen := map[string]bool{}
-	for _, g := range mod.Groups {
-		rg := ResolvedGroup{Name: g.Name}
-		for _, v := range g.Variables {
-			if present[v] {
-				rg.Variables = append(rg.Variables, v)
-				seen[v] = true
-			}
-		}
-		if len(rg.Variables) > 0 {
-			out = append(out, rg)
-		}
-	}
-	var other []string
-	for _, v := range vars {
-		if !seen[v] {
-			other = append(other, v)
-		}
-	}
-	if len(other) > 0 {
-		out = append(out, ResolvedGroup{Name: "Other", Variables: other})
-	}
-	return out
-}
 
-// ResolvedGroup is the result of ApplyGroups: a UI-ready grouping of
-// variables for a specific module candidate.
-type ResolvedGroup struct {
-	Name      string
-	Variables []string
-}

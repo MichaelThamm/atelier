@@ -133,11 +133,6 @@ var (
 				Foreground(colorPrimary).
 				Bold(true)
 
-	styleGroupHeader = lipgloss.NewStyle().
-				Foreground(colorSecondary).
-				Bold(true).
-				Underline(true)
-
 	styleDescription = lipgloss.NewStyle().
 				Foreground(colorMuted).
 				Italic(true)

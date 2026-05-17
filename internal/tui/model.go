@@ -17,7 +17,6 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/manifest"
 	"github.com/canonical/atelier/internal/tftypes"
 	"github.com/canonical/atelier/internal/tfvars"
 	"github.com/canonical/atelier/internal/wrapper"
@@ -33,7 +32,6 @@ type Model struct {
 	SourceURL    string
 	ManifestPath string
 
-	groups []manifest.ResolvedGroup
 	rows   []rowEntry
 
 	cursor       int
@@ -122,11 +120,9 @@ const (
 	statusError
 )
 
-// rowEntry is one row in the left pane: either a group header or a variable.
+// rowEntry is one row in the left pane: a variable.
 type rowEntry struct {
-	IsGroup  bool
-	GroupIdx int
-	VarName  string
+	VarName string
 }
 
 // New builds a Model around a wrapper.State.
@@ -140,14 +136,6 @@ func New(state *wrapper.State, modName string) *Model {
 	return m
 }
 
-// SetGroups installs a manifest-driven group ordering. If empty / nil, the
-// model falls back to a single unnamed group of all variables.
-func (m *Model) SetGroups(g []manifest.ResolvedGroup) {
-	m.groups = g
-	m.recomputeRows()
-	m.refreshEditor()
-}
-
 // SetPresets installs resolved presets from the manifest. When non-empty,
 // the user can press F from the left pane to open the preset picker.
 func (m *Model) SetPresets(p []ResolvedPreset) {
@@ -156,19 +144,8 @@ func (m *Model) SetPresets(p []ResolvedPreset) {
 
 func (m *Model) recomputeRows() {
 	var rows []rowEntry
-	if len(m.groups) == 0 {
-		// Default: one anonymous group of all declared variables in
-		// declaration order.
-		for _, v := range m.State.Vars {
-			rows = append(rows, rowEntry{VarName: v.Name})
-		}
-	} else {
-		for gi, g := range m.groups {
-			rows = append(rows, rowEntry{IsGroup: true, GroupIdx: gi})
-			for _, name := range g.Variables {
-				rows = append(rows, rowEntry{VarName: name})
-			}
-		}
+	for _, v := range m.State.Vars {
+		rows = append(rows, rowEntry{VarName: v.Name})
 	}
 	m.rows = rows
 	if m.cursor >= len(rows) {
@@ -177,22 +154,15 @@ func (m *Model) recomputeRows() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	// Cursor should land on a variable, not a header.
-	for m.cursor < len(rows) && rows[m.cursor].IsGroup {
-		m.cursor++
-	}
 }
 
 // SelectedVariable returns the variable currently under the cursor, or nil
-// if the cursor is on a group header / out of range.
+// if out of range.
 func (m *Model) SelectedVariable() *tfvars.Variable {
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
 	r := m.rows[m.cursor]
-	if r.IsGroup {
-		return nil
-	}
 	return m.State.FindVar(r.VarName)
 }
 
@@ -651,13 +621,6 @@ func (m *Model) moveCursor(delta int) {
 	c := m.cursor
 	for i := 0; i < abs(delta); i++ {
 		c += step
-		if c < 0 || c >= len(m.rows) {
-			return
-		}
-		// Skip group headers.
-		for c >= 0 && c < len(m.rows) && m.rows[c].IsGroup {
-			c += step
-		}
 		if c < 0 || c >= len(m.rows) {
 			return
 		}

@@ -19,7 +19,7 @@ workflow they already use.
 
 - **Generic.** Works with any Terraform module that declares variables, not
   just COS Lite or any other Canonical product. Module-specific knowledge —
-  variable groupings, friendly names, descriptions — comes from an optional
+  friendly names, descriptions — comes from an optional
   `atelier.yaml` manifest the maintainer can commit alongside the module.
 - **Wrapper-as-artifact.** The wrapper directory is the durable output. It is
   version-controllable, shareable, runnable without Atelier installed, and

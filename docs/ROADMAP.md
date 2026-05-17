@@ -109,14 +109,12 @@ ecosystem (gum, glow, soft-serve) for design language.
 ### Manifest schema growth
 
 v1's `atelier.yaml` schema is intentionally minimal (`modules:` list with
-`path`, `name`, `description`, optional `groups`, optional `presets`). v2
+`path`, `name`, `description`, optional `presets`). v2
 candidates:
 
 - Variable annotations: friendly labels overriding raw variable names; richer
   per-variable descriptions; value hints / examples.
 - Required Atelier version constraint.
-- Comment-marker parsing as an alternative to manifest groups (e.g.,
-  `## section: TLS` in `variables.tf` as an implicit group divider).
 - Test-driven preset discovery from `.tftest.hcl` run blocks.
 
 ## Parked

@@ -13,7 +13,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0003 | [GitOps loading model](0003-gitops-loading.md)                                   | Accepted |
 | 0004 | [Wrapper layout: Shape A](0004-wrapper-layout-shape-a.md)                        | Accepted |
 | 0005 | [Implementation language: Go](0005-implementation-language-go.md)                | Accepted |
-| 0006 | [Two-pane TUI layout with grouping](0006-two-pane-ui-layout.md)                  | Accepted |
+| 0006 | [Two-pane TUI layout](0006-two-pane-ui-layout.md)                  | Accepted |
 | 0007 | [Sparse-plus-required wrapper-write rule](0007-sparse-wrapper-write-rule.md)     | Accepted |
 | 0008 | [Provider schema via `terraform providers schema -json`](0008-provider-schema-discovery.md) | Accepted |
 | 0009 | [Secrets handling in v1](0009-secrets-handling-v1.md)                            | Accepted |

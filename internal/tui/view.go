@@ -11,21 +11,13 @@ import (
 	"github.com/canonical/atelier/internal/wrapper"
 )
 
-// renderLeftPane draws the variable list, including group headers and the
-// per-variable modification marker. The active-pane cursor row uses a
-// background highlight; the inactive pane uses a quieter accented version.
+// renderLeftPane draws the variable list with per-variable modification
+// markers. The active-pane cursor row uses a background highlight; the
+// inactive pane uses a quieter accented version.
 func (m *Model) renderLeftPane() string {
 	const leftWidth = 32
 	var b strings.Builder
 	for i, r := range m.rows {
-		if r.IsGroup {
-			label := m.groups[r.GroupIdx].Name
-			if label == "" {
-				continue
-			}
-			fmt.Fprintln(&b, styleGroupHeader.Render(label))
-			continue
-		}
 		marker := varMarker(m.State, r.VarName)
 		line := fmt.Sprintf("%s  %s", marker, r.VarName)
 		if i == m.cursor {
