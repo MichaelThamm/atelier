@@ -32,6 +32,13 @@ type Applier interface {
 	Apply(ctx context.Context) error
 }
 
+// Validator is the narrow interface the TUI needs to run `terraform validate`.
+// Separated from Planner so the capability can be independently stubbed.
+type Validator interface {
+	// Validate runs `terraform validate -json` and returns diagnostics.
+	Validate(ctx context.Context) (*tfjson.ValidateOutput, error)
+}
+
 // TfexecPlanner is the production Planner: it shells out via terraform-exec
 // against a wrapper directory.
 type TfexecPlanner struct {
@@ -112,4 +119,12 @@ func (p *TfexecPlanner) Apply(ctx context.Context) error {
 		return fmt.Errorf("no saved plan file: %w", err)
 	}
 	return p.Tf.Apply(ctx, planFile)
+}
+
+// Validate runs `terraform validate -json` against the wrapper directory.
+func (p *TfexecPlanner) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
+	if p == nil || p.Tf == nil {
+		return nil, errors.New("validator not configured")
+	}
+	return p.Tf.Validate(ctx)
 }

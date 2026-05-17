@@ -389,3 +389,129 @@ func TestPlanMode_pressA_withoutApplier_noop(t *testing.T) {
 		t.Errorf("applyState should remain idle; got %v", m.applyState)
 	}
 }
+
+// --- validate tests ---
+
+// stubValidator is a Validator implementation for tests.
+type stubValidator struct {
+	output *tfjson.ValidateOutput
+	err    error
+	called bool
+}
+
+func (s *stubValidator) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
+	s.called = true
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.output, nil
+}
+
+func TestValidate_debounceFires(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	stub := &stubValidator{output: &tfjson.ValidateOutput{Valid: true}}
+	m.Validator = stub
+
+	// Simulate an edit that triggers scheduleValidate.
+	cmd := m.scheduleValidate()
+	if cmd == nil {
+		t.Fatal("expected a debounce cmd")
+	}
+	if m.validateGen != 1 {
+		t.Errorf("validateGen = %d; want 1", m.validateGen)
+	}
+
+	// Fire the debounce tick.
+	msg := cmd() // produces validateDebounceMsg{gen: 1}
+	out, cmd2 := m.Update(msg)
+	mm := out.(*Model)
+	if cmd2 == nil {
+		t.Fatal("expected startValidate cmd after debounce tick")
+	}
+
+	// Run the validate command.
+	msg2 := cmd2()
+	out2, _ := mm.Update(msg2)
+	mm2 := out2.(*Model)
+	if !stub.called {
+		t.Error("Validate should have been called")
+	}
+	if mm2.validateOutput == nil || !mm2.validateOutput.Valid {
+		t.Error("expected valid validateOutput")
+	}
+}
+
+func TestValidate_staleDebounceIgnored(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.Validator = &stubValidator{output: &tfjson.ValidateOutput{Valid: true}}
+
+	// Schedule a debounce, then schedule another (simulating a second edit).
+	cmd1 := m.scheduleValidate() // gen=1
+	_ = m.scheduleValidate()     // gen=2
+
+	// Fire the first (stale) debounce.
+	msg := cmd1()
+	_, cmd := m.Update(msg)
+	if cmd != nil {
+		t.Error("stale debounce tick should produce nil cmd")
+	}
+}
+
+func TestValidate_withoutValidator_noop(t *testing.T) {
+	m := New(sampleState(t), "test")
+	// Validator is nil.
+	cmd := m.scheduleValidate()
+	if cmd != nil {
+		t.Error("expected nil cmd when Validator is nil")
+	}
+}
+
+func TestValidate_errorClearsOutput(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.validateOutput = &tfjson.ValidateOutput{Valid: true}
+
+	out, _ := m.Update(validateErrorMsg{err: errors.New("boom")})
+	mm := out.(*Model)
+	if mm.validateOutput != nil {
+		t.Error("validateOutput should be nil after error")
+	}
+}
+
+func TestValidate_invalidSetsStatusDetailForEKey(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	vo := &tfjson.ValidateOutput{
+		Valid:      false,
+		ErrorCount: 2,
+		Diagnostics: []tfjson.Diagnostic{
+			{Severity: "error", Summary: "Missing required argument"},
+			{Severity: "error", Summary: "Invalid value", Detail: "must be a string"},
+		},
+	}
+	out, _ := m.Update(validateResultMsg{output: vo})
+	mm := out.(*Model)
+
+	if mm.statusLvl != statusError {
+		t.Errorf("statusLvl = %v; want statusError", mm.statusLvl)
+	}
+	if mm.statusDetail == "" {
+		t.Fatal("statusDetail should be set for E key")
+	}
+	if !strings.Contains(mm.statusDetail, "Missing required argument") {
+		t.Errorf("statusDetail missing diagnostic summary: %q", mm.statusDetail)
+	}
+	if !strings.Contains(mm.statusDetail, "must be a string") {
+		t.Errorf("statusDetail missing diagnostic detail: %q", mm.statusDetail)
+	}
+
+	// Pressing E should now open the error detail modal.
+	out2, _ := mm.Update(key("e"))
+	mm2 := out2.(*Model)
+	if !mm2.errorDetail {
+		t.Error("E key should open errorDetail when validate errors present")
+	}
+}

@@ -103,6 +103,18 @@ func (m *Model) renderStatus() string {
 	default:
 		left = m.moduleBanner()
 	}
+	// Append validate summary when available and no other error is shown.
+	if m.validateOutput != nil && m.statusLvl != statusError {
+		if m.validateOutput.Valid {
+			left += "  " + styleHelp.Render("✓ valid")
+		} else {
+			summary := fmt.Sprintf("✗ %d error(s)", m.validateOutput.ErrorCount)
+			if m.validateOutput.WarningCount > 0 {
+				summary += fmt.Sprintf(", %d warning(s)", m.validateOutput.WarningCount)
+			}
+			left += "  " + styleStatusError.Render(summary)
+		}
+	}
 	hints := styleHelp.Render(m.statusHints())
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(hints)
 	if gap < 1 {

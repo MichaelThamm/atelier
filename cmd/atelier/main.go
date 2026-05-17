@@ -217,6 +217,7 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		tp := &tui.TfexecPlanner{Tf: tf, WrapperDir: wrapperDir}
 		m.Planner = tp
 		m.Applier = tp
+		m.Validator = tp
 	} else {
 		fmt.Fprintln(os.Stderr, "warning: planner unavailable:", err)
 	}

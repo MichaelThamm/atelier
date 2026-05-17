@@ -58,6 +58,10 @@ type Model struct {
 	// view. May be nil; the A key is hidden if unset.
 	Applier Applier
 
+	// Validator runs `terraform validate` after edits (debounced). May be
+	// nil; validation is skipped if unset.
+	Validator Validator
+
 	// plan tree + cursor when planState == planReady.
 	planState    planState
 	plan         *tfjson.Plan
@@ -69,6 +73,12 @@ type Model struct {
 	// applyState tracks the apply flow (idle → loading → done/error).
 	applyState applyState
 	applyErr   string
+
+	// validateGen is a generation counter incremented on every edit. The
+	// debounce tick carries the generation at scheduling time; if the model's
+	// generation has advanced by the time the tick fires, the tick is stale.
+	validateGen    uint64
+	validateOutput *tfjson.ValidateOutput // most recent validate result
 
 	// quitSignal: when set, the runtime tea.Quit will follow.
 	quit bool
@@ -225,6 +235,22 @@ type applyErrorMsg struct {
 	err error
 }
 
+// validateDebounceMsg fires after the debounce delay. The gen field is
+// compared against Model.validateGen to detect stale ticks.
+type validateDebounceMsg struct {
+	gen uint64
+}
+
+// validateResultMsg carries a successful validate result back to the UI.
+type validateResultMsg struct {
+	output *tfjson.ValidateOutput
+}
+
+// validateErrorMsg carries a validate failure back to the UI.
+type validateErrorMsg struct {
+	err error
+}
+
 // startPlan composes the async pipeline behind the P key: save state, run
 // `terraform init` if needed, run `terraform plan`, return the parsed plan.
 // Errors are funnelled through planErrorMsg so the UI can surface them
@@ -278,6 +304,39 @@ func (m *Model) startApply() tea.Cmd {
 			return applyErrorMsg{err: err}
 		}
 		return applyResultMsg{}
+	}
+}
+
+// scheduleValidate bumps the generation counter and returns a debounce
+// tick command. Called after every edit.
+func (m *Model) scheduleValidate() tea.Cmd {
+	if m.Validator == nil {
+		return nil
+	}
+	m.validateGen++
+	gen := m.validateGen
+	return tea.Tick(500*time.Millisecond, func(_ time.Time) tea.Msg {
+		return validateDebounceMsg{gen: gen}
+	})
+}
+
+// startValidate saves state and runs `terraform validate` asynchronously.
+func (m *Model) startValidate() tea.Cmd {
+	state := m.State
+	validator := m.Validator
+	return func() tea.Msg {
+		if state != nil {
+			if err := state.Write(); err != nil {
+				return validateErrorMsg{err: fmt.Errorf("save wrapper: %w", err)}
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		out, err := validator.Validate(ctx)
+		if err != nil {
+			return validateErrorMsg{err: err}
+		}
+		return validateResultMsg{output: out}
 	}
 }
 
@@ -347,6 +406,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusDetail = msg.err.Error()
 		m.statusLvl = statusError
 		m.statusAt = time.Now()
+		return m, nil
+	case validateDebounceMsg:
+		// Only fire if no newer edit has occurred since this tick was scheduled.
+		if msg.gen == m.validateGen {
+			return m, m.startValidate()
+		}
+		return m, nil
+	case validateResultMsg:
+		m.validateOutput = msg.output
+		m.dirty = false // state was written by startValidate
+		if msg.output != nil && !msg.output.Valid {
+			m.statusDetail = formatValidateDiagnostics(msg.output)
+			m.statusLvl = statusError
+			m.status = fmt.Sprintf("validate: %d error(s)", msg.output.ErrorCount)
+			m.statusAt = time.Now()
+		} else {
+			// Clear any previous validate error.
+			if m.statusLvl == statusError && m.validateOutput != nil {
+				m.statusDetail = ""
+				m.statusLvl = statusInfo
+				m.status = ""
+			}
+		}
+		return m, nil
+	case validateErrorMsg:
+		// Validation errors are non-fatal; just clear output so the status
+		// bar stops showing stale results.
+		m.validateOutput = nil
 		return m, nil
 	case refSwitchResultMsg:
 		m.applyRefSwitch(msg.result)
@@ -466,7 +553,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "ctrl+r":
 		m.resetCurrent()
-		return m, nil
+		return m, m.scheduleValidate()
 	}
 
 	if m.focus == focusLeft {
@@ -479,6 +566,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Push edited value back into state on each tick. Auto-save.
 			if v := m.SelectedVariable(); v != nil {
 				m.applyEditorValue(v, e2.CurrentValue())
+				// Schedule debounced validate after each edit.
+				if valCmd := m.scheduleValidate(); valCmd != nil {
+					cmd = tea.Batch(cmd, valCmd)
+				}
 			}
 		}
 		return m, cmd
@@ -571,9 +662,9 @@ func (m *Model) handlePresetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "enter":
-		m.applyPreset(m.presetCursor)
+		cmd := m.applyPresetCmd(m.presetCursor)
 		m.presetPicker = false
-		return m, nil
+		return m, cmd
 	}
 	return m, nil
 }
@@ -593,6 +684,12 @@ func (m *Model) applyPreset(i int) {
 	m.statusLvl = statusInfo
 	m.statusAt = time.Now()
 	m.dirty = true
+}
+
+// applyPresetCmd wraps applyPreset and returns a validate debounce command.
+func (m *Model) applyPresetCmd(i int) tea.Cmd {
+	m.applyPreset(i)
+	return m.scheduleValidate()
 }
 
 // handleRefModalKey routes keys while the ref input prompt is visible.
@@ -831,4 +928,27 @@ func (m *Model) moduleBanner() string {
 		parts = append(parts, fmt.Sprintf("(%s)", shortSHA(m.ResolvedSHA)))
 	}
 	return strings.Join(parts, " ")
+}
+
+// formatValidateDiagnostics renders validate diagnostics into a multi-line
+// string suitable for the error detail modal.
+func formatValidateDiagnostics(vo *tfjson.ValidateOutput) string {
+	if vo == nil || len(vo.Diagnostics) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, d := range vo.Diagnostics {
+		if i > 0 {
+			fmt.Fprintln(&b)
+		}
+		sev := "Error"
+		if d.Severity == "warning" {
+			sev = "Warning"
+		}
+		fmt.Fprintf(&b, "%s: %s", sev, d.Summary)
+		if d.Detail != "" {
+			fmt.Fprintf(&b, "\n  %s", d.Detail)
+		}
+	}
+	return b.String()
 }
