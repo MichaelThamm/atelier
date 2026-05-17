@@ -31,6 +31,8 @@ Concretely, v1 ships:
 - Debounced `terraform validate` for inline validation feedback.
 - `terraform plan -json` rendering as a module-path tree with attribute diffs
   in a side pane.
+- `terraform apply` from the plan view (`A` key): applies the cached plan
+  file; errors surfaced in-TUI via `E`.
 - Default-change surfacing on ref bump.
 - In-TUI ref switching (`R` key): re-clone, `terraform init -upgrade`,
   preserve user overrides, enabling cross-ref upgrade comparison workflows.
@@ -41,12 +43,11 @@ Concretely, v1 ships:
 These have a clear shape but are out of v1's scope to keep the surface small
 and the timeline tight.
 
-### Inline `terraform apply` in the TUI
+### Streaming apply logs and cancellation
 
-v1 stops at plan. Apply happens in the user's shell. v2 may add an in-TUI
-apply with streaming logs, cancellation, state-lock handling, and post-apply
-error inspection. The wrapper format will not change; this is purely
-additive.
+v1's apply is fire-and-forget with a spinner. v2 may add streaming log
+output, cancellation (`Ctrl+C` during apply), partial-apply recovery, and
+post-apply state inspection.
 
 ### Authenticated git access
 

@@ -214,7 +214,9 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	// if it does, we leave Planner nil and the TUI surfaces a clear status
 	// message instead of crashing.
 	if tf, err := tfexec.New(wrapperDir, ""); err == nil {
-		m.Planner = &tui.TfexecPlanner{Tf: tf, WrapperDir: wrapperDir}
+		tp := &tui.TfexecPlanner{Tf: tf, WrapperDir: wrapperDir}
+		m.Planner = tp
+		m.Applier = tp
 	} else {
 		fmt.Fprintln(os.Stderr, "warning: planner unavailable:", err)
 	}

@@ -309,3 +309,83 @@ func runBatchUntil(t *testing.T, cmd tea.Cmd, want func(tea.Msg) bool) tea.Msg {
 	t.Fatalf("expected matching message; queue drained without match")
 	return nil
 }
+
+// --- apply tests ---
+
+// stubApplier is an Applier implementation for tests.
+type stubApplier struct {
+	err    error
+	called bool
+}
+
+func (s *stubApplier) Apply(ctx context.Context) error {
+	s.called = true
+	return s.err
+}
+
+func TestPlanMode_pressA_triggersApply(t *testing.T) {
+	m := plannedReady(t)
+	stub := &stubApplier{}
+	m.Applier = stub
+
+	_, cmd := m.Update(key("A"))
+	if m.applyState != applyLoading {
+		t.Fatalf("after A press, applyState = %v; want applyLoading", m.applyState)
+	}
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd from A press")
+	}
+	msg := runBatchUntil(t, cmd, func(msg tea.Msg) bool {
+		_, ok := msg.(applyResultMsg)
+		return ok
+	})
+	out, _ := m.Update(msg)
+	mm := out.(*Model)
+	if mm.applyState != applyDone {
+		t.Errorf("after applyResultMsg, applyState = %v; want applyDone", mm.applyState)
+	}
+	if !strings.Contains(mm.status, "apply succeeded") {
+		t.Errorf("status = %q; expected success message", mm.status)
+	}
+	// Plan should be invalidated after apply.
+	if mm.planState != planIdle {
+		t.Errorf("planState should be idle after apply; got %v", mm.planState)
+	}
+	if !stub.called {
+		t.Errorf("Apply should have been called")
+	}
+}
+
+func TestPlanMode_pressA_applyError(t *testing.T) {
+	m := plannedReady(t)
+	m.Applier = &stubApplier{err: errors.New("kaboom")}
+
+	_, cmd := m.Update(key("a"))
+	msg := runBatchUntil(t, cmd, func(msg tea.Msg) bool {
+		_, ok := msg.(applyErrorMsg)
+		return ok
+	})
+	out, _ := m.Update(msg)
+	mm := out.(*Model)
+	if mm.applyState != applyIdle {
+		t.Errorf("after apply error, applyState = %v; want applyIdle", mm.applyState)
+	}
+	if !strings.Contains(mm.status, "kaboom") {
+		t.Errorf("status = %q; expected error text", mm.status)
+	}
+	if mm.statusLvl != statusError {
+		t.Errorf("statusLvl should be error after apply failure")
+	}
+}
+
+func TestPlanMode_pressA_withoutApplier_noop(t *testing.T) {
+	m := plannedReady(t)
+	// Applier is nil.
+	_, cmd := m.Update(key("A"))
+	if cmd != nil {
+		t.Errorf("expected nil cmd when Applier is nil; got %v", cmd)
+	}
+	if m.applyState != applyIdle {
+		t.Errorf("applyState should remain idle; got %v", m.applyState)
+	}
+}

@@ -24,12 +24,14 @@ Candidates considered:
 
 ## Decision
 
-**Two-pane layout** (left: variable list in declaration order; right: editor
-for selected variable). Status pane at the bottom for validation and plan
-errors. Plan view replaces the right pane when triggered.
+**Two-pane layout** (left: variable list sorted by priority group; right:
+editor for selected variable). Status pane at the bottom for validation and
+plan errors. Plan view replaces the right pane when triggered.
 
-Without a manifest grouping mechanism, variables appear in declaration order
-in a flat list.
+Variables are sorted into three groups, each alphabetically ordered within:
+1. Required variables (no default)
+2. Non-object-map optionals
+3. Object-map optionals (`map(object(…))`)
 
 ## Alternatives considered
 
@@ -74,8 +76,10 @@ maintainer-free ordering.
 - Bubble Tea models compose naturally: a top-level model owns the left/right
   pane state, the status pane, and the active sub-model (editor or plan
   view).
-- Variables appear in declaration order in a flat list.
-  No manifest authoring needed for a sensible left-pane order.
+- Variables are sorted into three priority groups (required first, then
+  non-object-map optionals, then object-map optionals), alphabetically
+  within each group. No manifest authoring needed for a sensible left-pane
+  order.
 - Modified-vs-default markers appear in the left pane: `[ ]` at default,
   `[✓]` modified, `[✓N]` for object variables with N modified fields.
   Required-but-unset variables get `[!]`.

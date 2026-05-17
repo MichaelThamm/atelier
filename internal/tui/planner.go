@@ -24,6 +24,14 @@ type Planner interface {
 	Plan(ctx context.Context) (*tfjson.Plan, error)
 }
 
+// Applier is the narrow interface the TUI needs to apply a saved plan.
+// Separated from Planner so the capability can be independently stubbed or
+// disabled.
+type Applier interface {
+	// Apply runs `terraform apply` using the most recent saved plan file.
+	Apply(ctx context.Context) error
+}
+
 // TfexecPlanner is the production Planner: it shells out via terraform-exec
 // against a wrapper directory.
 type TfexecPlanner struct {
@@ -92,4 +100,16 @@ func (p *TfexecPlanner) Plan(ctx context.Context) (*tfjson.Plan, error) {
 		return nil, err
 	}
 	return plan, nil
+}
+
+// Apply applies the most recent saved plan file from the cache directory.
+func (p *TfexecPlanner) Apply(ctx context.Context) error {
+	if p == nil || p.Tf == nil {
+		return errors.New("applier not configured")
+	}
+	planFile := filepath.Join(p.WrapperDir, ".atelier", "cache", "plan.tfplan")
+	if _, err := os.Stat(planFile); err != nil {
+		return fmt.Errorf("no saved plan file: %w", err)
+	}
+	return p.Tf.Apply(ctx, planFile)
 }

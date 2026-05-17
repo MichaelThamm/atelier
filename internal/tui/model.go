@@ -54,6 +54,10 @@ type Model struct {
 	// produces a friendly status message in that case.
 	Planner Planner
 
+	// Applier runs `terraform apply` when the user presses A from the plan
+	// view. May be nil; the A key is hidden if unset.
+	Applier Applier
+
 	// plan tree + cursor when planState == planReady.
 	planState    planState
 	plan         *tfjson.Plan
@@ -61,6 +65,10 @@ type Model struct {
 	planCursor   int
 	planErr      string
 	planSpinnerFrame int
+
+	// applyState tracks the apply flow (idle → loading → done/error).
+	applyState applyState
+	applyErr   string
 
 	// quitSignal: when set, the runtime tea.Quit will follow.
 	quit bool
@@ -98,6 +106,15 @@ const (
 	planIdle planState = iota
 	planLoading
 	planReady
+)
+
+// applyState tracks the terraform apply lifecycle.
+type applyState int
+
+const (
+	applyIdle applyState = iota
+	applyLoading
+	applyDone
 )
 
 // spinnerFrames is the visible animation for the in-flight plan indicator.
@@ -200,6 +217,14 @@ type refSwitchErrorMsg struct {
 	err error
 }
 
+// applyResultMsg signals a successful terraform apply.
+type applyResultMsg struct{}
+
+// applyErrorMsg carries an apply failure back to the UI thread.
+type applyErrorMsg struct {
+	err error
+}
+
 // startPlan composes the async pipeline behind the P key: save state, run
 // `terraform init` if needed, run `terraform plan`, return the parsed plan.
 // Errors are funnelled through planErrorMsg so the UI can surface them
@@ -236,6 +261,24 @@ func spinnerTick() tea.Cmd {
 	return tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg {
 		return spinnerTickMsg(t)
 	})
+}
+
+// startApply runs `terraform apply` using the cached plan file.
+func (m *Model) startApply() tea.Cmd {
+	if m.Applier == nil {
+		return func() tea.Msg {
+			return applyErrorMsg{err: fmt.Errorf("apply unavailable: applier not configured")}
+		}
+	}
+	applier := m.Applier
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		if err := applier.Apply(ctx); err != nil {
+			return applyErrorMsg{err: err}
+		}
+		return applyResultMsg{}
+	}
 }
 
 // startRefSwitch runs the ref switch in a goroutine and returns result/error
@@ -281,10 +324,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusAt = time.Now()
 		return m, nil
 	case spinnerTickMsg:
-		if m.planState == planLoading || m.refSwitching {
+		if m.planState == planLoading || m.refSwitching || m.applyState == applyLoading {
 			m.planSpinnerFrame = (m.planSpinnerFrame + 1) % len(spinnerFrames)
 			return m, spinnerTick()
 		}
+		return m, nil
+	case applyResultMsg:
+		m.applyState = applyDone
+		m.applyErr = ""
+		m.status = "apply succeeded"
+		m.statusLvl = statusInfo
+		m.statusAt = time.Now()
+		// Invalidate the plan — it has been consumed.
+		m.planState = planIdle
+		m.plan = nil
+		m.planTree = nil
+		return m, nil
+	case applyErrorMsg:
+		m.applyState = applyIdle
+		m.applyErr = msg.err.Error()
+		m.status = "apply failed: " + msg.err.Error()
+		m.statusDetail = msg.err.Error()
+		m.statusLvl = statusError
+		m.statusAt = time.Now()
 		return m, nil
 	case refSwitchResultMsg:
 		m.applyRefSwitch(msg.result)
@@ -316,6 +378,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// Error detail modal: takes priority over all other views.
+	if m.errorDetail {
+		if msg.String() == "esc" || msg.String() == "q" || msg.String() == "e" || msg.String() == "E" {
+			m.errorDetail = false
+		}
+		return m, nil
+	}
+
 	// Plan-mode interception: when a plan is on screen, the tree owns most
 	// keys. Editor / list keys are unreachable until Esc returns the user
 	// to the normal layout.
@@ -344,13 +414,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	// While ref switch is in flight only Ctrl+C does anything.
 	if m.refSwitching {
-		return m, nil
-	}
-	// Error detail modal: Esc dismisses.
-	if m.errorDetail {
-		if msg.String() == "esc" || msg.String() == "q" || msg.String() == "e" || msg.String() == "E" {
-			m.errorDetail = false
-		}
 		return m, nil
 	}
 
@@ -436,6 +499,19 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.planState = planLoading
 		m.planErr = ""
 		return m, tea.Batch(m.startPlan(), spinnerTick())
+	case "a", "A":
+		// Apply the current plan.
+		if m.Applier != nil && m.applyState != applyLoading {
+			m.applyState = applyLoading
+			m.applyErr = ""
+			return m, tea.Batch(m.startApply(), spinnerTick())
+		}
+	case "e", "E":
+		// Open error detail modal when an error is present.
+		if m.statusLvl == statusError && m.statusDetail != "" {
+			m.errorDetail = true
+			return m, nil
+		}
 	case "up", "k":
 		m.movePlanCursor(-1)
 	case "down", "j":
@@ -699,11 +775,11 @@ func (m *Model) View() string {
 		return "Loading…"
 	}
 
-	if m.planState == planReady {
-		return m.renderPlanScreen()
-	}
 	if m.errorDetail {
 		return m.renderErrorDetail()
+	}
+	if m.planState == planReady {
+		return m.renderPlanScreen()
 	}
 	if m.presetPicker {
 		return m.renderPresetPicker()

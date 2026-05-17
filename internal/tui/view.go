@@ -77,6 +77,12 @@ func (m *Model) renderRightPane() string {
 func (m *Model) renderStatus() string {
 	var left string
 	switch {
+	case m.applyState == applyLoading:
+		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
+		left = fmt.Sprintf("%s %s · %s",
+			styleStatusBusy.Render(frame),
+			styleStatusBusy.Render("Running terraform apply…"),
+			m.moduleBanner())
 	case m.planState == planLoading:
 		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
 		left = fmt.Sprintf("%s %s · %s",
@@ -111,7 +117,15 @@ func (m *Model) statusHints() string {
 	case planLoading:
 		return "[Esc] cancel"
 	case planReady:
-		return "[↑↓] navigate  [Enter] toggle  [P] re-plan  [Esc] back"
+		hints := "[↑↓] navigate  [Enter] toggle  [P] re-plan"
+		if m.Applier != nil && m.applyState != applyLoading {
+			hints += "  [A] apply"
+		}
+		if m.statusLvl == statusError && m.statusDetail != "" {
+			hints += "  [E] error"
+		}
+		hints += "  [Esc] back"
+		return hints
 	}
 	hints := "[Tab] switch pane  [^R] reset  [P] plan"
 	if len(m.presets) > 0 {

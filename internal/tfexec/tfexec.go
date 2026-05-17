@@ -1,9 +1,7 @@
 // Package tfexec wraps hashicorp/terraform-exec to give Atelier a narrow,
 // testable surface over the Terraform binary: locate it, query its version,
-// run init / validate / providers schema / plan, and parse the JSON output.
-//
-// Atelier never runs `terraform apply` (ADR-0002); that surface is
-// deliberately absent.
+// run init / validate / providers schema / plan / apply, and parse the JSON
+// output.
 package tfexec
 
 import (
@@ -117,6 +115,11 @@ func (t *Terraform) Plan(ctx context.Context, planFile string) (*tfjson.Plan, bo
 		return nil, hasChanges, fmt.Errorf("terraform show -json: %w", err)
 	}
 	return plan, hasChanges, nil
+}
+
+// Apply runs `terraform apply <planFile>` using a previously saved plan.
+func (t *Terraform) Apply(ctx context.Context, planFile string) error {
+	return t.tf.Apply(ctx, tfexec.DirOrPlan(planFile))
 }
 
 // SetEnv configures additional environment variables on the underlying

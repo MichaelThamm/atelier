@@ -28,9 +28,8 @@ Atelier:
    `providers.tf`, supporting files, and a `.gitignore`.
 6. On user request, runs `terraform plan` against the wrapper and renders the
    result inline.
-
-Atelier does not run `terraform apply`. The wrapper is the user's to apply via
-their existing workflow.
+7. On user request (after a successful plan), runs `terraform apply` using
+   the cached plan file.
 
 ## 2. Goals and non-goals
 
@@ -45,9 +44,6 @@ their existing workflow.
 - Distribute as a single static Go binary; package as a snap.
 
 ### v1 non-goals
-
-- Running `terraform apply` from inside the TUI. The wrapper is the user's
-  artifact; apply happens outside Atelier.
 - Authenticated git access. Public repositories only in v1; private
   repositories deferred.
 - Sensitive secret handling beyond variable-indirection with a gitignored
@@ -266,7 +262,10 @@ The TUI is a two-pane layout with a status pane at the bottom.
 
 ### 7.1 Left pane — variable list
 
-- Variables appear in declaration order.
+- Variables are sorted into three groups, alphabetically within each:
+  1. Required variables (no default)
+  2. Non-object-map optionals
+  3. Object-map optionals (`map(object(…))`)
 - Each variable has a modified-vs-default marker:
   - `[ ]` — at default
   - `[✓]` — modified
@@ -289,8 +288,8 @@ The TUI is a two-pane layout with a status pane at the bottom.
 - Persistent indicators:
   - Validation status: `✓ Valid` or `N errors`.
   - Module info: candidate name, ref (literal), resolved SHA short form.
-  - Key hints: `[P] Plan`, `[R] Ref`, `[E] Error` (when error present),
-    `[Esc] Back`.
+  - Key hints: `[P] Plan`, `[A] Apply` (when plan is ready), `[R] Ref`,
+    `[E] Error` (when error present), `[Esc] Back`.
 - When validation or plan emits errors, the first line of the error is shown
   in the status bar. Pressing `E` opens a full-screen error detail modal
   with the complete multi-line output; `Esc` dismisses it.
@@ -327,6 +326,10 @@ Plan: 12 to add, 0 to change, 0 to destroy.
 
 - Resources grouped by module path (collapsible) then resource type.
 - Selecting a leaf opens an attribute diff in a side pane.
+- Pressing `A` from the plan view runs `terraform apply` using the cached
+  plan file. A spinner shows progress; success invalidates the plan (since
+  the infrastructure now matches). Errors are surfaced in the status bar
+  and viewable via `E`.
 - `Esc` returns to the editor.
 - Inline per-attribute diffs *inside* tree nodes are out of scope for v1; see
   [ADR-0011](adr/0011-plan-output-tree.md).
