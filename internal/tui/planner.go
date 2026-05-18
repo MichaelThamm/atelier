@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	uptfexec "github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/canonical/atelier/internal/tfexec"
@@ -37,6 +38,13 @@ type Applier interface {
 type Validator interface {
 	// Validate runs `terraform validate -json` and returns diagnostics.
 	Validate(ctx context.Context) (*tfjson.ValidateOutput, error)
+}
+
+// OutputProvider is the narrow interface the TUI needs to fetch terraform
+// outputs after a successful apply or on demand.
+type OutputProvider interface {
+	// Output runs `terraform output -json` and returns the output map.
+	Output(ctx context.Context) (map[string]uptfexec.OutputMeta, error)
 }
 
 // TfexecPlanner is the production Planner: it shells out via terraform-exec
@@ -127,4 +135,12 @@ func (p *TfexecPlanner) Validate(ctx context.Context) (*tfjson.ValidateOutput, e
 		return nil, errors.New("validator not configured")
 	}
 	return p.Tf.Validate(ctx)
+}
+
+// Output runs `terraform output -json` against the wrapper directory.
+func (p *TfexecPlanner) Output(ctx context.Context) (map[string]uptfexec.OutputMeta, error) {
+	if p == nil || p.Tf == nil {
+		return nil, errors.New("output provider not configured")
+	}
+	return p.Tf.Output(ctx)
 }

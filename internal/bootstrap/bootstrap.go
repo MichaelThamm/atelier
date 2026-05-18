@@ -138,6 +138,10 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 	if err != nil {
 		return nil, fmt.Errorf("read required_providers: %w", err)
 	}
+	outputNames, err := wrapper.DiscoverOutputNames(candidateDir)
+	if err != nil {
+		return nil, fmt.Errorf("read outputs: %w", err)
+	}
 	wrappedSource := composeSource(sourceURL, modulePath, literalRef)
 
 	providers := defaultProviderBlocks(req)
@@ -150,6 +154,7 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 		Values:            values,
 		Providers:         providers,
 		RequiredProviders: req,
+		OutputNames:       outputNames,
 	}
 	return state, nil
 }
@@ -228,6 +233,7 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		RequiredProviders: state.RequiredProviders,
 		Providers:         state.Providers,
 		Variables:         convertVariables(state.Vars),
+		OutputNames:       state.OutputNames,
 	}); err != nil {
 		return nil, fmt.Errorf("wrapper bootstrap: %w", err)
 	}
@@ -303,6 +309,12 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 	state, err := PrepareState(wrapperDir, cloneDir, prev.ModuleCandidatePath, currentSHA, prev.LiteralRef, prev.SourceURL)
 	if err != nil {
 		return nil, err
+	}
+
+	// Ensure outputs.tf exists for wrappers bootstrapped before output
+	// forwarding was implemented.
+	if err := wrapper.EnsureOutputs(wrapperDir, state.ModuleBlockName, state.OutputNames); err != nil {
+		return nil, fmt.Errorf("ensure outputs.tf: %w", err)
 	}
 
 	// Overlay user values from main.tf.

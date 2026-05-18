@@ -8,12 +8,14 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	uptfexec "github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
@@ -62,6 +64,10 @@ type Model struct {
 	// nil; validation is skipped if unset.
 	Validator Validator
 
+	// OutputProvider fetches terraform outputs after apply or on demand.
+	// May be nil; the O key is hidden if unset.
+	OutputProvider OutputProvider
+
 	// plan tree + cursor when planState == planReady.
 	planState    planState
 	plan         *tfjson.Plan
@@ -73,6 +79,11 @@ type Model struct {
 	// applyState tracks the apply flow (idle → loading → done/error).
 	applyState applyState
 	applyErr   string
+
+	// outputs holds the result of `terraform output -json` fetched after
+	// apply or on demand via O key. Displayed until dismissed.
+	outputs      map[string]uptfexec.OutputMeta
+	outputsReady bool // true when the output view is showing
 
 	// validateGen is a generation counter incremented on every edit. The
 	// debounce tick carries the generation at scheduling time; if the model's
@@ -237,6 +248,16 @@ type applyErrorMsg struct {
 	err error
 }
 
+// outputResultMsg carries terraform output data back to the UI thread.
+type outputResultMsg struct {
+	outputs map[string]uptfexec.OutputMeta
+}
+
+// outputErrorMsg signals that fetching outputs failed (non-fatal).
+type outputErrorMsg struct {
+	err error
+}
+
 // validateDebounceMsg fires after the debounce delay. The gen field is
 // compared against Model.validateGen to detect stale ticks.
 type validateDebounceMsg struct {
@@ -306,6 +327,23 @@ func (m *Model) startApply() tea.Cmd {
 			return applyErrorMsg{err: err}
 		}
 		return applyResultMsg{}
+	}
+}
+
+// startFetchOutputs runs `terraform output -json` asynchronously.
+func (m *Model) startFetchOutputs() tea.Cmd {
+	if m.OutputProvider == nil {
+		return nil
+	}
+	provider := m.OutputProvider
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		out, err := provider.Output(ctx)
+		if err != nil {
+			return outputErrorMsg{err: err}
+		}
+		return outputResultMsg{outputs: out}
 	}
 }
 
@@ -400,6 +438,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.planState = planIdle
 		m.plan = nil
 		m.planTree = nil
+		// Fetch outputs after successful apply.
+		return m, m.startFetchOutputs()
+	case outputResultMsg:
+		m.outputs = msg.outputs
+		m.outputsReady = true
+		return m, nil
+	case outputErrorMsg:
+		// Non-fatal: just note in status bar.
+		m.status = "apply succeeded (outputs unavailable)"
+		m.statusLvl = statusInfo
+		m.statusAt = time.Now()
 		return m, nil
 	case applyErrorMsg:
 		m.applyState = applyIdle
@@ -482,6 +531,15 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.errorDetail {
 		if msg.String() == "esc" || msg.String() == "q" || msg.String() == "e" || msg.String() == "E" {
 			m.errorDetail = false
+		}
+		return m, nil
+	}
+
+	// Output view: dismiss with Esc or q.
+	if m.outputsReady {
+		if msg.String() == "esc" || msg.String() == "q" {
+			m.outputsReady = false
+			m.outputs = nil
 		}
 		return m, nil
 	}
@@ -615,6 +673,16 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			m.errorDetail = true
 			return m, nil
+		}
+	case "o", "O":
+		// Prefer planned outputs (available before apply).
+		if m.plan != nil && len(m.plan.OutputChanges) > 0 {
+			m.showPlanOutputs()
+			return m, nil
+		}
+		// Fall back to terraform output (reads from state, requires prior apply).
+		if m.OutputProvider != nil {
+			return m, m.startFetchOutputs()
 		}
 	case "up", "k":
 		m.movePlanCursor(-1)
@@ -891,6 +959,9 @@ func (m *Model) View() string {
 	if m.errorDetail {
 		return m.renderErrorDetail()
 	}
+	if m.outputsReady {
+		return m.renderOutputView()
+	}
 	if m.planState == planReady {
 		return m.renderPlanScreen()
 	}
@@ -944,6 +1015,29 @@ func (m *Model) moduleBanner() string {
 		parts = append(parts, fmt.Sprintf("(%s)", shortSHA(m.ResolvedSHA)))
 	}
 	return strings.Join(parts, " ")
+}
+
+// showPlanOutputs converts the plan's OutputChanges into the outputs map
+// and activates the output view, allowing the user to see planned outputs
+// before apply (when no state exists yet).
+func (m *Model) showPlanOutputs() {
+	outputs := make(map[string]uptfexec.OutputMeta, len(m.plan.OutputChanges))
+	for name, change := range m.plan.OutputChanges {
+		var meta uptfexec.OutputMeta
+		if b, ok := change.AfterSensitive.(bool); ok && b {
+			meta.Sensitive = true
+		}
+		if change.After != nil {
+			if raw, err := json.Marshal(change.After); err == nil {
+				meta.Value = raw
+			}
+		} else {
+			meta.Value = json.RawMessage(`"(known after apply)"`)
+		}
+		outputs[name] = meta
+	}
+	m.outputs = outputs
+	m.outputsReady = true
 }
 
 // formatValidateDiagnostics renders validate diagnostics into a multi-line

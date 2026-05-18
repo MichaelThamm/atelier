@@ -56,6 +56,7 @@ type BootstrapOptions struct {
 	RequiredProviders map[string]RequiredProvider
 	Providers       []ProviderBlock
 	Variables       []TFVar // tfvars.Variable satisfies this interface.
+	OutputNames     []string // Module output names to forward in outputs.tf.
 }
 
 // TFVar is the small interface bootstrap consumes from a tfvars.Variable —
@@ -105,6 +106,9 @@ func Bootstrap(opts BootstrapOptions) error {
 		return err
 	}
 	if err := bootstrapVariablesTF(opts); err != nil {
+		return err
+	}
+	if err := bootstrapOutputs(opts); err != nil {
 		return err
 	}
 	return nil

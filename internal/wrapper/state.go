@@ -56,6 +56,10 @@ type State struct {
 	// wrapper picks up the right plugin versions.
 	RequiredProviders map[string]RequiredProvider
 
+	// OutputNames lists the module's declared output names (sorted
+	// alphabetically). Atelier forwards these in the wrapper's outputs.tf.
+	OutputNames []string
+
 	// UnknownAttrs holds any attributes inside the module {} block Atelier
 	// didn't recognise (count, for_each, providers, depends_on, etc.). They
 	// are preserved verbatim across saves (ADR-0007 §10.2).

@@ -122,6 +122,11 @@ func (t *Terraform) Apply(ctx context.Context, planFile string) error {
 	return t.tf.Apply(ctx, tfexec.DirOrPlan(planFile))
 }
 
+// Output runs `terraform output -json` and returns the parsed output map.
+func (t *Terraform) Output(ctx context.Context) (map[string]tfexec.OutputMeta, error) {
+	return t.tf.Output(ctx)
+}
+
 // SetEnv configures additional environment variables on the underlying
 // tfexec runner.
 func (t *Terraform) SetEnv(env map[string]string) error {
