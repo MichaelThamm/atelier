@@ -14,7 +14,7 @@ rather than a wall of options. Defaults handle the rest, and plan diffs show exa
 
 ```bash
 # Any public git repo containing Terraform modules works:
-atelier init https://github.com/terraform-aws-modules/terraform-aws-s3-bucket.git
+atelier init https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 atelier init https://github.com/canonical/observability-stack.git
 
 # Re-open an existing wrapper:
