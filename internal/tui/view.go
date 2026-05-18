@@ -55,9 +55,12 @@ func (m *Model) renderModalFrame(title, body, footer string) string {
 // renderLeftPane draws the variable list inside a bordered panel.
 func (m *Model) renderLeftPane() string {
 	const leftWidth = 32
-	// Max chars available for the line content inside the panel border.
+	// Max visual chars for line content inside the panel border.
 	// Border takes 2 chars (left+right), leaving leftWidth-2 for content.
-	const maxLineLen = leftWidth - 2
+	const maxVisualWidth = leftWidth - 2
+	// The marker "[ ]" or "[✓]" is 3 display chars, plus 2 spaces = 5.
+	const prefixWidth = 5
+	const maxNameWidth = maxVisualWidth - prefixWidth
 	var b strings.Builder
 
 	visible := m.leftPaneVisibleRows()
@@ -70,11 +73,12 @@ func (m *Model) renderLeftPane() string {
 	for i := start; i < end; i++ {
 		r := m.rows[i]
 		marker := varMarker(m.State, r.VarName)
-		line := fmt.Sprintf("%s  %s", marker, r.VarName)
-		// Truncate to prevent wrapping — keeps 1 row = 1 visual line.
-		if len(line) > maxLineLen {
-			line = line[:maxLineLen-1] + "…"
+		name := r.VarName
+		// Truncate the variable name to prevent wrapping.
+		if len(name) > maxNameWidth {
+			name = name[:maxNameWidth-1] + "…"
 		}
+		line := fmt.Sprintf("%s  %s", marker, name)
 		if i == m.cursor {
 			if m.focus == focusLeft {
 				line = styleCursorActive.Render(line)
@@ -87,6 +91,11 @@ func (m *Model) renderLeftPane() string {
 	content := b.String()
 	if content == "" {
 		content = styleDescription.Render("(no variables)")
+	}
+	// Pad content to exactly panelHeight lines so both panels align.
+	lines := strings.Count(content, "\n")
+	if lines < m.panelHeight() {
+		content += strings.Repeat("\n", m.panelHeight()-lines)
 	}
 	panel := m.panelStyle(focusLeft)
 	return panel.Width(leftWidth).Height(m.panelHeight()).Render(content)
@@ -125,6 +134,11 @@ func (m *Model) renderRightPane() string {
 	rightWidth := m.width - 38
 	if rightWidth < 20 {
 		rightWidth = 20
+	}
+	// Pad content to exactly panelHeight lines so both panels align.
+	lines := strings.Count(content, "\n")
+	if lines < m.panelHeight() {
+		content += strings.Repeat("\n", m.panelHeight()-lines)
 	}
 	panel := m.panelStyle(focusRight)
 	return panel.Width(rightWidth).Height(m.panelHeight()).Render(content)
@@ -294,8 +308,10 @@ func (m *Model) bodyHeight() int {
 	if m.height < 9 {
 		return 1
 	}
-	// Reserve 3 lines for header (border+content+border) + 3 for footer.
-	return m.height - 6
+	// Reserve 3 lines for header (border+content+border) + 3 for footer
+	// + 1 extra to prevent overflow in terminals that report height
+	// inclusive of the cursor line.
+	return m.height - 7
 }
 
 // renderErrorDetail renders a centered modal showing the complete error output.

@@ -148,7 +148,7 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 	values := map[string]cty.Value{}
 	state := &wrapper.State{
 		Dir:               wrapperDir,
-		ModuleBlockName:   moduleBlockName(modulePath),
+		ModuleBlockName:   moduleBlockName(modulePath, repoBasename(sourceURL)),
 		Source:            wrappedSource,
 		Vars:              vars,
 		Values:            values,
@@ -505,8 +505,12 @@ func decomposeSource(s string) (url, ref string) {
 }
 
 // moduleBlockName derives a valid HCL identifier from a directory path.
-func moduleBlockName(modulePath string) string {
+// When the path is "." (root module), fallbackName is used instead.
+func moduleBlockName(modulePath, fallbackName string) string {
 	base := filepath.Base(modulePath)
+	if base == "" || base == "." {
+		base = fallbackName
+	}
 	if base == "" || base == "." {
 		base = "this"
 	}

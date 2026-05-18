@@ -62,17 +62,19 @@ func TestDecomposeSource(t *testing.T) {
 }
 
 func TestModuleBlockName(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"terraform/cos-lite", "cos_lite"},
-		{"cos", "cos"},
-		{"terraform/123numeric", "m123numeric"},
-		{"weird-name!", "weird_name"},
-		{".", "this"},
-		{"", "this"},
+	cases := []struct{ in, fallback, want string }{
+		{"terraform/cos-lite", "", "cos_lite"},
+		{"cos", "", "cos"},
+		{"terraform/123numeric", "", "m123numeric"},
+		{"weird-name!", "", "weird_name"},
+		{".", "", "this"},
+		{"", "", "this"},
+		{".", "terraform-aws-s3-bucket", "terraform_aws_s3_bucket"},
+		{".", "observability-stack", "observability_stack"},
 	}
 	for _, c := range cases {
-		if got := moduleBlockName(c.in); got != c.want {
-			t.Errorf("moduleBlockName(%q) = %q, want %q", c.in, got, c.want)
+		if got := moduleBlockName(c.in, c.fallback); got != c.want {
+			t.Errorf("moduleBlockName(%q, %q) = %q, want %q", c.in, c.fallback, got, c.want)
 		}
 	}
 }

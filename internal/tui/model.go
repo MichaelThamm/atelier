@@ -883,6 +883,14 @@ func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(-1)
 	case "down", "j":
 		m.moveCursor(+1)
+	case "pgup", "ctrl+u":
+		m.moveCursor(-m.leftPaneVisibleRows() / 2)
+	case "pgdown", "ctrl+d":
+		m.moveCursor(m.leftPaneVisibleRows() / 2)
+	case "home", "g":
+		m.moveCursor(-len(m.rows))
+	case "end", "G":
+		m.moveCursor(len(m.rows))
 	case "enter", "right", "l":
 		m.focus = focusRight
 		return m, nil
