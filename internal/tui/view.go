@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/tftypes"
-	"github.com/canonical/atelier/internal/wrapper"
+	"github.com/MichaelThamm/atelier/internal/tftypes"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // styleModalFrame is the bordered box used by all overlay modals.

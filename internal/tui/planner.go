@@ -10,7 +10,7 @@ import (
 	uptfexec "github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/canonical/atelier/internal/tfexec"
+	"github.com/MichaelThamm/atelier/internal/tfexec"
 )
 
 // Planner is the narrow interface the TUI needs from a terraform executor.

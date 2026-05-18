@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/canonical/atelier/internal/manifest"
+	"github.com/MichaelThamm/atelier/internal/manifest"
 )
 
 func mkdir(t *testing.T, path string) {

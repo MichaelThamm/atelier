@@ -10,8 +10,8 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/tfvars"
-	"github.com/canonical/atelier/internal/wrapper"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // The theme tests assert behaviours that the palette is meant to encode —

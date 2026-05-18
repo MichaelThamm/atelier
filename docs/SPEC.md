@@ -637,7 +637,7 @@ See [ADR-0002](adr/0002-author-and-plan-scope.md).
 - Single static binary. Release tarballs for `linux/amd64` and `linux/arm64`
   at minimum.
 - Snap package using the `home` plug for filesystem access.
-- `go install github.com/canonical/atelier@latest` for development users.
+- `go install github.com/MichaelThamm/atelier@latest` for development users.
 
 ### 14.3 Aesthetics
 

@@ -18,12 +18,12 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/candidate"
-	"github.com/canonical/atelier/internal/gitops"
-	"github.com/canonical/atelier/internal/manifest"
-	"github.com/canonical/atelier/internal/session"
-	"github.com/canonical/atelier/internal/tfvars"
-	"github.com/canonical/atelier/internal/wrapper"
+	"github.com/MichaelThamm/atelier/internal/candidate"
+	"github.com/MichaelThamm/atelier/internal/gitops"
+	"github.com/MichaelThamm/atelier/internal/manifest"
+	"github.com/MichaelThamm/atelier/internal/session"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // InitOptions captures the inputs to `atelier init <source>`.

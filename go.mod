@@ -1,4 +1,4 @@
-module github.com/canonical/atelier
+module github.com/MichaelThamm/atelier
 
 go 1.25.0
 

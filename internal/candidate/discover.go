@@ -22,7 +22,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/manifest"
+	"github.com/MichaelThamm/atelier/internal/manifest"
 )
 
 // Candidate is one discovered module candidate.

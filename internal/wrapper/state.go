@@ -14,7 +14,7 @@ package wrapper
 import (
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
 
 // State is Atelier's in-memory model of the wrapper. It does not embed file

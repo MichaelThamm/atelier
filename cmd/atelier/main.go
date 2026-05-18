@@ -25,13 +25,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/bootstrap"
-	"github.com/canonical/atelier/internal/manifest"
-	"github.com/canonical/atelier/internal/session"
-	"github.com/canonical/atelier/internal/tfexec"
-	"github.com/canonical/atelier/internal/tfvars"
-	"github.com/canonical/atelier/internal/tui"
-	"github.com/canonical/atelier/internal/wrapper"
+	"github.com/MichaelThamm/atelier/internal/bootstrap"
+	"github.com/MichaelThamm/atelier/internal/manifest"
+	"github.com/MichaelThamm/atelier/internal/session"
+	"github.com/MichaelThamm/atelier/internal/tfexec"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/tui"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 const usage = `Atelier — a terminal UI for configuring Terraform modules.
