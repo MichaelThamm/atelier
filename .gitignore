@@ -6,3 +6,4 @@ terraform.tfstate.backup
 *.tfstate
 *.tfstate.backup
 secrets.auto.tfvars
+*.snap
