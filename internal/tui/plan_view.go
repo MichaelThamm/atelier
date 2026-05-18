@@ -17,9 +17,10 @@ func (m *Model) renderPlanScreen() string {
 	tree := m.renderPlanTree()
 	diff := m.renderPlanDiff()
 
+	header := m.renderHeader()
+	footer := m.renderFooter()
 	body := lipgloss.JoinHorizontal(lipgloss.Top, tree, diff)
-	status := m.renderStatus()
-	return lipgloss.JoinVertical(lipgloss.Left, summary, body, status)
+	return lipgloss.JoinVertical(lipgloss.Left, header, summary, body, footer)
 }
 
 // renderPlanTree draws the collapsible module → type → resource tree on
@@ -156,10 +157,10 @@ func joinActions(c *tfjson.Change) string {
 }
 
 // planBodyHeight is the height of the plan-screen body (tree + diff pane),
-// reserving one line for the summary header and one for the status bar.
+// reserving one line each for header, summary, and footer.
 func (m *Model) planBodyHeight() int {
 	if m.height < 6 {
 		return 1
 	}
-	return m.height - 2
+	return m.height - 3
 }

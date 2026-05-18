@@ -998,10 +998,11 @@ func (m *Model) View() string {
 	}
 	left := m.renderLeftPane()
 	right := m.renderRightPane()
-	status := m.renderStatus()
+	header := m.renderHeader()
+	footer := m.renderFooter()
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-	return lipgloss.JoinVertical(lipgloss.Left, body, status)
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
 
 func abs(x int) int {

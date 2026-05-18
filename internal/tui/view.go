@@ -11,6 +11,47 @@ import (
 	"github.com/canonical/atelier/internal/wrapper"
 )
 
+// styleModalFrame is the bordered box used by all overlay modals.
+var styleModalFrame = lipgloss.NewStyle().
+	Border(lipgloss.RoundedBorder()).
+	BorderForeground(colorFaint).
+	Padding(1, 2)
+
+// renderModalFrame renders a consistent overlay with a bordered frame, title,
+// body content, and a footer hint line. All modals should use this for visual
+// cohesion.
+func (m *Model) renderModalFrame(title, body, footer string) string {
+	titleLine := styleVarHeader.Render(title)
+	footerLine := styleHelp.Render(footer)
+
+	// Inner width = terminal width minus border (2) and padding (4).
+	innerW := m.width - 8
+	if innerW < 30 {
+		innerW = 30
+	}
+	// Inner height = terminal height minus border (2), padding (2), title (1), blank (1), footer (1).
+	innerH := m.height - 7
+	if innerH < 3 {
+		innerH = 3
+	}
+
+	// Truncate body to fit the available height.
+	lines := strings.Split(body, "\n")
+	if len(lines) > innerH {
+		lines = lines[:innerH]
+	}
+	visibleBody := strings.Join(lines, "\n")
+
+	content := titleLine + "\n\n" + visibleBody + "\n\n" + footerLine
+
+	frame := styleModalFrame.
+		Width(innerW).
+		Render(content)
+
+	// Center the frame in the terminal.
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, frame)
+}
+
 // renderLeftPane draws the variable list with per-variable modification
 // markers. The active-pane cursor row uses a background highlight; the
 // inactive pane uses a quieter accented version.
@@ -72,39 +113,11 @@ func (m *Model) renderRightPane() string {
 	return stylePaneRight.Width(rightWidth).Height(m.bodyHeight()).Render(content)
 }
 
-// renderStatus is the bottom bar. It surfaces the current mode (idle,
-// loading, plan-ready, error) plus module info and contextual key hints.
-func (m *Model) renderStatus() string {
-	var left string
-	switch {
-	case m.applyState == applyLoading:
-		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
-		left = fmt.Sprintf("%s %s · %s",
-			styleStatusBusy.Render(frame),
-			styleStatusBusy.Render("Running terraform apply…"),
-			m.moduleBanner())
-	case m.planState == planLoading:
-		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
-		left = fmt.Sprintf("%s %s · %s",
-			styleStatusBusy.Render(frame),
-			styleStatusBusy.Render("Running terraform plan…"),
-			m.moduleBanner())
-	case m.statusLvl == statusError && m.status != "":
-		// Truncate to first line to keep the status bar single-height.
-		errText := m.status
-		if idx := strings.IndexByte(errText, '\n'); idx >= 0 {
-			errText = errText[:idx]
-		}
-		left = fmt.Sprintf("%s · %s",
-			styleStatusError.Render("✗ "+errText),
-			m.moduleBanner())
-	case m.status != "":
-		left = fmt.Sprintf("%s · %s", m.status, m.moduleBanner())
-	default:
-		left = m.moduleBanner()
-	}
-	// Append validate summary when available and no other error is shown.
-	if m.validateOutput != nil && m.statusLvl != statusError {
+// renderHeader is the top bar showing module context and validate status.
+func (m *Model) renderHeader() string {
+	left := m.moduleBanner()
+	// Append validate summary.
+	if m.validateOutput != nil {
 		if m.validateOutput.Valid {
 			left += "  " + styleHelp.Render("✓ valid")
 		} else {
@@ -115,10 +128,42 @@ func (m *Model) renderStatus() string {
 			left += "  " + styleStatusError.Render(summary)
 		}
 	}
+	leftW := lipgloss.Width(left)
+	padW := 2
+	gap := m.width - leftW - padW
+	if gap < 1 {
+		gap = 1
+	}
+	bar := left + strings.Repeat(" ", gap)
+	return styleHeaderBar.MaxWidth(m.width).Render(bar)
+}
+
+// renderFooter is the bottom bar showing transient status messages and key hints.
+func (m *Model) renderFooter() string {
+	var left string
+	switch {
+	case m.applyState == applyLoading:
+		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
+		left = fmt.Sprintf("%s %s",
+			styleStatusBusy.Render(frame),
+			styleStatusBusy.Render("Running terraform apply…"))
+	case m.planState == planLoading:
+		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
+		left = fmt.Sprintf("%s %s",
+			styleStatusBusy.Render(frame),
+			styleStatusBusy.Render("Running terraform plan…"))
+	case m.statusLvl == statusError && m.status != "":
+		errText := m.status
+		if idx := strings.IndexByte(errText, '\n'); idx >= 0 {
+			errText = errText[:idx]
+		}
+		left = styleStatusError.Render("✗ " + errText)
+	case m.status != "":
+		left = m.status
+	}
 	hints := styleHelp.Render(m.statusHints())
 	hintsW := lipgloss.Width(hints)
 	leftW := lipgloss.Width(left)
-	// styleStatusBar has Padding(0,1) which adds 2 chars of horizontal padding.
 	padW := 2
 	gap := m.width - leftW - hintsW - padW
 	if gap < 1 {
@@ -126,6 +171,11 @@ func (m *Model) renderStatus() string {
 	}
 	bar := left + strings.Repeat(" ", gap) + hints
 	return styleStatusBar.MaxWidth(m.width).Render(bar)
+}
+
+// renderStatus composes the full footer (kept for plan view compatibility).
+func (m *Model) renderStatus() string {
+	return m.renderFooter()
 }
 
 func (m *Model) statusHints() string {
@@ -154,11 +204,9 @@ func (m *Model) statusHints() string {
 	return hints
 }
 
-// renderHelpModal renders a full-screen overlay listing all keyboard shortcuts.
+// renderHelpModal renders a centered overlay listing all keyboard shortcuts.
 func (m *Model) renderHelpModal() string {
 	var b strings.Builder
-	fmt.Fprintln(&b, styleVarHeader.Render("Keyboard shortcuts"))
-	fmt.Fprintln(&b)
 
 	switch {
 	case m.planState == planReady:
@@ -168,7 +216,7 @@ func (m *Model) renderHelpModal() string {
 		if m.Applier != nil {
 			fmt.Fprintln(&b, "  A              Apply the current plan")
 		}
-		if m.OutputProvider != nil {
+		if m.OutputProvider != nil || (m.plan != nil && len(m.plan.OutputChanges) > 0) {
 			fmt.Fprintln(&b, "  O              Show terraform outputs")
 		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
@@ -196,45 +244,26 @@ func (m *Model) renderHelpModal() string {
 
 	fmt.Fprintln(&b, "  Ctrl+C         Quit immediately")
 	fmt.Fprintln(&b, "  ?              Toggle this help")
-	fmt.Fprintln(&b)
-	fmt.Fprint(&b, styleHelp.Render("[Esc] or [?] to close"))
 
-	return lipgloss.NewStyle().
-		Width(m.width).
-		Height(m.height).
-		Render(b.String())
+	return m.renderModalFrame("Keyboard shortcuts", b.String(), "[Esc] or [?] to close")
 }
 
 func (m *Model) bodyHeight() int {
-	if m.height < 4 {
+	if m.height < 5 {
 		return 1
 	}
-	return m.height - 1
+	// Reserve 1 line for header + 1 line for footer.
+	return m.height - 2
 }
 
-// renderErrorDetail renders a full-screen modal showing the complete error
-// output. Invoked by pressing E when an error is present.
+// renderErrorDetail renders a centered modal showing the complete error output.
 func (m *Model) renderErrorDetail() string {
-	var b strings.Builder
-	fmt.Fprintln(&b, styleVarHeader.Render("Error details"))
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, m.statusDetail)
-	fmt.Fprintln(&b)
-	fmt.Fprint(&b, styleHelp.Render("[Esc] close"))
-
-	content := b.String()
-	return lipgloss.NewStyle().
-		Width(m.width).
-		Height(m.height).
-		Render(content)
+	return m.renderModalFrame("Error details", m.statusDetail, "[Esc] close")
 }
 
-// renderPresetPicker renders the full-screen preset picker overlay.
+// renderPresetPicker renders a centered modal for preset selection.
 func (m *Model) renderPresetPicker() string {
 	var b strings.Builder
-	fmt.Fprintln(&b, styleVarHeader.Render("Select a preset"))
-	fmt.Fprintln(&b)
-
 	for i, p := range m.presets {
 		cursor := "  "
 		name := p.Name
@@ -248,15 +277,7 @@ func (m *Model) renderPresetPicker() string {
 		}
 		fmt.Fprintln(&b, line)
 	}
-
-	fmt.Fprintln(&b)
-	fmt.Fprint(&b, styleHelp.Render("[↑↓] select   [Enter] apply   [Esc] cancel"))
-
-	content := b.String()
-	return lipgloss.NewStyle().
-		Width(m.width).
-		Height(m.height).
-		Render(content)
+	return m.renderModalFrame("Select a preset", b.String(), "[↑↓] select   [Enter] apply   [Esc] cancel")
 }
 
 // varMarker returns the modified-vs-default indicator the left pane shows
@@ -296,40 +317,29 @@ func (m *Model) renderRefModal() string {
 
 	if m.refSwitching {
 		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
-		fmt.Fprintln(&b, styleVarHeader.Render("Switching ref"))
-		fmt.Fprintln(&b)
 		fmt.Fprintf(&b, "%s %s\n",
 			styleStatusBusy.Render(frame),
 			styleStatusBusy.Render("Cloning and reinitialising…"))
-	} else {
-		fmt.Fprintln(&b, styleVarHeader.Render("Switch module ref"))
-		fmt.Fprintln(&b)
-		if m.ModuleName != "" {
-			fmt.Fprintf(&b, "Module:  %s\n", styleDescription.Render(m.ModuleName))
-		}
-		if m.SourceURL != "" {
-			fmt.Fprintf(&b, "Source:  %s\n", styleDescription.Render(m.SourceURL))
-		}
-		fmt.Fprintf(&b, "Current: %s", styleDescription.Render(m.LiteralRef))
-		if m.ResolvedSHA != "" {
-			fmt.Fprintf(&b, " (%s)", shortSHA(m.ResolvedSHA))
-		}
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b)
-		fmt.Fprintf(&b, "New ref: %s%s\n", m.refInput, styleCursorActive.Render("▏"))
-		fmt.Fprintln(&b)
-		if m.refErr != "" {
-			fmt.Fprintln(&b, styleStatusError.Render("Error: "+m.refErr))
-			fmt.Fprintln(&b)
-		}
-		fmt.Fprint(&b, styleHelp.Render("[Enter] switch   [Esc] cancel"))
+		return m.renderModalFrame("Switching ref", b.String(), "")
 	}
 
-	content := b.String()
-	return lipgloss.NewStyle().
-		Width(m.width).
-		Height(m.height).
-		PaddingLeft(2).
-		PaddingTop(1).
-		Render(content)
+	if m.ModuleName != "" {
+		fmt.Fprintf(&b, "Module:  %s\n", styleDescription.Render(m.ModuleName))
+	}
+	if m.SourceURL != "" {
+		fmt.Fprintf(&b, "Source:  %s\n", styleDescription.Render(m.SourceURL))
+	}
+	fmt.Fprintf(&b, "Current: %s", styleDescription.Render(m.LiteralRef))
+	if m.ResolvedSHA != "" {
+		fmt.Fprintf(&b, " (%s)", shortSHA(m.ResolvedSHA))
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "New ref: %s%s\n", m.refInput, styleCursorActive.Render("▏"))
+	if m.refErr != "" {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, styleStatusError.Render("Error: "+m.refErr))
+	}
+
+	return m.renderModalFrame("Switch module ref", b.String(), "[Enter] switch   [Esc] cancel")
 }
