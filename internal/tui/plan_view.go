@@ -31,7 +31,7 @@ func (m *Model) renderPlanTree() string {
 	rows := flattenedRows(m.planTree)
 	if len(rows) == 0 {
 		content := styleDescription.Render("No changes.")
-		return stylePaneDivider.Width(leftWidth).Height(m.planBodyHeight()).Render(content)
+		return stylePanelFocused.Width(leftWidth).Height(m.planBodyHeight()).Render(content)
 	}
 
 	var b strings.Builder
@@ -42,7 +42,7 @@ func (m *Model) renderPlanTree() string {
 		}
 		fmt.Fprintln(&b, line)
 	}
-	return stylePaneDivider.Width(leftWidth).Height(m.planBodyHeight()).Render(b.String())
+	return stylePanelFocused.Width(leftWidth).Height(m.planBodyHeight()).Render(b.String())
 }
 
 // renderPlanRow renders one tree row. Module and type rows get a caret
@@ -103,7 +103,7 @@ func (m *Model) renderPlanDiff() string {
 		hint := styleDescription.Render(
 			"Select a resource row to see its attribute diff.\n\n" +
 				"Use ↑/↓ to navigate, Enter to collapse/expand, Esc to return.")
-		return stylePaneRight.Width(rightWidth).Height(m.planBodyHeight()).Render(hint)
+		return stylePanel.Width(rightWidth).Height(m.planBodyHeight()).Render(hint)
 	}
 
 	var b strings.Builder
@@ -120,7 +120,7 @@ func (m *Model) renderPlanDiff() string {
 			fmt.Fprintln(&b, colourisedDiffLine(l))
 		}
 	}
-	return stylePaneRight.Width(rightWidth).Height(m.planBodyHeight()).Render(b.String())
+	return stylePanel.Width(rightWidth).Height(m.planBodyHeight()).Render(b.String())
 }
 
 // colourisedDiffLine renders an AttributeDiffLine with its action marker
@@ -157,10 +157,10 @@ func joinActions(c *tfjson.Change) string {
 }
 
 // planBodyHeight is the height of the plan-screen body (tree + diff pane),
-// reserving one line each for header, summary, and footer.
+// reserving bordered header (3), summary line (1), and bordered footer (3).
 func (m *Model) planBodyHeight() int {
-	if m.height < 6 {
+	if m.height < 10 {
 		return 1
 	}
-	return m.height - 3
+	return m.height - 7
 }

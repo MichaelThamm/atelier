@@ -1001,7 +1001,7 @@ func (m *Model) View() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
 

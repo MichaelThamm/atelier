@@ -102,21 +102,18 @@ var (
 // construct ad-hoc styles.
 
 var (
-	// stylePaneDivider draws the thin vertical separator between left and
-	// right panes. Replaces the heavier lipgloss BorderRight we used to
-	// have.
-	stylePaneDivider = lipgloss.NewStyle().
-				BorderStyle(lipgloss.NormalBorder()).
-				BorderRight(true).
-				BorderForeground(colorFaint).
-				PaddingLeft(1).
-				PaddingRight(1)
+	// stylePanel is the rounded border used for both left and right panes,
+	// matching the modal frame aesthetic.
+	stylePanel = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorFaint).
+			Padding(0, 1)
 
-	// stylePaneRight has no border, just padding so its content sits clear
-	// of the divider.
-	stylePaneRight = lipgloss.NewStyle().
-			PaddingLeft(1).
-			PaddingRight(1)
+	// stylePanelFocused highlights the active pane's border.
+	stylePanelFocused = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(colorPrimary).
+				Padding(0, 1)
 
 	// styleCursorActive is the highlight applied to the cursor row in the
 	// *focused* pane. The dark-on-primary contrast pops against either
@@ -141,12 +138,14 @@ var (
 			Foreground(colorMuted)
 
 	styleStatusBar = lipgloss.NewStyle().
-			Background(colorBgTint).
-			Foreground(colorText).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorFaint).
+			Foreground(colorMuted).
 			Padding(0, 1)
 
 	styleHeaderBar = lipgloss.NewStyle().
-			Background(colorBgMantle).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorPrimary).
 			Foreground(colorText).
 			Bold(true).
 			Padding(0, 1)

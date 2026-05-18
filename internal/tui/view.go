@@ -52,9 +52,7 @@ func (m *Model) renderModalFrame(title, body, footer string) string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, frame)
 }
 
-// renderLeftPane draws the variable list with per-variable modification
-// markers. The active-pane cursor row uses a background highlight; the
-// inactive pane uses a quieter accented version.
+// renderLeftPane draws the variable list inside a bordered panel.
 func (m *Model) renderLeftPane() string {
 	const leftWidth = 32
 	var b strings.Builder
@@ -74,12 +72,11 @@ func (m *Model) renderLeftPane() string {
 	if content == "" {
 		content = styleDescription.Render("(no variables)")
 	}
-	return stylePaneDivider.Width(leftWidth).Height(m.bodyHeight()).Render(content)
+	panel := m.panelStyle(focusLeft)
+	return panel.Width(leftWidth).Height(m.panelHeight()).Render(content)
 }
 
-// renderRightPane shows the editor for the selected variable, including
-// header, description, and the type-specific widget. The right pane has no
-// border of its own; the divider lives on the left.
+// renderRightPane shows the editor inside a bordered panel.
 func (m *Model) renderRightPane() string {
 	var content string
 	v := m.SelectedVariable()
@@ -87,13 +84,15 @@ func (m *Model) renderRightPane() string {
 		content = styleDescription.Render("Select a variable on the left.")
 	} else {
 		var b strings.Builder
-		header := styleVarHeader.Render(v.Name) + "  " +
-			styleDescription.Render("("+kindLabel(v.Type)+")")
+		// Variable name as section title.
+		name := stylePlanModule.Render(v.Name)
+		typeTag := styleDescription.Render(" " + kindLabel(v.Type))
+		header := name + typeTag
 		if v.Sensitive {
-			header += "  " + styleSensitiveTag.Render("[sensitive]")
+			header += "  " + styleSensitiveTag.Render("⚿ sensitive")
 		}
 		if !v.HasDefault {
-			header += "  " + styleRequiredTag.Render("[required]")
+			header += "  " + styleRequiredTag.Render("● required")
 		}
 		fmt.Fprintln(&b, header)
 
@@ -106,11 +105,30 @@ func (m *Model) renderRightPane() string {
 		}
 		content = b.String()
 	}
-	rightWidth := m.width - 34
+	// Account for left panel width (32) + border (2) + padding (2) + gap (1).
+	rightWidth := m.width - 38
 	if rightWidth < 20 {
 		rightWidth = 20
 	}
-	return stylePaneRight.Width(rightWidth).Height(m.bodyHeight()).Render(content)
+	panel := m.panelStyle(focusRight)
+	return panel.Width(rightWidth).Height(m.panelHeight()).Render(content)
+}
+
+// panelStyle returns the panel border style, highlighting the focused pane.
+func (m *Model) panelStyle(pane focusPane) lipgloss.Style {
+	if m.focus == pane {
+		return stylePanelFocused
+	}
+	return stylePanel
+}
+
+// panelHeight returns the inner height for panels (total body minus border rows).
+func (m *Model) panelHeight() int {
+	h := m.bodyHeight() - 2 // subtract top + bottom border lines
+	if h < 1 {
+		h = 1
+	}
+	return h
 }
 
 // renderHeader is the top bar showing module context and validate status.
@@ -129,13 +147,14 @@ func (m *Model) renderHeader() string {
 		}
 	}
 	leftW := lipgloss.Width(left)
-	padW := 2
-	gap := m.width - leftW - padW
+	// Inner width = m.width - 2 (border); padding takes 2 more.
+	contentW := m.width - 4
+	gap := contentW - leftW
 	if gap < 1 {
 		gap = 1
 	}
 	bar := left + strings.Repeat(" ", gap)
-	return styleHeaderBar.MaxWidth(m.width).Render(bar)
+	return styleHeaderBar.Width(m.width - 2).Render(bar)
 }
 
 // renderFooter is the bottom bar showing transient status messages and key hints.
@@ -164,13 +183,14 @@ func (m *Model) renderFooter() string {
 	hints := styleHelp.Render(m.statusHints())
 	hintsW := lipgloss.Width(hints)
 	leftW := lipgloss.Width(left)
-	padW := 2
-	gap := m.width - leftW - hintsW - padW
+	// Inner width = m.width - 2 (border); padding takes 2 more.
+	contentW := m.width - 4
+	gap := contentW - leftW - hintsW
 	if gap < 1 {
 		gap = 1
 	}
 	bar := left + strings.Repeat(" ", gap) + hints
-	return styleStatusBar.MaxWidth(m.width).Render(bar)
+	return styleStatusBar.Width(m.width - 2).Render(bar)
 }
 
 // renderStatus composes the full footer (kept for plan view compatibility).
@@ -249,11 +269,11 @@ func (m *Model) renderHelpModal() string {
 }
 
 func (m *Model) bodyHeight() int {
-	if m.height < 5 {
+	if m.height < 9 {
 		return 1
 	}
-	// Reserve 1 line for header + 1 line for footer.
-	return m.height - 2
+	// Reserve 3 lines for header (border+content+border) + 3 for footer.
+	return m.height - 6
 }
 
 // renderErrorDetail renders a centered modal showing the complete error output.
