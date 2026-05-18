@@ -37,6 +37,7 @@ type Model struct {
 	rows   []rowEntry
 
 	cursor       int
+	leftScroll   int // scroll offset (first visible row) in the left pane
 	focus        focusPane
 	width, height int
 
@@ -905,7 +906,27 @@ func (m *Model) moveCursor(delta int) {
 		}
 	}
 	m.cursor = c
+	m.scrollToCursor()
 	m.refreshEditor()
+}
+
+// scrollToCursor adjusts leftScroll so the cursor is visible within the
+// left pane's height.
+func (m *Model) scrollToCursor() {
+	visible := m.leftPaneVisibleRows()
+	if visible <= 0 {
+		return
+	}
+	if m.cursor < m.leftScroll {
+		m.leftScroll = m.cursor
+	} else if m.cursor >= m.leftScroll+visible {
+		m.leftScroll = m.cursor - visible + 1
+	}
+}
+
+// leftPaneVisibleRows returns how many variable rows fit in the left pane.
+func (m *Model) leftPaneVisibleRows() int {
+	return m.panelHeight()
 }
 
 func (m *Model) applyEditorValue(v *tfvars.Variable, val cty.Value) {

@@ -55,10 +55,26 @@ func (m *Model) renderModalFrame(title, body, footer string) string {
 // renderLeftPane draws the variable list inside a bordered panel.
 func (m *Model) renderLeftPane() string {
 	const leftWidth = 32
+	// Max chars available for the line content inside the panel border.
+	// Border takes 2 chars (left+right), leaving leftWidth-2 for content.
+	const maxLineLen = leftWidth - 2
 	var b strings.Builder
-	for i, r := range m.rows {
+
+	visible := m.leftPaneVisibleRows()
+	start := m.leftScroll
+	end := start + visible
+	if end > len(m.rows) {
+		end = len(m.rows)
+	}
+
+	for i := start; i < end; i++ {
+		r := m.rows[i]
 		marker := varMarker(m.State, r.VarName)
 		line := fmt.Sprintf("%s  %s", marker, r.VarName)
+		// Truncate to prevent wrapping — keeps 1 row = 1 visual line.
+		if len(line) > maxLineLen {
+			line = line[:maxLineLen-1] + "…"
+		}
 		if i == m.cursor {
 			if m.focus == focusLeft {
 				line = styleCursorActive.Render(line)
