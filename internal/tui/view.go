@@ -203,20 +203,26 @@ func (m *Model) statusHints() string {
 	case planLoading:
 		return "[Esc] cancel  [?] help"
 	case planReady:
-		hints := "[↑↓] navigate  [P] re-plan"
+		hints := "[↑↓] navigate  [Enter] toggle  [P] re-plan"
 		if m.Applier != nil && m.applyState != applyLoading {
 			hints += "  [A] apply"
 		}
-		if m.OutputProvider != nil {
+		if m.OutputProvider != nil || (m.plan != nil && len(m.plan.OutputChanges) > 0) {
 			hints += "  [O] outputs"
 		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			hints += "  [E] error"
 		}
-		hints += "  [?] help"
+		hints += "  [Esc] back  [?] help"
 		return hints
 	}
-	hints := "[Tab] pane  [P] plan"
+	hints := "[Tab] pane  [↑↓] navigate  [P] plan"
+	if len(m.presets) > 0 {
+		hints += "  [F] preset"
+	}
+	if m.RefSwitcher != nil {
+		hints += "  [R] ref"
+	}
 	if m.statusLvl == statusError && m.statusDetail != "" {
 		hints += "  [E] error"
 	}
