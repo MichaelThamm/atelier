@@ -17,7 +17,7 @@ read-modify-write the wrapper's `main.tf` while preserving user-added
 comments and formatting. This requires an AST-preserving HCL parser and
 emitter — not just a "parse to JSON, lose everything" parser. Without
 AST-preserving round-trip, hand-edits between Atelier sessions get clobbered,
-which breaks [ADR-0004](0004-wrapper-layout-shape-a.md)'s round-tripping
+which breaks [ADR-0004](0004-wrapper-layout.md)'s round-tripping
 property.
 
 ## Decision

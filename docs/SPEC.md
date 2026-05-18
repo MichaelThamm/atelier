@@ -75,7 +75,7 @@ module (typically a public git repository), and Atelier:
   Atelier-managed internal state (module clone cache, session metadata).
   Regenerable; safe to delete; gitignored.
 
-## 4. Wrapper directory layout (Shape A)
+## 4. Wrapper directory layout
 
 The wrapper is rooted at the current working directory. Files Atelier writes
 or owns are listed below; the user may add their own (`.git/`, additional
@@ -107,7 +107,7 @@ Atelier's cache; deleting it forces a re-introspection on the next `atelier`
 invocation but does not affect Terraform behaviour.
 
 See [ADR-0001](adr/0001-wrapper-as-durable-artifact.md) and
-[ADR-0004](adr/0004-wrapper-layout-shape-a.md).
+[ADR-0004](adr/0004-wrapper-layout.md).
 
 ## 5. Loading: from URL to ready-to-edit
 
@@ -250,21 +250,21 @@ The TUI is a two-pane layout enclosed in rounded-border panels, with a
 bordered header bar at the top and a bordered footer bar at the bottom.
 
 ```
-╭─ Module: cos-lite @ v1.2.0 (abc123) ── ✓ valid ──────────────╮
-╰───────────────────────────────────────────────────────────────╯
-╭────────────────────╮ ╭──────────────────────────────────────────╮
-│ ▸ TLS              │ │  alertmanager  (object)              ✎  │
-│ ▾ Ingress          │ │                                         │
-│   ingress          │ │  app_name        "alertmanager"         │
-│ ▾ Applications     │ │  config          {} (default)           │
-│ ● alertmanager     │ │  constraints     "arch=amd64" (default) │
-│   catalogue        │ │  revision        null (default)         │
-│   grafana          │ │  storage_directives {} (default)        │
-│   …                │ │  units           ▸ 3                    │
-╰────────────────────╯ ╰──────────────────────────────────────────╯
-╭───────────────────────────────────────────────────────────────╮
-│ [Tab] pane  [↑↓] navigate  [P] plan  [Q] quit  [?] help      │
-╰───────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────╮
+│ Module: cos_lite ref track/2 (827b891)                             │
+╰────────────────────────────────────────────────────────────────────╯
+╭────────────────────╮ ╭─────────────────────────────────────────────╮
+│ [ ] risk           │ │   app_name           "alertmanager"         │
+│ [ ] base           │ │   config             {} (default)           │
+│ [ ] ingress        │ │   constraints        "arch=amd64" (default) │
+│ [ ] alertmanager   │ │   revision           null (default)         │
+│ [ ] catalogue      │ │   storage_directives {} (default)           │
+│ [ ] grafana        │ │ ▸ units              ▸ 3                    │
+│ [ ] ...            │ │                                             │
+╰────────────────────╯ ╰─────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────╮
+│ [Tab] pane  [↑↓] navigate  [P] plan  [Q] quit  [?] help            │
+╰────────────────────────────────────────────────────────────────────╯
 ```
 
 ### 7.1 Left pane — variable list
