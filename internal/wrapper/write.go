@@ -88,7 +88,7 @@ func (s *State) writeMain() error {
 
 	// Write to a temporary file and rename for atomicity — important because
 	// the file watcher (`terraform validate` in the TUI) may race the write.
-	return writeAtomic(mainPath, hclwrite.Format(file.Bytes()))
+	return writeAtomic(mainPath, hclwrite.Format(file.Bytes()), 0o644)
 }
 
 // findOrCreateModuleBlock locates the `module "<name>"` block (creating it if
@@ -121,8 +121,9 @@ func todoTokens(typeHint string) hclwrite.Tokens {
 }
 
 // writeAtomic writes data to path via a sibling temp file and rename, which
-// is atomic on POSIX filesystems.
-func writeAtomic(path string, data []byte) error {
+// is atomic on POSIX filesystems. The perm argument sets the file mode on
+// the temp file before rename so the target inherits the intended permissions.
+func writeAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, ".atelier-write-*")
 	if err != nil {
@@ -130,6 +131,11 @@ func writeAtomic(path string, data []byte) error {
 	}
 	tmp := f.Name()
 	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
 		f.Close()
 		os.Remove(tmp)
 		return err
@@ -169,7 +175,7 @@ func (s *State) writeSecrets() error {
 		}
 		body.SetAttributeValue(n, v)
 	}
-	return writeAtomic(filepath.Join(s.Dir, SecretsAuto), file.Bytes())
+	return writeAtomic(filepath.Join(s.Dir, SecretsAuto), file.Bytes(), 0o600)
 }
 
 // VariableDeclByName is a tiny helper exposing State's variable slice as a
