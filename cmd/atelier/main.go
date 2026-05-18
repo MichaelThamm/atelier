@@ -395,6 +395,8 @@ func startSpinner(msg string) func() {
 	done := make(chan struct{})
 
 	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
 		i := 0
 		for {
 			select {
@@ -402,10 +404,9 @@ func startSpinner(msg string) func() {
 				// Clear the spinner line.
 				fmt.Fprintf(os.Stderr, "\r\033[K")
 				return
-			default:
+			case <-ticker.C:
 				fmt.Fprintf(os.Stderr, "\r%s %s", frames[i%len(frames)], msg)
 				i++
-				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}()
