@@ -26,11 +26,26 @@ atelier        # re-open an existing wrapper
 | `↑` / `↓` | Left pane | Navigate variables |
 | `Enter` | Left pane | Focus the editor for the selected variable |
 | `P` | Left pane | Run `terraform plan` against the wrapper |
+| `A` | Plan view | Apply the current plan |
+| `O` | Plan view | Show terraform outputs (planned values or state) |
 | `R` | Left pane | Switch the module ref (branch, tag, or SHA) |
 | `E` | Left pane | Show full error detail (when an error is present) |
 | `F` | Left pane | Open the preset picker (when presets are available) |
+| `?` | Anywhere | Show the keyboard shortcuts help modal |
 | `^R` | Anywhere | Reset the current variable to its default |
 | `Q` | Left pane | Quit and save |
+
+### Output view
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Scroll down |
+| `k` / `↑` | Scroll up |
+| `Ctrl+D` / `PgDn` | Half-page down |
+| `Ctrl+U` / `PgUp` | Half-page up |
+| `g` | Jump to top |
+| `G` | Jump to bottom |
+| `Esc` / `q` | Close |
 
 ## Presets
 
@@ -68,6 +83,29 @@ variables.
 1. Configure and plan at `v1.0`.
 2. Press `R`, type `v2.0`, confirm.
 3. Plan again — the diff shows what the version bump changes.
+
+## Validate on save
+
+Every time you edit a variable, Atelier debounces a background
+`terraform validate`. Errors appear inline in the status bar; press `E` to
+see full diagnostics. Validation runs `terraform init` automatically if the
+workspace hasn't been initialised yet.
+
+## Outputs
+
+Press `O` in plan view to inspect module outputs. Before apply, Atelier
+shows the planned output values from the plan file. After apply, it fetches
+live values from state. The output view is scrollable — use `j`/`k` or
+`PgUp`/`PgDn` to navigate large outputs.
+
+Atelier generates an `outputs.tf` in the wrapper that forwards all of the
+module's declared outputs:
+
+```hcl
+output "offers" {
+  value = module.cos_lite.offers
+}
+```
 
 ## Documentation
 
