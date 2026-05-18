@@ -2,20 +2,23 @@
 
 ![Atelier](docs/images/atelier.png)
 
-A terminal UI for configuring Terraform modules.
+A provider-agnostic terminal UI for configuring Terraform modules.
 
-Atelier treats a module's variables as its API surface. The wrapper it
-generates captures only the values the deployer chose to set, so `main.tf`
-reads as a concise statement of intent rather than a wall of options.
-Defaults handle the rest, and plan diffs show exactly what changes between
-versions — making large modules approachable for first-time and experienced
-Terraform users alike.
+Atelier works with **any** Terraform provider — AWS, GCP, Azure, Juju, or
+anything else with a Terraform provider. It treats a module's variables as
+its API surface. The wrapper it generates captures only the values the
+deployer chose to set, so `main.tf` reads as a concise statement of intent
+rather than a wall of options. Defaults handle the rest, and plan diffs show exactly what changes between versions — making large modules approachable for first-time and experienced Terraform users alike.
 
 ## Quick start
 
 ```bash
+# Any public git repo containing Terraform modules works:
+atelier init https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 atelier init https://github.com/canonical/observability-stack.git
-atelier        # re-open an existing wrapper
+
+# Re-open an existing wrapper:
+atelier
 ```
 
 ## Keyboard shortcuts

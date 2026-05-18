@@ -11,9 +11,10 @@ inline as `ADR-NNNN` are captured separately under [`adr/`](adr/).
 
 ## 1. Overview
 
-Atelier is a terminal UI for configuring Terraform root modules. The user
-points it at a Terraform module (typically a public git repository), and
-Atelier:
+Atelier is a provider-agnostic terminal UI for configuring Terraform root
+modules. It works with any Terraform provider (AWS, GCP, Azure, Juju, etc.)
+and has no provider-specific code paths. The user points it at a Terraform
+module (typically a public git repository), and Atelier:
 
 1. Clones the repository into a managed cache (`.atelier/clone/`).
 2. Detects configurable module candidates (root modules within the repo) and
@@ -34,6 +35,8 @@ Atelier:
 
 ### v1 goals
 
+- Provider-agnostic: work identically for any Terraform provider without
+  special-casing provider names or resource types.
 - Work for any Terraform root module that declares variables.
 - Produce a wrapper directory that is runnable without Atelier installed.
 - Round-trip cleanly: a user can hand-edit `main.tf` between sessions and
