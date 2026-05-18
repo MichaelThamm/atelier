@@ -84,6 +84,7 @@ type Model struct {
 	// apply or on demand via O key. Displayed until dismissed.
 	outputs      map[string]uptfexec.OutputMeta
 	outputsReady bool // true when the output view is showing
+	outputScroll int  // scroll offset (lines) in output view
 
 	// validateGen is a generation counter incremented on every edit. The
 	// debounce tick carries the generation at scheduling time; if the model's
@@ -144,6 +145,9 @@ const (
 // The Braille-octant set is widely supported and reads well on dark and
 // light backgrounds without colour.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// maxInt is a large sentinel for "scroll to end" (clamped at render time).
+const maxInt = int(^uint(0) >> 1)
 
 type focusPane int
 
@@ -535,11 +539,30 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Output view: dismiss with Esc or q.
+	// Output view: dismiss with Esc or q; scroll with j/k/arrows.
 	if m.outputsReady {
-		if msg.String() == "esc" || msg.String() == "q" {
+		switch msg.String() {
+		case "esc", "q":
 			m.outputsReady = false
 			m.outputs = nil
+			m.outputScroll = 0
+		case "down", "j":
+			m.outputScroll++
+		case "up", "k":
+			if m.outputScroll > 0 {
+				m.outputScroll--
+			}
+		case "pgdown", "ctrl+d":
+			m.outputScroll += m.height / 2
+		case "pgup", "ctrl+u":
+			m.outputScroll -= m.height / 2
+			if m.outputScroll < 0 {
+				m.outputScroll = 0
+			}
+		case "g":
+			m.outputScroll = 0
+		case "G":
+			m.outputScroll = maxInt // clamped at render time
 		}
 		return m, nil
 	}
@@ -677,11 +700,13 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "o", "O":
 		// Prefer planned outputs (available before apply).
 		if m.plan != nil && len(m.plan.OutputChanges) > 0 {
+			m.outputScroll = 0
 			m.showPlanOutputs()
 			return m, nil
 		}
 		// Fall back to terraform output (reads from state, requires prior apply).
 		if m.OutputProvider != nil {
+			m.outputScroll = 0
 			return m, m.startFetchOutputs()
 		}
 	case "up", "k":
