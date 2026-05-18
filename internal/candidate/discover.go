@@ -109,7 +109,9 @@ func Discover(cloneRoot string, m *manifest.Manifest) ([]Candidate, []string, er
 			return nil
 		}
 		dir := filepath.Dir(path)
-		if childRefs[dir] {
+		// Never exclude the clone root: if it declares variables, it's a
+		// usable root module regardless of whether wrappers reference it.
+		if dir != cloneRoot && childRefs[dir] {
 			return nil
 		}
 		// Is this dir already collected?
@@ -141,6 +143,18 @@ func Discover(cloneRoot string, m *manifest.Manifest) ([]Candidate, []string, er
 		return nil, nil, fmt.Errorf("walk clone: %w", err)
 	}
 
+	// Post-filter: remove candidates where all declared variables are type
+	// `any` (or have no type constraint). Such modules are not usefully
+	// editable in Atelier since every variable renders as read-only.
+	var filtered []Candidate
+	for _, c := range out {
+		dir := filepath.Join(cloneRoot, c.Path)
+		if dirHasTypedVariable(dir) {
+			filtered = append(filtered, c)
+		}
+	}
+	out = filtered
+
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil, nil
 }
@@ -169,6 +183,54 @@ func fileDeclaresVariable(path string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// dirHasTypedVariable returns true if the directory contains at least one
+// variable block with a type constraint that is not `any`. A module where
+// all variables are untyped or `type = any` is not usefully editable in
+// Atelier (all render as read-only).
+func dirHasTypedVariable(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return true // err on the side of inclusion
+	}
+	parser := hclparse.NewParser()
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".tf") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		f, diags := parser.ParseHCL(data, e.Name())
+		if diags.HasErrors() {
+			continue
+		}
+		body, ok := f.Body.(*hclsyntax.Body)
+		if !ok {
+			continue
+		}
+		for _, block := range body.Blocks {
+			if block.Type != "variable" || len(block.Labels) != 1 {
+				continue
+			}
+			typeAttr, hasType := block.Body.Attributes["type"]
+			if !hasType {
+				// No type constraint at all — treated as `any`.
+				continue
+			}
+			// Check if the type expression is the literal keyword `any`.
+			if traversal, ok := typeAttr.Expr.(*hclsyntax.ScopeTraversalExpr); ok {
+				if len(traversal.Traversal) == 1 && traversal.Traversal.RootName() == "any" {
+					continue
+				}
+			}
+			// Has a real type constraint — this module is editable.
+			return true
+		}
+	}
+	return false
 }
 
 // collectChildModuleRefs walks the clone gathering, from every `module
