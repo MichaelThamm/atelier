@@ -122,6 +122,7 @@ func runInit(args []string) error {
 	defer cancel()
 
 	stop := startSpinner("Cloning and preparing module…")
+	defer stop()
 	res, err := bootstrap.InitNew(ctx, opts)
 	stop()
 	if err != nil {

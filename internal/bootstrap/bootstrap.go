@@ -455,7 +455,7 @@ func repoBasename(src string) string {
 	if i := strings.LastIndexAny(s, "/:"); i >= 0 {
 		s = s[i+1:]
 	}
-	if s == "" {
+	if s == "" || s == "." || s == ".." {
 		s = "repo"
 	}
 	return s

@@ -848,12 +848,18 @@ func (m *Model) applyRefSwitch(result *RefSwitchResult) {
 	m.LiteralRef = result.LiteralRef
 	m.ResolvedSHA = result.ResolvedSHA
 
-	// Re-apply user overrides that still have matching variables.
+	// Re-apply user overrides only for variables that exist in the new ref.
 	if m.State.Values == nil {
 		m.State.Values = make(map[string]cty.Value)
 	}
+	newVarNames := make(map[string]bool, len(m.State.Vars))
+	for _, v := range m.State.Vars {
+		newVarNames[v.Name] = true
+	}
 	for name, val := range oldValues {
-		m.State.Values[name] = val
+		if newVarNames[name] {
+			m.State.Values[name] = val
+		}
 	}
 
 	// Rebuild the UI.
