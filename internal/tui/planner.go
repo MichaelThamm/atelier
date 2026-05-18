@@ -134,6 +134,9 @@ func (p *TfexecPlanner) Validate(ctx context.Context) (*tfjson.ValidateOutput, e
 	if p == nil || p.Tf == nil {
 		return nil, errors.New("validator not configured")
 	}
+	if err := p.EnsureInit(ctx); err != nil {
+		return nil, fmt.Errorf("init before validate: %w", err)
+	}
 	return p.Tf.Validate(ctx)
 }
 
