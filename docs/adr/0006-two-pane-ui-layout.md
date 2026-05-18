@@ -88,5 +88,7 @@ maintainer-free ordering.
   attributes.
 - Plan view (triggered by `P`) replaces or expands across the panes. See
   [ADR-0011](0011-plan-output-tree.md).
-- Specific colour, dimming, and focus styling decisions are deferred to a
-  later aesthetics pass; this ADR pins the structural decision only.
+- Output view (triggered by `O` from the plan view) renders module outputs
+  in a scrollable modal with syntax-highlighted JSON.
+- All panels use rounded borders with focus highlighting (Catppuccin
+  Mocha/Latte palette). See SPEC.md §14.3 for the implemented aesthetics.

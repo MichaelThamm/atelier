@@ -36,6 +36,9 @@ Concretely, v1 ships:
 - Default-change surfacing on ref bump.
 - In-TUI ref switching (`R` key): re-clone, `terraform init -upgrade`,
   preserve user overrides, enabling cross-ref upgrade comparison workflows.
+- In-TUI output viewing (`O` key): shows planned output values before apply,
+  live state values after apply, with syntax-highlighted JSON and scrollable
+  navigation. Auto-generates `outputs.tf` to re-export module outputs.
 - Single static Go binary; snap packaging.
 
 ## Deferred to v2 or later
@@ -80,11 +83,13 @@ v1 hides the distinction; the empty state of the widget follows the variable's
 declared default. v2 may add an explicit `[ Empty ] [ Null ]` toggle on the
 widget header for cases where users need to express the other interpretation.
 
-### Sparse output re-export
+### ~~Sparse output re-export~~ ✓ Implemented
 
-v1 wrappers do not re-export module outputs. v2 may add a per-output checkbox
-in an "Outputs" tab that generates `output "x" { value = module.<m>.x }`
-blocks for selected outputs.
+~~v1 wrappers do not re-export module outputs.~~ Atelier now generates an
+`outputs.tf` in the wrapper that forwards all of the module's declared
+outputs. The in-TUI output view (`O` key) displays planned values before
+apply and live state values after apply, with syntax-highlighted JSON
+rendering.
 
 ### Conditional autoplan
 
@@ -100,12 +105,13 @@ v1 puts plan attribute diffs in a side pane on selection. v2 may render them
 inline within the plan tree, with collapsible per-attribute rows and syntax
 highlighting.
 
-### Visual design / aesthetics
+### ~~Visual design / aesthetics~~ ✓ Implemented
 
-A deliberate post-spec design pass. Covers colour palette, focus and dimming,
-borders and separators, iconography (Unicode glyphs vs ASCII fallback),
-dark/light theme support, and any motion/animation. Reference: Charm's own
-ecosystem (gum, glow, soft-serve) for design language.
+~~A deliberate post-spec design pass.~~ Atelier uses a Catppuccin Mocha/Latte
+adaptive colour palette with semantic role mappings (primary/accent, info,
+success, warning, danger). All panels, modals, header, and footer use
+consistent rounded borders with focus highlighting. JSON output values have
+syntax highlighting. See SPEC.md §14.3 for details.
 
 ### Manifest schema growth
 

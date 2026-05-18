@@ -11,9 +11,12 @@ the current directory: a `main.tf` calling the module via its git source, the
 user's variable overrides, and a `.gitignore` and `README.md` to round out the
 artifact.
 
-Atelier does **not** run `terraform apply`. The wrapper it produces is a normal
-Terraform project that the user (or their CI) applies through whatever
-workflow they already use.
+Atelier does **not** run `terraform apply` from the command line. The wrapper
+it produces is a normal Terraform project that the user (or their CI) applies
+through whatever workflow they already use. However, Atelier's TUI includes a
+built-in plan view (press `P`) with an optional apply action (`A`), and an
+output viewer (`O`) that shows planned or live output values with syntax
+highlighting.
 
 ## Design intent
 
@@ -38,5 +41,6 @@ workflow they already use.
 
 ## Status
 
-Pre-implementation. This directory captures the design agreed during the
-initial grilling session. No code yet.
+Implemented. Atelier is a single Go binary built with Bubble Tea and lipgloss.
+The TUI uses a Catppuccin Mocha/Latte colour palette with rounded-border
+panels throughout.

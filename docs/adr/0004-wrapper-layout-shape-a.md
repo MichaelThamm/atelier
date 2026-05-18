@@ -40,6 +40,7 @@ The latter avoids requiring users to think about file layout but breaks the
 ├── main.tf              # user-visible
 ├── versions.tf          # user-visible
 ├── providers.tf         # user-visible
+├── outputs.tf           # auto-generated, re-exports module outputs
 ├── README.md            # user-visible
 ├── .gitignore           # user-visible
 └── .atelier/            # internal, gitignored

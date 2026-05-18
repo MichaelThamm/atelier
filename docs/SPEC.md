@@ -1,7 +1,6 @@
 # Atelier v1 Specification
 
-Status: **proposed** — pre-implementation. Captures the design agreed during
-the initial grilling session.
+Status: **implemented** — reflects the current state of the v1 codebase.
 
 This document specifies what Atelier v1 will do and what shape it takes. It is
 *not* an implementation plan — it describes the surface, contracts, and
@@ -84,6 +83,7 @@ or owns are listed below; the user may add their own (`.git/`, additional
 ├── main.tf              # module {} block calling the chosen module via git
 ├── versions.tf          # terraform { required_providers {...} } block
 ├── providers.tf         # provider "X" {...} blocks
+├── outputs.tf           # re-exports all module outputs (auto-generated)
 ├── variables.tf         # only if the wrapper declares its own variables
 │                        #   (e.g., for sensitive value indirection)
 ├── secrets.auto.tfvars  # values for sensitive variables (gitignored)
@@ -223,8 +223,10 @@ That is the complete v1 CLI surface. Notably absent:
 
 - No `atelier plan` / `atelier apply` (use `terraform` directly in the
   wrapper).
-- No `atelier output` (use `terraform output`).
 - No daemon mode or persistent sessions.
+
+Outputs are viewable from within the TUI (see §7.6); a standalone
+`atelier output` subcommand is not provided.
 
 ### 6.1 Behaviour matrix
 
@@ -241,23 +243,25 @@ See [ADR-0002](adr/0002-author-and-plan-scope.md).
 
 ## 7. TUI layout
 
-The TUI is a two-pane layout with a status pane at the bottom.
+The TUI is a two-pane layout enclosed in rounded-border panels, with a
+bordered header bar at the top and a bordered footer bar at the bottom.
 
 ```
-┌─────────────────────┬─────────────────────────────────────────┐
-│ Variables       [3] │  alertmanager  (object)              ✎  │
-│                     │                                         │
-│ ▸ TLS         [✓ 1] │  app_name        "alertmanager"         │
-│ ▾ Ingress       [ ] │  config          {} (default)           │
-│   ingress     [ ]   │  constraints     "arch=amd64" (default) │
-│ ▾ Applications  [3] │  revision        null (default)         │
-│   alertmanager [✓3] │  storage_directives {} (default)        │
-│   catalogue   [ ]   │  units           ▸ 3                    │
-│   grafana     [ ]   │                                         │
-│   …                 │                                         │
-├─────────────────────┴─────────────────────────────────────────┤
-│ ✓ Valid · Module: cos-lite @ v1.2.0 (abc123) · [P] Plan  …    │
-└───────────────────────────────────────────────────────────────┘
+╭─ Module: cos-lite @ v1.2.0 (abc123) ── ✓ valid ──────────────╮
+╰───────────────────────────────────────────────────────────────╯
+╭────────────────────╮ ╭──────────────────────────────────────────╮
+│ ▸ TLS              │ │  alertmanager  (object)              ✎  │
+│ ▾ Ingress          │ │                                         │
+│   ingress          │ │  app_name        "alertmanager"         │
+│ ▾ Applications     │ │  config          {} (default)           │
+│ ● alertmanager     │ │  constraints     "arch=amd64" (default) │
+│   catalogue        │ │  revision        null (default)         │
+│   grafana          │ │  storage_directives {} (default)        │
+│   …                │ │  units           ▸ 3                    │
+╰────────────────────╯ ╰──────────────────────────────────────────╯
+╭───────────────────────────────────────────────────────────────╮
+│ [Tab] pane  [↑↓] navigate  [P] plan  [Q] quit  [?] help      │
+╰───────────────────────────────────────────────────────────────╯
 ```
 
 ### 7.1 Left pane — variable list
@@ -283,15 +287,25 @@ The TUI is a two-pane layout with a status pane at the bottom.
   field. Nested objects open as further sub-forms (drill-in navigation).
 - Edits propagate to disk immediately (auto-save; see §13).
 
-### 7.3 Status pane
+### 7.3 Header and footer bars
 
-- Persistent indicators:
-  - Validation status: `✓ Valid` or `N errors`.
-  - Module info: candidate name, ref (literal), resolved SHA short form.
-  - Key hints: `[P] Plan`, `[A] Apply` (when plan is ready), `[R] Ref`,
-    `[E] Error` (when error present), `[Esc] Back`.
+The TUI uses a bordered header and footer matching the panel theme (rounded
+borders). The header shows module context and validation status; the footer
+shows contextual key hints and transient status messages (spinner during
+plan/apply, error summaries).
+
+**Header** (always visible):
+- Module name + git ref (with resolved SHA short form).
+- Validation indicator: `✓ valid` or `✗ N error(s), M warning(s)`.
+
+**Footer** (contextual hints change by mode):
+- Editor mode: `[Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [R] ref  [Q] quit  [?] help`
+- Plan mode: `[↑↓] navigate  [Enter] toggle  [P] re-plan  [A] apply  [O] outputs  [Esc] back  [?] help`
+- Hints for `[F]`, `[R]`, `[O]`, `[A]`, `[E]` appear only when the
+  corresponding feature is available.
+
 - When validation or plan emits errors, the first line of the error is shown
-  in the status bar. Pressing `E` opens a full-screen error detail modal
+  in the footer. Pressing `E` opens a full-screen error detail modal
   with the complete multi-line output; `Esc` dismisses it.
 - On the first plan of each session, Atelier runs `terraform init` to
   ensure the module cache matches the wrapper's current source. After a ref
@@ -330,11 +344,39 @@ Plan: 12 to add, 0 to change, 0 to destroy.
   plan file. A spinner shows progress; success invalidates the plan (since
   the infrastructure now matches). Errors are surfaced in the status bar
   and viewable via `E`.
+- Pressing `O` shows the output view (see §7.6).
 - `Esc` returns to the editor.
 - Inline per-attribute diffs *inside* tree nodes are out of scope for v1; see
   [ADR-0011](adr/0011-plan-output-tree.md).
 
 See [ADR-0006](adr/0006-two-pane-ui-layout.md) and [ADR-0011](adr/0011-plan-output-tree.md).
+
+### 7.6 Output view
+
+Triggered by `O` from the plan view. Shows module outputs in a scrollable
+modal with syntax-highlighted JSON values.
+
+- **Before apply:** displays planned output values extracted from the plan
+  file (`plan.OutputChanges`).
+- **After apply:** fetches live values from state via `terraform output -json`.
+- Sensitive outputs are masked (`<sensitive>`).
+- Navigation: `j`/`k` scroll line-by-line, `Ctrl+D`/`Ctrl+U` or `PgDn`/`PgUp`
+  for half-page jumps, `g`/`G` for top/bottom, `Esc`/`q` to dismiss.
+
+#### `outputs.tf` generation
+
+Atelier generates an `outputs.tf` in the wrapper that re-exports all of the
+module's declared outputs:
+
+```hcl
+output "offers" {
+  value = module.cos_lite.offers
+}
+```
+
+This file is generated at bootstrap (`atelier init`) and kept in sync when
+re-opening an existing wrapper (`EnsureOutputs`). It enables `terraform output`
+to work outside Atelier and makes plan-time output values available.
 
 ## 8. Type-to-widget mapping
 
@@ -430,6 +472,10 @@ When `atelier init` bootstraps a new wrapper, it writes:
   module's declared provider requirements.
 - `providers.tf` — one `provider "<name>" {}` block per required provider,
   with stub attribute values the user will fill via the TUI.
+- `outputs.tf` — one `output "<name>" { value = module.<m>.<name> }` block per
+  module output, so that `terraform output` works outside Atelier and
+  plan-time output values are available in-TUI (see §7.6). Re-generated on
+  each session open (`EnsureOutputs`) to stay in sync with the module.
 - `.gitignore` — Atelier-managed entries:
   ```
   .atelier/
@@ -592,10 +638,20 @@ See [ADR-0002](adr/0002-author-and-plan-scope.md).
 
 ### 14.3 Aesthetics
 
-Visual design — colour palette, focus indicators, iconography, theme support
-— is deliberately out of scope for this specification. A separate design
-pass will follow once the structural UX is locked. Baseline reference:
-Charm's own ecosystem (gum, glow, soft-serve) for design language.
+The TUI uses a **Catppuccin Mocha / Latte** adaptive colour palette:
+
+- **Dark mode** (Mocha): deep base (`#1e1e2e`), mauve accent (`#cba6f7`),
+  blue/green/peach/red for semantic roles (info, success, warning, danger).
+- **Light mode** (Latte): cream base, matching semantic colours from the
+  Latte palette.
+
+All panels, modals, header, and footer use **rounded borders** (`lipgloss.RoundedBorder()`).
+The focused panel's border is tinted with the primary accent colour (mauve);
+unfocused panels use the muted faint colour. This gives the entire TUI a
+consistent, boxed appearance.
+
+JSON output values in the output view use syntax highlighting: keys, strings,
+numbers, booleans, and null each have distinct colours drawn from the palette.
 
 ## 15. Open questions for v1
 
