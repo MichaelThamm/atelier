@@ -77,6 +77,7 @@ type Model struct {
 	planCursor   int
 	planScroll   int // scroll offset for the plan tree pane
 	planDiffScroll int // scroll offset for the plan diff pane
+	planDiffFocus  bool // true when the diff pane is focused (Tab toggle)
 	planErr      string
 	planSpinnerFrame int
 	progress     *ProgressTracker // live progress from terraform subprocess
@@ -695,11 +696,22 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handlePlanKey routes keys while the plan view is active. The tree owns
 // navigation and collapse/expand; Esc returns to the editor (state is kept
-// so re-pressing P refreshes rather than starts cold).
+// so re-pressing P refreshes rather than starts cold). Tab toggles focus
+// between the tree and the diff pane.
 func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// When the diff pane is focused, handle its keys first.
+	if m.planDiffFocus {
+		return m.handlePlanDiffKey(msg)
+	}
+
 	switch msg.String() {
 	case "esc", "q":
 		m.planState = planIdle
+		m.planDiffFocus = false
+		return m, nil
+	case "tab":
+		// Switch focus to the diff pane.
+		m.planDiffFocus = true
 		return m, nil
 	case "p", "P":
 		// Re-run plan.
@@ -749,14 +761,6 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "G":
 		m.movePlanCursor(maxInt)
 		m.planDiffScroll = 0
-	case "[":
-		// Scroll diff pane up.
-		if m.planDiffScroll > 0 {
-			m.planDiffScroll--
-		}
-	case "]":
-		// Scroll diff pane down.
-		m.planDiffScroll++
 	case "enter", " ", "space", "right", "left", "l", "h":
 		// Toggle collapse on the focused row when it has children.
 		rows := flattenedRows(m.planTree)
@@ -766,6 +770,39 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				n.Collapsed = !n.Collapsed
 			}
 		}
+	}
+	return m, nil
+}
+
+// handlePlanDiffKey handles keys when the diff pane is focused.
+// ↑↓/j/k scroll the diff; Tab/Esc return focus to the tree.
+func (m *Model) handlePlanDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "tab", "esc":
+		m.planDiffFocus = false
+		return m, nil
+	case "q":
+		// q exits the plan view entirely.
+		m.planState = planIdle
+		m.planDiffFocus = false
+		return m, nil
+	case "up", "k":
+		if m.planDiffScroll > 0 {
+			m.planDiffScroll--
+		}
+	case "down", "j":
+		m.planDiffScroll++
+	case "pgup", "ctrl+u":
+		m.planDiffScroll -= m.planPanelHeight() / 2
+		if m.planDiffScroll < 0 {
+			m.planDiffScroll = 0
+		}
+	case "pgdown", "ctrl+d":
+		m.planDiffScroll += m.planPanelHeight() / 2
+	case "g":
+		m.planDiffScroll = 0
+	case "G":
+		m.planDiffScroll = maxInt // clamped at render time
 	}
 	return m, nil
 }

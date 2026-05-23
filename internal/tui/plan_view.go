@@ -30,9 +30,16 @@ func (m *Model) renderPlanScreen() string {
 func (m *Model) renderPlanTree() string {
 	const leftWidth = 44
 	rows := flattenedRows(m.planTree)
+
+	// Panel style depends on whether the tree or diff pane is focused.
+	panelStyle := stylePanelFocused
+	if m.planDiffFocus {
+		panelStyle = stylePanel
+	}
+
 	if len(rows) == 0 {
 		content := styleDescription.Render("No changes.")
-		return stylePanelFocused.Width(leftWidth).Height(m.planPanelHeight()).Render(content)
+		return panelStyle.Width(leftWidth).Height(m.planPanelHeight()).Render(content)
 	}
 
 	// Scrolling: ensure cursor is visible.
@@ -71,7 +78,7 @@ func (m *Model) renderPlanTree() string {
 		fmt.Fprintf(&b, "\n%s", styleHelp.Render(fmt.Sprintf("(%d/%d %d%%)", m.planCursor+1, len(rows), pct)))
 	}
 
-	return stylePanelFocused.Width(leftWidth).Height(m.planPanelHeight()).Render(b.String())
+	return panelStyle.Width(leftWidth).Height(m.planPanelHeight()).Render(b.String())
 }
 
 // renderPlanRow renders one tree row. Module and type rows get a caret
@@ -127,13 +134,20 @@ func (m *Model) renderPlanDiff() string {
 	if rightWidth < 24 {
 		rightWidth = 24
 	}
+
+	// Panel style depends on whether the diff pane is focused.
+	panelStyle := stylePanel
+	if m.planDiffFocus {
+		panelStyle = stylePanelFocused
+	}
+
 	rc := m.SelectedPlanChange()
 	if rc == nil {
 		hint := ansi.Wordwrap(
 			"Select a resource row to see its attribute diff.\n\n"+
-				"Use ↑/↓ to navigate, Enter to collapse/expand, Esc to return.",
+				"Use ↑/↓ to navigate, Enter to collapse/expand, Tab to focus this pane.",
 			rightWidth-2, " ")
-		return stylePanel.Width(rightWidth).Height(m.planPanelHeight()).Render(
+		return panelStyle.Width(rightWidth).Height(m.planPanelHeight()).Render(
 			styleDescription.Render(hint))
 	}
 
@@ -171,7 +185,7 @@ func (m *Model) renderPlanDiff() string {
 		}
 		allLines = allLines[m.planDiffScroll:end]
 	}
-	return stylePanel.Width(rightWidth).Height(m.planPanelHeight()).Render(strings.Join(allLines, "\n"))
+	return panelStyle.Width(rightWidth).Height(m.planPanelHeight()).Render(strings.Join(allLines, "\n"))
 }
 
 // colourisedDiffLine renders an AttributeDiffLine with its action marker

@@ -323,7 +323,10 @@ func (m *Model) statusHints() string {
 	case planLoading:
 		return "[Esc] cancel  [?] help"
 	case planReady:
-		hints := "[↑↓/g/G] navigate  [Enter] toggle  [[ ]] diff scroll  [P] re-plan"
+		if m.planDiffFocus {
+			return "[↑↓] scroll diff  [Tab/Esc] back to tree  [?] help"
+		}
+		hints := "[↑↓] navigate  [Enter] toggle  [Tab] focus diff  [P] re-plan"
 		if m.Applier != nil && m.applyState != applyLoading {
 			hints += "  [A] apply"
 		}

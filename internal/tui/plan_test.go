@@ -318,12 +318,15 @@ func TestRenderValue(t *testing.T) {
 		{map[string]any{"k": "v"}, `{k="v"}`},
 	}
 	for _, c := range cases {
-		if got := renderValue(c.in, false); got != c.want {
+		if got := renderValue(c.in, false, false); got != c.want {
 			t.Errorf("renderValue(%v) = %q, want %q", c.in, got, c.want)
 		}
 	}
-	if got := renderValue("secret", true); got != "<sensitive>" {
+	if got := renderValue("secret", true, false); got != "<sensitive>" {
 		t.Errorf("sensitive: %q", got)
+	}
+	if got := renderValue(nil, false, true); got != "(known after apply)" {
+		t.Errorf("unknown: %q", got)
 	}
 }
 
