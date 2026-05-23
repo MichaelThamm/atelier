@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
@@ -31,18 +32,46 @@ func (m *Model) renderPlanTree() string {
 	rows := flattenedRows(m.planTree)
 	if len(rows) == 0 {
 		content := styleDescription.Render("No changes.")
-		return stylePanelFocused.Width(leftWidth).Height(m.planBodyHeight()).Render(content)
+		return stylePanelFocused.Width(leftWidth).Height(m.planPanelHeight()).Render(content)
+	}
+
+	// Scrolling: ensure cursor is visible.
+	visible := m.planPanelHeight()
+	if m.planScroll > m.planCursor {
+		m.planScroll = m.planCursor
+	}
+	if m.planCursor >= m.planScroll+visible {
+		m.planScroll = m.planCursor - visible + 1
+	}
+	if m.planScroll < 0 {
+		m.planScroll = 0
+	}
+
+	end := m.planScroll + visible
+	if end > len(rows) {
+		end = len(rows)
 	}
 
 	var b strings.Builder
-	for i, r := range rows {
-		line := renderPlanRow(r)
+	for i := m.planScroll; i < end; i++ {
+		line := renderPlanRow(rows[i])
 		if i == m.planCursor {
 			line = styleCursorActive.Render(line)
 		}
 		fmt.Fprintln(&b, line)
 	}
-	return stylePanelFocused.Width(leftWidth).Height(m.planBodyHeight()).Render(b.String())
+
+	// Scroll indicator.
+	if len(rows) > visible {
+		pct := 0
+		maxScroll := len(rows) - visible
+		if maxScroll > 0 {
+			pct = m.planScroll * 100 / maxScroll
+		}
+		fmt.Fprintf(&b, "\n%s", styleHelp.Render(fmt.Sprintf("(%d/%d %d%%)", m.planCursor+1, len(rows), pct)))
+	}
+
+	return stylePanelFocused.Width(leftWidth).Height(m.planPanelHeight()).Render(b.String())
 }
 
 // renderPlanRow renders one tree row. Module and type rows get a caret
@@ -100,10 +129,12 @@ func (m *Model) renderPlanDiff() string {
 	}
 	rc := m.SelectedPlanChange()
 	if rc == nil {
-		hint := styleDescription.Render(
-			"Select a resource row to see its attribute diff.\n\n" +
-				"Use ↑/↓ to navigate, Enter to collapse/expand, Esc to return.")
-		return stylePanel.Width(rightWidth).Height(m.planBodyHeight()).Render(hint)
+		hint := ansi.Wordwrap(
+			"Select a resource row to see its attribute diff.\n\n"+
+				"Use ↑/↓ to navigate, Enter to collapse/expand, Esc to return.",
+			rightWidth-2, " ")
+		return stylePanel.Width(rightWidth).Height(m.planPanelHeight()).Render(
+			styleDescription.Render(hint))
 	}
 
 	var b strings.Builder
@@ -120,7 +151,27 @@ func (m *Model) renderPlanDiff() string {
 			fmt.Fprintln(&b, colourisedDiffLine(l))
 		}
 	}
-	return stylePanel.Width(rightWidth).Height(m.planBodyHeight()).Render(b.String())
+	// Word-wrap diff content to the panel's inner width.
+	wrapped := ansi.Wordwrap(b.String(), rightWidth-2, " ")
+	// Scroll the diff content if it exceeds the panel height.
+	allLines := strings.Split(wrapped, "\n")
+	ph := m.planPanelHeight()
+	if len(allLines) > ph {
+		// Clamp scroll.
+		maxScroll := len(allLines) - ph
+		if m.planDiffScroll > maxScroll {
+			m.planDiffScroll = maxScroll
+		}
+		if m.planDiffScroll < 0 {
+			m.planDiffScroll = 0
+		}
+		end := m.planDiffScroll + ph
+		if end > len(allLines) {
+			end = len(allLines)
+		}
+		allLines = allLines[m.planDiffScroll:end]
+	}
+	return stylePanel.Width(rightWidth).Height(m.planPanelHeight()).Render(strings.Join(allLines, "\n"))
 }
 
 // colourisedDiffLine renders an AttributeDiffLine with its action marker
@@ -156,11 +207,13 @@ func joinActions(c *tfjson.Change) string {
 	return strings.Join(parts, " then ")
 }
 
-// planBodyHeight is the height of the plan-screen body (tree + diff pane),
-// reserving bordered header (3), summary line (1), and bordered footer (3).
-func (m *Model) planBodyHeight() int {
-	if m.height < 10 {
+// planPanelHeight returns the inner height for plan screen panels
+// (tree + diff). The plan screen's content budget is contentHeight(), minus
+// the summary line (1), minus the panel border lines (2).
+func (m *Model) planPanelHeight() int {
+	h := m.contentHeight() - 3
+	if h < 1 {
 		return 1
 	}
-	return m.height - 7
+	return h
 }

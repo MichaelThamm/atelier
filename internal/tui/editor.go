@@ -26,6 +26,13 @@ type EditorWithValue interface {
 	CurrentValue() cty.Value
 }
 
+// EditorWithCursor is an editor that reports its logical cursor line
+// (0-based) so the right-pane scroll can follow the cursor.
+type EditorWithCursor interface {
+	Editor
+	CursorLine() int
+}
+
 // newEditor picks a widget for the variable's type.
 func newEditor(v *tfvars.Variable, current cty.Value) Editor {
 	if v == nil || v.Type == nil {
@@ -448,6 +455,11 @@ func (e *mapEditor) CurrentValue() cty.Value {
 	return cty.MapVal(m)
 }
 
+// CursorLine reports the 0-based line occupied by the cursor in View().
+func (e *mapEditor) CursorLine() int {
+	return e.rowCursor
+}
+
 // --- map(object(...)) ---
 
 // mapObjectEditor handles `map(object({...}))` variables. The user sees a
@@ -669,6 +681,17 @@ func (e *mapObjectEditor) CurrentValue() cty.Value {
 		return cty.EmptyObjectVal
 	}
 	return cty.ObjectVal(m)
+}
+
+// CursorLine reports the 0-based line occupied by the cursor in View().
+func (e *mapObjectEditor) CursorLine() int {
+	if e.drilledIn != nil {
+		if sub, ok := e.drilledIn.(EditorWithCursor); ok {
+			return sub.CursorLine() + 2
+		}
+		return 2
+	}
+	return e.rowCursor
 }
 
 // --- list(T) / set(T) ---
@@ -928,6 +951,19 @@ func (e *objectEditor) View() string {
 	fmt.Fprintln(&b)
 	fmt.Fprint(&b, styleHelp.Render("[↑↓] field   "+typeSpecificHint(e.fields[e.cursor].Type)))
 	return b.String()
+}
+
+// CursorLine reports the 0-based line that the cursor occupies in View().
+// Used by the right-pane scroll logic to keep the cursor visible.
+func (e *objectEditor) CursorLine() int {
+	if e.drilledIn != nil {
+		// Drilled-in: delegate if sub-editor has a cursor, offset by 2 (breadcrumb + blank).
+		if sub, ok := e.drilledIn.(EditorWithCursor); ok {
+			return sub.CursorLine() + 2
+		}
+		return 2
+	}
+	return e.cursor
 }
 
 // renderObjectFieldRow draws one field row inside an object editor.

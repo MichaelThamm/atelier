@@ -5,11 +5,21 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
+
+// wrapContent word-wraps each line of s to fit within limit columns,
+// preserving ANSI escape sequences and handling wide characters.
+func wrapContent(s string, limit int) string {
+	if limit <= 0 {
+		return s
+	}
+	return ansi.Wordwrap(s, limit, " ")
+}
 
 // styleModalFrame is the bordered box used by all overlay modals.
 var styleModalFrame = lipgloss.NewStyle().
@@ -34,6 +44,9 @@ func (m *Model) renderModalFrame(title, body, footer string) string {
 	if innerH < 3 {
 		innerH = 3
 	}
+
+	// Word-wrap body to the available inner width.
+	body = wrapContent(body, innerW)
 
 	// Truncate body to fit the available height.
 	lines := strings.Split(body, "\n")
@@ -135,10 +148,54 @@ func (m *Model) renderRightPane() string {
 	if rightWidth < 20 {
 		rightWidth = 20
 	}
-	// Pad content to exactly panelHeight lines so both panels align.
-	lines := strings.Count(content, "\n")
-	if lines < m.panelHeight() {
-		content += strings.Repeat("\n", m.panelHeight()-lines)
+	// Inner content width = rightWidth minus padding (1 left + 1 right).
+	innerW := rightWidth - 2
+	// Word-wrap content to fit the panel's inner width, preventing
+	// terminal-level wrapping that would break the height budget.
+	content = wrapContent(content, innerW)
+	// Scroll the right pane content if it exceeds the panel height.
+	ph := m.panelHeight()
+	lines := strings.Split(content, "\n")
+	if len(lines) > ph {
+		// Auto-scroll to keep editor cursor visible.
+		if ec, ok := m.editor.(EditorWithCursor); ok {
+			// Cursor line in the full content (offset by header lines: name + desc + blank).
+			cursorLine := ec.CursorLine() + 3
+			if cursorLine >= m.editorScroll+ph {
+				m.editorScroll = cursorLine - ph + 1
+			}
+			if cursorLine < m.editorScroll {
+				m.editorScroll = cursorLine
+			}
+		}
+		// Clamp scroll.
+		maxScroll := len(lines) - ph
+		if m.editorScroll > maxScroll {
+			m.editorScroll = maxScroll
+		}
+		if m.editorScroll < 0 {
+			m.editorScroll = 0
+		}
+		end := m.editorScroll + ph
+		if end > len(lines) {
+			end = len(lines)
+		}
+		visible := lines[m.editorScroll:end]
+		// Append scroll indicator.
+		if ph > 1 && len(visible) > 0 {
+			pct := 0
+			if maxScroll > 0 {
+				pct = m.editorScroll * 100 / maxScroll
+			}
+			visible[len(visible)-1] = styleHelp.Render(fmt.Sprintf("  ↕ scroll (%d%%)", pct))
+		}
+		content = strings.Join(visible, "\n")
+	} else {
+		// Pad content to exactly panelHeight lines so both panels align.
+		lineCount := strings.Count(content, "\n")
+		if lineCount < ph {
+			content += strings.Repeat("\n", ph-lineCount)
+		}
 	}
 	panel := m.panelStyle(focusRight)
 	return panel.Width(rightWidth).Height(m.panelHeight()).Render(content)
@@ -233,7 +290,7 @@ func (m *Model) statusHints() string {
 	case planLoading:
 		return "[Esc] cancel  [?] help"
 	case planReady:
-		hints := "[↑↓] navigate  [Enter] toggle  [P] re-plan"
+		hints := "[↑↓/g/G] navigate  [Enter] toggle  [[ ]] diff scroll  [P] re-plan"
 		if m.Applier != nil && m.applyState != applyLoading {
 			hints += "  [A] apply"
 		}
@@ -267,7 +324,11 @@ func (m *Model) renderHelpModal() string {
 	switch {
 	case m.planState == planReady:
 		fmt.Fprintln(&b, "  ↑/k  ↓/j      Navigate plan tree")
+		fmt.Fprintln(&b, "  PgUp/Ctrl+U   Half-page up")
+		fmt.Fprintln(&b, "  PgDn/Ctrl+D   Half-page down")
+		fmt.Fprintln(&b, "  g/G           Jump to top/bottom")
 		fmt.Fprintln(&b, "  Enter/Space    Toggle collapse/expand")
+		fmt.Fprintln(&b, "  [ / ]          Scroll diff pane up/down")
 		fmt.Fprintln(&b, "  P              Re-run terraform plan")
 		if m.Applier != nil {
 			fmt.Fprintln(&b, "  A              Apply the current plan")
@@ -304,14 +365,20 @@ func (m *Model) renderHelpModal() string {
 	return m.renderModalFrame("Keyboard shortcuts", b.String(), "[Esc] or [?] to close")
 }
 
-func (m *Model) bodyHeight() int {
+// contentHeight returns the vertical space available between the bordered
+// header (3 lines) and bordered footer (3 lines), minus 1 safety line for
+// terminals that report height inclusive of the cursor row. All screens
+// must use this as the single source of truth for their body budget.
+func (m *Model) contentHeight() int {
 	if m.height < 9 {
 		return 1
 	}
-	// Reserve 3 lines for header (border+content+border) + 3 for footer
-	// + 1 extra to prevent overflow in terminals that report height
-	// inclusive of the cursor line.
 	return m.height - 7
+}
+
+// bodyHeight is an alias for contentHeight (used by the editor screen).
+func (m *Model) bodyHeight() int {
+	return m.contentHeight()
 }
 
 // renderErrorDetail renders a centered modal showing the complete error output.

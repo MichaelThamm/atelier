@@ -44,6 +44,7 @@ type Model struct {
 	// editor is the active right-pane editor, type-specific per the
 	// currently selected variable.
 	editor Editor
+	editorScroll int // scroll offset for the right pane content
 
 	// status text shown at the bottom. Cleared when a new edit lands.
 	status       string
@@ -74,6 +75,8 @@ type Model struct {
 	plan         *tfjson.Plan
 	planTree     *planNode
 	planCursor   int
+	planScroll   int // scroll offset for the plan tree pane
+	planDiffScroll int // scroll offset for the plan diff pane
 	planErr      string
 	planSpinnerFrame int
 
@@ -219,6 +222,7 @@ func (m *Model) refreshEditor() {
 	}
 	current, _ := m.State.VariableValue(v.Name)
 	m.editor = newEditor(v, current)
+	m.editorScroll = 0 // reset scroll when switching variables
 }
 
 // planResultMsg carries a successful plan back to the UI thread.
@@ -415,6 +419,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.plan = msg.plan
 		m.planTree = BuildPlanTree(msg.plan)
 		m.planCursor = 0
+		m.planScroll = 0
+		m.planDiffScroll = 0
 		m.planState = planReady
 		m.planErr = ""
 		m.status = ""
@@ -712,8 +718,30 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "up", "k":
 		m.movePlanCursor(-1)
+		m.planDiffScroll = 0 // reset diff scroll on cursor move
 	case "down", "j":
 		m.movePlanCursor(+1)
+		m.planDiffScroll = 0 // reset diff scroll on cursor move
+	case "pgup", "ctrl+u":
+		m.movePlanCursor(-m.planPanelHeight() / 2)
+		m.planDiffScroll = 0
+	case "pgdown", "ctrl+d":
+		m.movePlanCursor(m.planPanelHeight() / 2)
+		m.planDiffScroll = 0
+	case "g":
+		m.movePlanCursor(-maxInt)
+		m.planDiffScroll = 0
+	case "G":
+		m.movePlanCursor(maxInt)
+		m.planDiffScroll = 0
+	case "[":
+		// Scroll diff pane up.
+		if m.planDiffScroll > 0 {
+			m.planDiffScroll--
+		}
+	case "]":
+		// Scroll diff pane down.
+		m.planDiffScroll++
 	case "enter", " ", "space", "right", "left", "l", "h":
 		// Toggle collapse on the focused row when it has children.
 		rows := flattenedRows(m.planTree)

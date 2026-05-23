@@ -288,6 +288,9 @@ bordered header bar at the top and a bordered footer bar at the bottom.
 - Renders the selected variable as a widget appropriate to its type (see §8).
 - For object variables, the right pane becomes a sub-form with one row per
   field. Nested objects open as further sub-forms (drill-in navigation).
+- When editor content exceeds the panel height, the pane scrolls
+  automatically to keep the cursor visible. A scroll percentage indicator
+  appears at the bottom of the pane. See [ADR-0014](adr/0014-unified-layout-budget.md).
 - Edits propagate to disk immediately (auto-save; see §13).
 
 ### 7.3 Header and footer bars
@@ -297,13 +300,20 @@ borders). The header shows module context and validation status; the footer
 shows contextual key hints and transient status messages (spinner during
 plan/apply, error summaries).
 
+All screens share a unified layout budget (see [ADR-0014](adr/0014-unified-layout-budget.md)):
+the bordered header consumes 3 lines (border + content + border), the bordered
+footer consumes 3 lines, and 1 safety line is reserved for terminals that
+report height inclusive of the cursor row. The remaining `height − 7` lines
+are the **content height** available to each screen's body. Per-screen
+elements (panel borders, summary lines) subtract from this budget.
+
 **Header** (always visible):
 - Module name + git ref (with resolved SHA short form).
 - Validation indicator: `✓ valid` or `✗ N error(s), M warning(s)`.
 
 **Footer** (contextual hints change by mode):
 - Editor mode: `[Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [R] ref  [Q] quit  [?] help`
-- Plan mode: `[↑↓] navigate  [Enter] toggle  [P] re-plan  [A] apply  [O] outputs  [Esc] back  [?] help`
+- Plan mode: `[↑↓/g/G] navigate  [Enter] toggle  [[ ]] diff scroll  [P] re-plan  [A] apply  [O] outputs  [Esc] back  [?] help`
 - Hints for `[F]`, `[R]`, `[O]`, `[A]`, `[E]` appear only when the
   corresponding feature is available.
 
@@ -343,6 +353,10 @@ Plan: 12 to add, 0 to change, 0 to destroy.
 
 - Resources grouped by module path (collapsible) then resource type.
 - Selecting a leaf opens an attribute diff in a side pane.
+- Both the plan tree and the diff pane are independently scrollable when
+  content exceeds the available height. The tree scrolls with `↑↓/PgUp/PgDn/g/G`;
+  the diff pane scrolls with `[` and `]`. A scroll indicator shows position
+  percentage when content overflows.
 - Pressing `A` from the plan view runs `terraform apply` using the cached
   plan file. A spinner shows progress; success invalidates the plan (since
   the infrastructure now matches). Errors are surfaced in the status bar
@@ -352,7 +366,8 @@ Plan: 12 to add, 0 to change, 0 to destroy.
 - Inline per-attribute diffs *inside* tree nodes are out of scope for v1; see
   [ADR-0011](adr/0011-plan-output-tree.md).
 
-See [ADR-0006](adr/0006-two-pane-ui-layout.md) and [ADR-0011](adr/0011-plan-output-tree.md).
+See [ADR-0006](adr/0006-two-pane-ui-layout.md), [ADR-0011](adr/0011-plan-output-tree.md),
+and [ADR-0014](adr/0014-unified-layout-budget.md).
 
 ### 7.6 Output view
 
