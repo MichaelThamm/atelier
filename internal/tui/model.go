@@ -79,6 +79,7 @@ type Model struct {
 	planDiffScroll int // scroll offset for the plan diff pane
 	planErr      string
 	planSpinnerFrame int
+	progress     *ProgressTracker // live progress from terraform subprocess
 
 	// applyState tracks the apply flow (idle → loading → done/error).
 	applyState applyState
@@ -293,6 +294,11 @@ func (m *Model) startPlan() tea.Cmd {
 			return planErrorMsg{err: fmt.Errorf("plan unavailable: planner not configured")}
 		}
 	}
+	// Create a fresh progress tracker and attach it to the planner.
+	m.progress = NewProgressTracker()
+	if tp, ok := m.Planner.(*TfexecPlanner); ok {
+		tp.Progress = m.progress
+	}
 	state := m.State
 	planner := m.Planner
 	return func() tea.Msg {
@@ -327,6 +333,11 @@ func (m *Model) startApply() tea.Cmd {
 		return func() tea.Msg {
 			return applyErrorMsg{err: fmt.Errorf("apply unavailable: applier not configured")}
 		}
+	}
+	// Create a fresh progress tracker and attach it to the applier.
+	m.progress = NewProgressTracker()
+	if tp, ok := m.Applier.(*TfexecPlanner); ok {
+		tp.Progress = m.progress
 	}
 	applier := m.Applier
 	return func() tea.Msg {
@@ -424,6 +435,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.planState = planReady
 		m.planErr = ""
 		m.status = ""
+		m.progress = nil
 		return m, nil
 	case planErrorMsg:
 		m.planState = planIdle
@@ -432,6 +444,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusDetail = msg.err.Error()
 		m.statusLvl = statusError
 		m.statusAt = time.Now()
+		m.progress = nil
 		return m, nil
 	case spinnerTickMsg:
 		if m.planState == planLoading || m.refSwitching || m.applyState == applyLoading {
@@ -445,6 +458,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "apply succeeded"
 		m.statusLvl = statusInfo
 		m.statusAt = time.Now()
+		m.progress = nil
 		// Invalidate the plan — it has been consumed.
 		m.planState = planIdle
 		m.plan = nil
@@ -468,6 +482,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusDetail = msg.err.Error()
 		m.statusLvl = statusError
 		m.statusAt = time.Now()
+		m.progress = nil
 		return m, nil
 	case validateDebounceMsg:
 		// Only fire if no newer edit has occurred since this tick was scheduled.

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 
 	hcversion "github.com/hashicorp/go-version"
@@ -92,6 +93,12 @@ func (t *Terraform) InitUpgrade(ctx context.Context) error {
 	return t.tf.Init(ctx, tfexec.Upgrade(true))
 }
 
+// SetStdout sets a writer for streaming terraform's human-readable stdout.
+// Pass nil to clear.
+func (t *Terraform) SetStdout(w io.Writer) {
+	t.tf.SetStdout(w)
+}
+
 // Validate runs `terraform validate -json`.
 func (t *Terraform) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
 	return t.tf.Validate(ctx)
@@ -104,9 +111,16 @@ func (t *Terraform) ProvidersSchema(ctx context.Context) (*tfjson.ProviderSchema
 
 // Plan runs `terraform plan -out=<tmp>` and then `terraform show -json
 // <tmp>`. Returns the parsed plan plus a `hasChanges` boolean and the raw
-// human-readable output captured during the plan.
-func (t *Terraform) Plan(ctx context.Context, planFile string) (*tfjson.Plan, bool, error) {
+// human-readable output captured during the plan. If stdout is non-nil,
+// terraform's human-readable progress output is streamed to it during the
+// plan phase (but not during show -json).
+func (t *Terraform) Plan(ctx context.Context, planFile string, stdout io.Writer) (*tfjson.Plan, bool, error) {
+	if stdout != nil {
+		t.tf.SetStdout(stdout)
+	}
 	hasChanges, err := t.tf.Plan(ctx, tfexec.Out(planFile))
+	// Clear stdout before ShowPlanFile so JSON doesn't go to the progress writer.
+	t.tf.SetStdout(nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("terraform plan: %w", err)
 	}
@@ -118,7 +132,12 @@ func (t *Terraform) Plan(ctx context.Context, planFile string) (*tfjson.Plan, bo
 }
 
 // Apply runs `terraform apply <planFile>` using a previously saved plan.
-func (t *Terraform) Apply(ctx context.Context, planFile string) error {
+// If stdout is non-nil, terraform's progress output is streamed to it.
+func (t *Terraform) Apply(ctx context.Context, planFile string, stdout io.Writer) error {
+	if stdout != nil {
+		t.tf.SetStdout(stdout)
+		defer t.tf.SetStdout(nil)
+	}
 	return t.tf.Apply(ctx, tfexec.DirOrPlan(planFile))
 }
 

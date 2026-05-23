@@ -53,6 +53,10 @@ type TfexecPlanner struct {
 	Tf         *tfexec.Terraform
 	WrapperDir string
 
+	// Progress is set by the caller before starting a plan/apply. The planner
+	// writes phase updates to it via terraform's stdout stream.
+	Progress *ProgressTracker
+
 	initialised  bool
 	needsUpgrade bool // set by ResetInit after a ref switch
 }
@@ -78,6 +82,14 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	if p.initialised {
 		return nil
 	}
+
+	// Stream init output to progress tracker if available.
+	if p.Progress != nil {
+		p.Progress.SetPhase("Initializing…")
+		p.Tf.SetStdout(&progressWriter{tracker: p.Progress})
+		defer p.Tf.SetStdout(nil)
+	}
+
 	// After a ref switch we must run -upgrade to re-fetch the module even
 	// though the base URL hasn't changed (only the ?ref= query did).
 	if p.needsUpgrade {
@@ -110,7 +122,12 @@ func (p *TfexecPlanner) Plan(ctx context.Context) (*tfjson.Plan, error) {
 		return nil, err
 	}
 	planFile := filepath.Join(cacheDir, "plan.tfplan")
-	plan, _, err := p.Tf.Plan(ctx, planFile)
+
+	var stdout *progressWriter
+	if p.Progress != nil {
+		stdout = &progressWriter{tracker: p.Progress}
+	}
+	plan, _, err := p.Tf.Plan(ctx, planFile, stdout)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +143,12 @@ func (p *TfexecPlanner) Apply(ctx context.Context) error {
 	if _, err := os.Stat(planFile); err != nil {
 		return fmt.Errorf("no saved plan file: %w", err)
 	}
-	return p.Tf.Apply(ctx, planFile)
+
+	var stdout *progressWriter
+	if p.Progress != nil {
+		stdout = &progressWriter{tracker: p.Progress}
+	}
+	return p.Tf.Apply(ctx, planFile, stdout)
 }
 
 // Validate runs `terraform validate -json` against the wrapper directory.

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -250,14 +251,16 @@ func (m *Model) renderFooter() string {
 	switch {
 	case m.applyState == applyLoading:
 		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
+		label := "Running terraform apply…"
 		left = fmt.Sprintf("%s %s",
 			styleStatusBusy.Render(frame),
-			styleStatusBusy.Render("Running terraform apply…"))
+			styleStatusBusy.Render(label+m.progressSuffix()))
 	case m.planState == planLoading:
 		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
+		label := "Running terraform plan…"
 		left = fmt.Sprintf("%s %s",
 			styleStatusBusy.Render(frame),
-			styleStatusBusy.Render("Running terraform plan…"))
+			styleStatusBusy.Render(label+m.progressSuffix()))
 	case m.statusLvl == statusError && m.status != "":
 		errText := m.status
 		if idx := strings.IndexByte(errText, '\n'); idx >= 0 {
@@ -278,6 +281,36 @@ func (m *Model) renderFooter() string {
 	}
 	bar := left + strings.Repeat(" ", gap) + hints
 	return styleStatusBar.Width(m.width - 2).Render(bar)
+}
+
+// progressSuffix returns a formatted string with elapsed time and current
+// phase from the progress tracker, e.g. " (12s) Refreshing state…". Returns
+// "" if no progress tracker is active.
+func (m *Model) progressSuffix() string {
+	if m.progress == nil {
+		return ""
+	}
+	elapsed := m.progress.Elapsed().Truncate(time.Second)
+	phase := m.progress.Phase()
+	if phase == "" {
+		return fmt.Sprintf(" (%s)", formatDuration(elapsed))
+	}
+	// Truncate phase to keep the footer readable.
+	const maxPhaseLen = 50
+	if len(phase) > maxPhaseLen {
+		phase = phase[:maxPhaseLen-1] + "…"
+	}
+	return fmt.Sprintf(" (%s) %s", formatDuration(elapsed), phase)
+}
+
+// formatDuration renders a duration as a compact human string: "3s", "1m12s".
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	m := int(d.Minutes())
+	s := int(d.Seconds()) - m*60
+	return fmt.Sprintf("%dm%ds", m, s)
 }
 
 // renderStatus composes the full footer (kept for plan view compatibility).
