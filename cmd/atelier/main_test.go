@@ -63,7 +63,6 @@ func TestParseInitArgs_errors(t *testing.T) {
 		name, want string
 		args       []string
 	}{
-		{"no args", "requires a git URL", nil},
 		{"--source no value", "--source requires", []string{"--source"}},
 		{"--ref no value", "--ref requires", []string{"https://x.git", "--ref"}},
 		{"--module no value", "--module requires", []string{"https://x.git", "--module"}},

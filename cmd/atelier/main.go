@@ -5,10 +5,12 @@
 //	atelier                                     open the wrapper in CWD
 //	atelier init <git-url> [--ref R] [--module M]
 //	atelier init --source <path> [--module M]
+//	atelier init                                adopt existing project in CWD
+//	atelier init --module-dir <name>            adopt with custom subdir name
 //
 // All operation runs against the current working directory. The CLI defers
 // the heavy lifting (clone, candidate discovery, wrapper write, TUI loop) to
-// the internal/bootstrap and internal/tui packages.
+// the internal/bootstrap, internal/convert, and internal/tui packages.
 package main
 
 import (
@@ -26,6 +28,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
+	"github.com/MichaelThamm/atelier/internal/convert"
 	"github.com/MichaelThamm/atelier/internal/manifest"
 	"github.com/MichaelThamm/atelier/internal/session"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
@@ -42,6 +45,7 @@ Usage:
                                                Bootstrap a wrapper from a git URL.
   atelier init --source PATH [--module SUBDIR]
                                                Bootstrap from a local module directory.
+  atelier init [--module-dir NAME]             Adopt an existing Terraform project in-place.
   atelier --help                               Print this help.
 
 The wrapper is the durable artifact: a normal Terraform project Atelier
@@ -108,14 +112,26 @@ func runInit(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	if _, err := tfexec.Locate(); err != nil {
+		return err
+	}
+
+	// No source provided — adopt/convert an existing project in CWD.
+	if opts.Source == "" {
+		return runInitAdopt(cwd, opts.ModuleDir)
+	}
+
+	// Source provided — bootstrap a new wrapper from remote/local.
 	opts.WrapperDir = cwd
 
+	// Error if .atelier/ already exists (already initialized).
+	if _, err := os.Stat(filepath.Join(cwd, wrapper.AtelierDir)); err == nil {
+		return fmt.Errorf("already initialized. Use 'atelier' to open")
+	}
 	// SPEC §6.1: error if main.tf already exists.
 	if _, err := os.Stat(filepath.Join(cwd, wrapper.MainTF)); err == nil {
 		return fmt.Errorf("wrapper exists. Use 'atelier' to open, or remove main.tf to re-init")
-	}
-	if _, err := tfexec.Locate(); err != nil {
-		return err
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -123,7 +139,7 @@ func runInit(args []string) error {
 
 	stop := startSpinner("Cloning and preparing module…")
 	defer stop()
-	res, err := bootstrap.InitNew(ctx, opts)
+	res, err := bootstrap.InitNew(ctx, opts.InitOptions)
 	stop()
 	if err != nil {
 		return err
@@ -146,8 +162,47 @@ func runInit(args []string) error {
 	return launchTUI(res, cwd)
 }
 
-func parseInitArgs(args []string) (bootstrap.InitOptions, error) {
-	opts := bootstrap.InitOptions{}
+// runInitAdopt handles `atelier init` with no source: adopt an existing
+// Terraform project in CWD as an Atelier-managed wrapper.
+func runInitAdopt(cwd, moduleDir string) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	stop := startSpinner("Initializing from existing project…")
+	defer stop()
+	res, err := convert.Run(ctx, convert.Options{
+		Dir:       cwd,
+		ModuleDir: moduleDir,
+	})
+	stop()
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "Initialized successfully.\n")
+	if res.Adopted {
+		fmt.Fprintf(os.Stderr, "  Existing module block adopted as Atelier wrapper.\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "  Module files moved to: ./%s/\n", res.ModuleDir)
+		if res.BackupStatePath != "" {
+			fmt.Fprintf(os.Stderr, "  State backup: %s\n", filepath.Base(res.BackupStatePath))
+		}
+		if res.ResourcesMoved > 0 {
+			fmt.Fprintf(os.Stderr, "  Resources migrated: %d\n", res.ResourcesMoved)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "\nRun 'atelier' to open the TUI.\n")
+	return nil
+}
+
+// initOpts extends bootstrap.InitOptions with convert-specific fields.
+type initOpts struct {
+	bootstrap.InitOptions
+	ModuleDir string // for adopt/relocate path
+}
+
+func parseInitArgs(args []string) (initOpts, error) {
+	opts := initOpts{}
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -171,6 +226,12 @@ func parseInitArgs(args []string) (bootstrap.InitOptions, error) {
 				return opts, fmt.Errorf("--module requires a path")
 			}
 			opts.ModulePath = args[i]
+		case "--module-dir":
+			i++
+			if i >= len(args) {
+				return opts, fmt.Errorf("--module-dir requires a name")
+			}
+			opts.ModuleDir = args[i]
 		default:
 			positional = append(positional, a)
 		}
@@ -184,9 +245,7 @@ func parseInitArgs(args []string) (bootstrap.InitOptions, error) {
 		}
 		opts.Source = positional[0]
 	}
-	if opts.Source == "" {
-		return opts, fmt.Errorf("init requires a git URL or --source <path>")
-	}
+	// Source is now optional — empty means adopt/convert existing project.
 	return opts, nil
 }
 

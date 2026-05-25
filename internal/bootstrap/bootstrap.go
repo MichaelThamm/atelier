@@ -69,7 +69,11 @@ func CloneSubdir(wrapperDir string) string {
 // directory.
 func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedSHA string, err error) {
 	if opts.LocalSource {
-		abs, err := filepath.Abs(opts.Source)
+		src := opts.Source
+		if !filepath.IsAbs(src) && opts.WrapperDir != "" {
+			src = filepath.Join(opts.WrapperDir, src)
+		}
+		abs, err := filepath.Abs(src)
 		if err != nil {
 			return "", "", err
 		}
@@ -134,7 +138,7 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 	if err != nil {
 		return nil, fmt.Errorf("read variables: %w", err)
 	}
-	req, err := readRequiredProviders(candidateDir)
+	req, err := ReadRequiredProviders(candidateDir)
 	if err != nil {
 		return nil, fmt.Errorf("read required_providers: %w", err)
 	}
@@ -144,11 +148,11 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 	}
 	wrappedSource := composeSource(sourceURL, modulePath, literalRef)
 
-	providers := defaultProviderBlocks(req)
+	providers := DefaultProviderBlocks(req)
 	values := map[string]cty.Value{}
 	state := &wrapper.State{
 		Dir:               wrapperDir,
-		ModuleBlockName:   moduleBlockName(modulePath, repoBasename(sourceURL)),
+		ModuleBlockName:   ModuleBlockName(modulePath, repoBasename(sourceURL)),
 		Source:            wrappedSource,
 		Vars:              vars,
 		Values:            values,
@@ -232,7 +236,7 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		ModuleDir:         modulePath,
 		RequiredProviders: state.RequiredProviders,
 		Providers:         state.Providers,
-		Variables:         convertVariables(state.Vars),
+		Variables:         ConvertVariables(state.Vars),
 		OutputNames:       state.OutputNames,
 	}); err != nil {
 		return nil, fmt.Errorf("wrapper bootstrap: %w", err)
@@ -294,10 +298,11 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 
 	// Re-clone the module so we can read variable declarations.
 	cloneDir, currentSHA, err := ResolveAndClone(ctx, InitOptions{
-		WrapperDir: wrapperDir,
-		Source:     prev.SourceURL,
-		Ref:        prev.LiteralRef,
-		GitRunner:  gitRunner,
+		WrapperDir:  wrapperDir,
+		Source:      prev.SourceURL,
+		LocalSource: isLocalSource(prev.SourceURL),
+		Ref:         prev.LiteralRef,
+		GitRunner:   gitRunner,
 	})
 	if err != nil {
 		// Network failure during rehydrate is non-fatal; we can still open
@@ -356,9 +361,9 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 	return res, nil
 }
 
-// readRequiredProviders parses the module's terraform { required_providers
+// ReadRequiredProviders parses the module's terraform { required_providers
 // { ... } } block (if any) and returns it as a map.
-func readRequiredProviders(dir string) (map[string]wrapper.RequiredProvider, error) {
+func ReadRequiredProviders(dir string) (map[string]wrapper.RequiredProvider, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -424,11 +429,11 @@ func parseRequiredProviderEntry(expr hcl.Expression) wrapper.RequiredProvider {
 	return rp
 }
 
-// defaultProviderBlocks turns a required_providers map into a list of empty
+// DefaultProviderBlocks turns a required_providers map into a list of empty
 // ProviderBlock stubs, ready for the TUI to populate. Sensitive attributes
 // aren't filled in here because the schema is fetched from terraform later;
 // the TUI flow that has access to the schema populates Attributes.
-func defaultProviderBlocks(req map[string]wrapper.RequiredProvider) []wrapper.ProviderBlock {
+func DefaultProviderBlocks(req map[string]wrapper.RequiredProvider) []wrapper.ProviderBlock {
 	var out []wrapper.ProviderBlock
 	for name := range req {
 		out = append(out, wrapper.ProviderBlock{
@@ -504,9 +509,9 @@ func decomposeSource(s string) (url, ref string) {
 	return url, ref
 }
 
-// moduleBlockName derives a valid HCL identifier from a directory path.
+// ModuleBlockName derives a valid HCL identifier from a directory path.
 // When the path is "." (root module), fallbackName is used instead.
-func moduleBlockName(modulePath, fallbackName string) string {
+func ModuleBlockName(modulePath, fallbackName string) string {
 	base := filepath.Base(modulePath)
 	if base == "" || base == "." {
 		base = fallbackName
@@ -546,12 +551,20 @@ func candidatePaths(cands []candidate.Candidate) []string {
 	return out
 }
 
-// convertVariables adapts a []tfvars.Variable to the wrapper-package
+// ConvertVariables adapts a []tfvars.Variable to the wrapper-package
 // tfvarsLike interface.
-func convertVariables(vars []tfvars.Variable) []wrapper.TFVar {
+func ConvertVariables(vars []tfvars.Variable) []wrapper.TFVar {
 	out := make([]wrapper.TFVar, len(vars))
 	for i, v := range vars {
 		out[i] = v
 	}
 	return out
+}
+
+// isLocalSource reports whether a source string refers to a local filesystem
+// path rather than a git remote.
+func isLocalSource(src string) bool {
+	return strings.HasPrefix(src, "./") ||
+		strings.HasPrefix(src, "../") ||
+		strings.HasPrefix(src, "/")
 }

@@ -17,6 +17,10 @@ rather than a wall of options. Defaults handle the rest, and plan diffs show exa
 atelier init https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 atelier init https://github.com/canonical/observability-stack.git
 
+# Already have a Terraform project with a module block? Adopt it:
+cd my-existing-terraform-project/
+atelier init
+
 # Re-open an existing wrapper:
 atelier
 ```

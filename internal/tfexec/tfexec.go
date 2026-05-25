@@ -146,6 +146,20 @@ func (t *Terraform) Output(ctx context.Context) (map[string]tfexec.OutputMeta, e
 	return t.tf.Output(ctx)
 }
 
+// Show runs `terraform show -json` on the current state and returns the
+// parsed state structure. Used to discover resource addresses for state
+// migration.
+func (t *Terraform) Show(ctx context.Context) (*tfjson.State, error) {
+	return t.tf.Show(ctx)
+}
+
+// StateMv runs `terraform state mv <src> <dst>` to move a resource address
+// in the state file. Used during convert to reparent resources under a module
+// namespace.
+func (t *Terraform) StateMv(ctx context.Context, src, dst string) error {
+	return t.tf.StateMv(ctx, src, dst)
+}
+
 // SetEnv configures additional environment variables on the underlying
 // tfexec runner.
 func (t *Terraform) SetEnv(env map[string]string) error {

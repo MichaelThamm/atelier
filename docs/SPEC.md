@@ -220,6 +220,8 @@ atelier init --source <path>               # bootstrap from a local module
 atelier init <git-url> --module <subdir>   # skip the candidate picker
 atelier init <git-url> --ref <ref>         # set initial ref (default: HEAD)
 atelier init <git-url> --module <subdir> --ref <ref>   # combined
+atelier init                               # adopt an existing Terraform project
+atelier init --module-dir <name>           # adopt with custom subdir (relocate path)
 ```
 
 That is the complete v1 CLI surface. Notably absent:
@@ -238,9 +240,12 @@ Outputs are viewable from within the TUI (see §7.6); a standalone
 | Empty                              | `atelier`          | Error: `Not a wrapper directory. Run 'atelier init <source>' to bootstrap.`                |
 | Has wrapper files **and** `.atelier/` | `atelier`          | Open TUI normally.                                                                         |
 | Has wrapper files, missing `.atelier/` | `atelier`          | Auto-rehydrate: parse `main.tf`, re-clone module, repopulate `.atelier/`, open TUI.        |
-| Empty                              | `atelier init …`   | Bootstrap wrapper.                                                                         |
-| Non-empty, no `main.tf`            | `atelier init …`   | Bootstrap; preserve existing files (`.gitignore`, `README.md`, etc.).                      |
-| Has existing `main.tf`             | `atelier init …`   | Error: `Wrapper exists. Use 'atelier' to open, or remove main.tf to re-init.`              |
+| Empty                              | `atelier init <url>` | Bootstrap wrapper.                                                                       |
+| Non-empty, no `main.tf`            | `atelier init <url>` | Bootstrap; preserve existing files (`.gitignore`, `README.md`, etc.).                     |
+| Has existing `main.tf` + `.atelier/` | `atelier init`   | Error: `Already initialized. Use 'atelier' to open.`                                       |
+| Has existing `main.tf` + `.atelier/` | `atelier init <url>` | Error: `Wrapper exists. Use 'atelier' to open, or remove main.tf to re-init.`            |
+| Has `.tf` with git `module {}`, no `.atelier/` | `atelier init` | **Adopt**: create `.atelier/`, clone upstream, open TUI. No files moved.            |
+| Has `.tf` files, no git module block, no `.atelier/` | `atelier init` | **Relocate**: move files to `./module/`, generate wrapper, migrate state.    |
 
 See [ADR-0002](adr/0002-author-and-plan-scope.md).
 

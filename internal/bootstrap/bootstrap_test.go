@@ -73,8 +73,8 @@ func TestModuleBlockName(t *testing.T) {
 		{".", "observability-stack", "observability_stack"},
 	}
 	for _, c := range cases {
-		if got := moduleBlockName(c.in, c.fallback); got != c.want {
-			t.Errorf("moduleBlockName(%q, %q) = %q, want %q", c.in, c.fallback, got, c.want)
+		if got := ModuleBlockName(c.in, c.fallback); got != c.want {
+			t.Errorf("ModuleBlockName(%q, %q) = %q, want %q", c.in, c.fallback, got, c.want)
 		}
 	}
 }
@@ -97,7 +97,7 @@ terraform {
 	if err := os.WriteFile(filepath.Join(dir, "versions.tf"), []byte(tf), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := readRequiredProviders(dir)
+	got, err := ReadRequiredProviders(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ terraform {
 }
 
 func TestReadRequiredProviders_emptyDir(t *testing.T) {
-	got, err := readRequiredProviders(t.TempDir())
+	got, err := ReadRequiredProviders(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
