@@ -8,17 +8,18 @@ description: |
   module via its git source, with only the values the user chose to set.
   Plan and apply run inside the TUI; the wrapper is independently runnable
   without Atelier installed.
-license: Apache-2.0
+
+license: GPL-3.0
 source-code: https://github.com/MichaelThamm/atelier
 issues: https://github.com/MichaelThamm/atelier/issues
 adopt-info: atelier
 confinement: classic
 grade: stable
-
 platforms:
   amd64:
-    build-on: [amd64]
-    build-for: [amd64]
+  arm64:
+  ppc64el:
+  s390x:
 
 apps:
   atelier:
