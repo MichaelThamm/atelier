@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -241,4 +242,63 @@ func TestView_doesNotPanic(t *testing.T) {
 	if !strings.Contains(out, "model_uuid") {
 		t.Errorf("view should list model_uuid; got:\n%s", out)
 	}
+}
+
+// TestRefModal_pasteSupport verifies that pasting text into the ref input
+// field appends all pasted runes, not just the first character.
+func TestRefModal_pasteSupport(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.RefSwitcher = &stubRefSwitcher{}
+
+	// Open the ref modal.
+	m = feed(m, key("R"))
+	if !m.refModal {
+		t.Fatal("expected refModal to be open after pressing R")
+	}
+
+	// Simulate a paste event: KeyRunes with Paste flag and multiple runes.
+	pasteMsg := tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune("feature/my-branch"),
+		Paste: true,
+	}
+	m = feed(m, pasteMsg)
+
+	if m.refInput != "feature/my-branch" {
+		t.Errorf("after paste, refInput = %q; want %q", m.refInput, "feature/my-branch")
+	}
+}
+
+// TestRefModal_typingSingleChars verifies basic character-by-character input.
+func TestRefModal_typingSingleChars(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.RefSwitcher = &stubRefSwitcher{}
+
+	m = feed(m, key("R"))
+	m = feed(m, key("m"), key("a"), key("i"), key("n"))
+
+	if m.refInput != "main" {
+		t.Errorf("refInput = %q; want %q", m.refInput, "main")
+	}
+
+	// Backspace removes one char.
+	m = feed(m, key("backspace"))
+	if m.refInput != "mai" {
+		t.Errorf("after backspace, refInput = %q; want %q", m.refInput, "mai")
+	}
+
+	// Ctrl+U clears all.
+	m = feed(m, key("ctrl+u"))
+	if m.refInput != "" {
+		t.Errorf("after ctrl+u, refInput = %q; want empty", m.refInput)
+	}
+}
+
+// stubRefSwitcher satisfies the RefSwitcher interface for tests.
+type stubRefSwitcher struct{}
+
+func (s *stubRefSwitcher) SwitchRef(_ context.Context, _ string) (*RefSwitchResult, error) {
+	return &RefSwitchResult{}, nil
 }

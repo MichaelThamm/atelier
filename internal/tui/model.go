@@ -881,11 +881,11 @@ func (m *Model) applyPresetCmd(i int) tea.Cmd {
 
 // handleRefModalKey routes keys while the ref input prompt is visible.
 func (m *Model) handleRefModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch msg.Type {
+	case tea.KeyEscape:
 		m.refModal = false
 		return m, nil
-	case "enter":
+	case tea.KeyEnter:
 		newRef := strings.TrimSpace(m.refInput)
 		if newRef == "" || newRef == m.LiteralRef {
 			m.refModal = false
@@ -896,21 +896,19 @@ func (m *Model) handleRefModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refErr = ""
 		m.status = ""
 		return m, tea.Batch(m.startRefSwitch(newRef), spinnerTick())
-	case "backspace":
+	case tea.KeyBackspace:
 		if len(m.refInput) > 0 {
 			m.refInput = m.refInput[:len(m.refInput)-1]
 		}
 		return m, nil
-	case "ctrl+u":
+	case tea.KeyCtrlU:
 		m.refInput = ""
 		return m, nil
-	default:
-		// Accept printable characters for the ref input.
-		if len(msg.String()) == 1 && msg.String()[0] >= 32 {
-			m.refInput += msg.String()
-		}
+	case tea.KeyRunes, tea.KeySpace:
+		m.refInput += string(msg.Runes)
 		return m, nil
 	}
+	return m, nil
 }
 
 // applyRefSwitch merges a successful ref switch result into the model,
