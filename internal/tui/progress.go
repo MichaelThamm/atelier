@@ -8,7 +8,7 @@ import (
 )
 
 // ProgressTracker holds thread-safe progress state for long-running terraform
-// operations. The plan/apply goroutine updates it via a progressWriter; the
+// operations. The plan/apply goroutine updates it via a ProgressWriter; the
 // TUI reads it on each spinner tick to display elapsed time and phase info.
 type ProgressTracker struct {
 	mu        sync.Mutex
@@ -42,15 +42,15 @@ func (p *ProgressTracker) Elapsed() time.Duration {
 	return time.Since(p.startTime)
 }
 
-// progressWriter is an io.Writer that parses terraform's human-readable
+// ProgressWriter is an io.Writer that parses terraform's human-readable
 // stdout line-by-line and updates a ProgressTracker with meaningful phase
 // information.
-type progressWriter struct {
-	tracker *ProgressTracker
+type ProgressWriter struct {
+	Tracker *ProgressTracker
 	buf     []byte
 }
 
-func (w *progressWriter) Write(p []byte) (n int, err error) {
+func (w *ProgressWriter) Write(p []byte) (n int, err error) {
 	w.buf = append(w.buf, p...)
 	for {
 		idx := bytes.IndexByte(w.buf, '\n')
@@ -60,7 +60,7 @@ func (w *progressWriter) Write(p []byte) (n int, err error) {
 		line := strings.TrimSpace(string(w.buf[:idx]))
 		w.buf = w.buf[idx+1:]
 		if phase := extractPhase(line); phase != "" {
-			w.tracker.SetPhase(phase)
+			w.Tracker.SetPhase(phase)
 		}
 	}
 	return len(p), nil

@@ -85,8 +85,8 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 
 	// Stream init output to progress tracker if available.
 	if p.Progress != nil {
-		p.Progress.SetPhase("Initializing…")
-		p.Tf.SetStdout(&progressWriter{tracker: p.Progress})
+		p.Progress.SetPhase("Running terraform init…")
+		p.Tf.SetStdout(&ProgressWriter{Tracker: p.Progress})
 		defer p.Tf.SetStdout(nil)
 	}
 
@@ -123,9 +123,10 @@ func (p *TfexecPlanner) Plan(ctx context.Context) (*tfjson.Plan, error) {
 	}
 	planFile := filepath.Join(cacheDir, "plan.tfplan")
 
-	var stdout *progressWriter
+	var stdout *ProgressWriter
 	if p.Progress != nil {
-		stdout = &progressWriter{tracker: p.Progress}
+		p.Progress.SetPhase("Running terraform plan…")
+		stdout = &ProgressWriter{Tracker: p.Progress}
 	}
 	plan, _, err := p.Tf.Plan(ctx, planFile, stdout)
 	if err != nil {
@@ -144,9 +145,10 @@ func (p *TfexecPlanner) Apply(ctx context.Context) error {
 		return fmt.Errorf("no saved plan file: %w", err)
 	}
 
-	var stdout *progressWriter
+	var stdout *ProgressWriter
 	if p.Progress != nil {
-		stdout = &progressWriter{tracker: p.Progress}
+		p.Progress.SetPhase("Running terraform apply…")
+		stdout = &ProgressWriter{Tracker: p.Progress}
 	}
 	return p.Tf.Apply(ctx, planFile, stdout)
 }

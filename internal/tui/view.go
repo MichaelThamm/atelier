@@ -255,6 +255,12 @@ func (m *Model) renderFooter() string {
 		left = fmt.Sprintf("%s %s",
 			styleStatusBusy.Render(frame),
 			styleStatusBusy.Render(label+m.progressSuffix()))
+	case m.refSwitching:
+		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
+		label := "Switching module ref…"
+		left = fmt.Sprintf("%s %s",
+			styleStatusBusy.Render(frame),
+			styleStatusBusy.Render(label+m.progressSuffix()))
 	case m.planState == planLoading:
 		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
 		label := "Running terraform plan…"
@@ -478,9 +484,10 @@ func (m *Model) renderRefModal() string {
 
 	if m.refSwitching {
 		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
+		label := "Switching ref…" + m.progressSuffix()
 		fmt.Fprintf(&b, "%s %s\n",
 			styleStatusBusy.Render(frame),
-			styleStatusBusy.Render("Cloning and reinitialising…"))
+			styleStatusBusy.Render(label))
 		return m.renderModalFrame("Switching ref", b.String(), "")
 	}
 

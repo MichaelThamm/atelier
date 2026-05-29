@@ -355,10 +355,18 @@ type prodRefSwitcher struct {
 	modulePath    string
 	currentVars   []tfvars.Variable
 	currentValues map[string]cty.Value
+	progress      *tui.ProgressTracker
+}
+
+func (s *prodRefSwitcher) SetProgress(p *tui.ProgressTracker) {
+	s.progress = p
 }
 
 func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.RefSwitchResult, error) {
 	// Re-clone at the new ref.
+	if s.progress != nil {
+		s.progress.SetPhase("Cloning at new ref…")
+	}
 	cloneDir, sha, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
 		WrapperDir: s.wrapperDir,
 		Source:     s.sourceURL,
@@ -369,6 +377,9 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	}
 
 	// Re-parse variables from the new clone.
+	if s.progress != nil {
+		s.progress.SetPhase("Parsing variables…")
+	}
 	state, err := bootstrap.PrepareState(s.wrapperDir, cloneDir, s.modulePath, sha, newRef, s.sourceURL)
 	if err != nil {
 		return nil, err
@@ -399,6 +410,11 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	tf, err := tfexec.New(s.wrapperDir, "")
 	if err != nil {
 		return nil, fmt.Errorf("terraform init -upgrade: %w", err)
+	}
+	if s.progress != nil {
+		s.progress.SetPhase("Running terraform init…")
+		tf.SetStdout(&tui.ProgressWriter{Tracker: s.progress})
+		defer tf.SetStdout(nil)
 	}
 	if err := tf.InitUpgrade(ctx); err != nil {
 		return nil, fmt.Errorf("terraform init -upgrade: %w", err)

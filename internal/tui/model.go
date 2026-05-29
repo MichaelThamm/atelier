@@ -404,6 +404,10 @@ func (m *Model) startValidate() tea.Cmd {
 // startRefSwitch runs the ref switch in a goroutine and returns result/error
 // messages to the TUI.
 func (m *Model) startRefSwitch(newRef string) tea.Cmd {
+	m.progress = NewProgressTracker()
+	if pa, ok := m.RefSwitcher.(ProgressAware); ok {
+		pa.SetProgress(m.progress)
+	}
 	switcher := m.RefSwitcher
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -514,10 +518,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.validateOutput = nil
 		return m, nil
 	case refSwitchResultMsg:
+		m.progress = nil
 		m.applyRefSwitch(msg.result)
 		return m, nil
 	case refSwitchErrorMsg:
 		m.refSwitching = false
+		m.progress = nil
 		m.refErr = msg.err.Error()
 		m.status = "ref switch failed: " + msg.err.Error()
 		m.statusDetail = msg.err.Error()
