@@ -146,6 +146,9 @@ func runInit(args []string) error {
 	}
 	if res.State == nil {
 		// Multiple candidates and no --module supplied. Print the list.
+		// Clean up the .atelier/ directory created during clone so
+		// the user can re-run with --module without "already initialized".
+		_ = os.RemoveAll(filepath.Join(cwd, wrapper.AtelierDir))
 		fmt.Println("Multiple module candidates found. Re-run with --module <path>:")
 		for _, c := range res.Candidates {
 			label := c.Path
