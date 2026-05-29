@@ -29,6 +29,8 @@ func (m *Model) renderPlanScreen() string {
 // editor pane, so navigation is visually consistent across modes.
 func (m *Model) renderPlanTree() string {
 	const leftWidth = 44
+	// Inner content width = panel width minus padding (1 left + 1 right).
+	const innerWidth = leftWidth - 2
 	rows := flattenedRows(m.planTree)
 
 	// Panel style depends on whether the tree or diff pane is focused.
@@ -43,7 +45,12 @@ func (m *Model) renderPlanTree() string {
 	}
 
 	// Scrolling: ensure cursor is visible.
+	// Reserve one line for the scroll indicator when content overflows.
 	visible := m.planPanelHeight()
+	needsIndicator := len(rows) > visible
+	if needsIndicator {
+		visible-- // reserve last line for the scroll indicator
+	}
 	if m.planScroll > m.planCursor {
 		m.planScroll = m.planCursor
 	}
@@ -62,20 +69,22 @@ func (m *Model) renderPlanTree() string {
 	var b strings.Builder
 	for i := m.planScroll; i < end; i++ {
 		line := renderPlanRow(rows[i])
+		// Truncate to prevent wrapping that would break the height budget.
+		line = ansi.Truncate(line, innerWidth, "…")
 		if i == m.planCursor {
 			line = styleCursorActive.Render(line)
 		}
 		fmt.Fprintln(&b, line)
 	}
 
-	// Scroll indicator.
-	if len(rows) > visible {
+	// Scroll indicator (fits within the height budget).
+	if needsIndicator {
 		pct := 0
 		maxScroll := len(rows) - visible
 		if maxScroll > 0 {
 			pct = m.planScroll * 100 / maxScroll
 		}
-		fmt.Fprintf(&b, "\n%s", styleHelp.Render(fmt.Sprintf("(%d/%d %d%%)", m.planCursor+1, len(rows), pct)))
+		fmt.Fprintf(&b, "%s", styleHelp.Render(fmt.Sprintf("(%d/%d %d%%)", m.planCursor+1, len(rows), pct)))
 	}
 
 	return panelStyle.Width(leftWidth).Height(m.planPanelHeight()).Render(b.String())

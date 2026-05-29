@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -670,5 +671,91 @@ func TestApply_withoutOutputProvider_noop(t *testing.T) {
 	_, cmd2 := m.Update(msg)
 	if cmd2 != nil {
 		t.Error("expected nil cmd when OutputProvider is nil")
+	}
+}
+
+// TestPlanTree_heightConsistency verifies that the rendered tree and diff
+// panes have the same line count even when module names are long enough to
+// potentially wrap. This catches the bug where long module names caused the
+// left pane to overflow its height budget, making it taller than the right
+// pane and breaking the border alignment.
+func TestPlanTree_heightConsistency(t *testing.T) {
+	// Build a plan with deeply nested modules whose names exceed the 42-char
+	// inner width of the left pane.
+	longModule := "module.cos.module.mimir.module.mimir_coordinator_with_extra_long_suffix"
+	plan := &tfjson.Plan{
+		ResourceChanges: []*tfjson.ResourceChange{
+			rc(longModule+".juju_application.app", longModule, "juju_application", "app",
+				change(tfjson.ActionCreate)),
+			rc(longModule+".juju_application.app2", longModule, "juju_application", "app2",
+				change(tfjson.ActionCreate)),
+		},
+	}
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m.Planner = &stubPlanner{plan: plan}
+	_, cmd := m.Update(key("p"))
+	msg := runBatchUntil(t, cmd, func(msg tea.Msg) bool {
+		_, ok := msg.(planResultMsg)
+		return ok
+	})
+	out, _ := m.Update(msg)
+	mm := out.(*Model)
+
+	tree := mm.renderPlanTree()
+	diff := mm.renderPlanDiff()
+
+	treeLines := strings.Count(tree, "\n")
+	diffLines := strings.Count(diff, "\n")
+
+	if treeLines != diffLines {
+		t.Errorf("tree pane height (%d lines) != diff pane height (%d lines); "+
+			"long module names may be wrapping and overflowing the height budget",
+			treeLines, diffLines)
+	}
+}
+
+// TestPlanTree_scrollIndicatorWithinBudget verifies that when there are more
+// rows than fit in the panel, the scroll indicator is rendered within the
+// height budget rather than overflowing it.
+func TestPlanTree_scrollIndicatorWithinBudget(t *testing.T) {
+	// Create resources in many different modules so that the flattened tree
+	// (modules expanded, types collapsed) has enough visible rows to
+	// trigger scrolling. Each module contributes 2 rows: module + type.
+	var changes []*tfjson.ResourceChange
+	for i := 0; i < 20; i++ {
+		mod := fmt.Sprintf("module.m%d", i)
+		addr := fmt.Sprintf("%s.juju_application.app", mod)
+		changes = append(changes, rc(addr, mod, "juju_application",
+			"app", change(tfjson.ActionCreate)))
+	}
+	plan := &tfjson.Plan{ResourceChanges: changes}
+
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m.Planner = &stubPlanner{plan: plan}
+	_, cmd := m.Update(key("p"))
+	msg := runBatchUntil(t, cmd, func(msg tea.Msg) bool {
+		_, ok := msg.(planResultMsg)
+		return ok
+	})
+	out, _ := m.Update(msg)
+	mm := out.(*Model)
+
+	tree := mm.renderPlanTree()
+	diff := mm.renderPlanDiff()
+
+	treeLines := strings.Count(tree, "\n")
+	diffLines := strings.Count(diff, "\n")
+
+	if treeLines != diffLines {
+		t.Errorf("with scroll indicator: tree pane (%d lines) != diff pane (%d lines)",
+			treeLines, diffLines)
+	}
+
+	// Also verify the scroll indicator is present in the output.
+	stripped := stripANSI(tree)
+	if !strings.Contains(stripped, "(1/") {
+		t.Errorf("scroll indicator not found in tree output:\n%s", stripped)
 	}
 }
