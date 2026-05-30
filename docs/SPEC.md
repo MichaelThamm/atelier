@@ -222,6 +222,7 @@ atelier init <git-url> --ref <ref>         # set initial ref (default: HEAD)
 atelier init <git-url> --module <subdir> --ref <ref>   # combined
 atelier init                               # adopt an existing Terraform project
 atelier init --module-dir <name>           # adopt with custom subdir (relocate path)
+atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ directories
 ```
 
 That is the complete v1 CLI surface. Notably absent:
@@ -232,6 +233,22 @@ That is the complete v1 CLI surface. Notably absent:
 
 Outputs are viewable from within the TUI (see §7.6); a standalone
 `atelier output` subcommand is not provided.
+
+### 6.2 Purge
+
+`atelier purge [PATH] [--force]` removes Atelier's internal directories
+(`.atelier/` and `.clone/`) from the target directory (defaults to CWD).
+
+- Only top-level directories in the target are removed; no recursion.
+- Without `--force`, prompts for confirmation listing the directories to be
+  removed.
+- Prints each removed directory on success; prints "nothing to purge" if
+  neither directory exists.
+- Does **not** touch `.terraform/`, `*.tfstate`, or any user files.
+
+This is useful for cleaning up Atelier state without disturbing the wrapper
+itself, e.g. before archiving a wrapper directory or forcing a fresh
+re-introspection on next open.
 
 ### 6.1 Behaviour matrix
 
@@ -246,6 +263,8 @@ Outputs are viewable from within the TUI (see §7.6); a standalone
 | Has existing `main.tf` + `.atelier/` | `atelier init <url>` | Error: `Wrapper exists. Use 'atelier' to open, or remove main.tf to re-init.`            |
 | Has `.tf` with git `module {}`, no `.atelier/` | `atelier init` | **Adopt**: create `.atelier/`, clone upstream, open TUI. No files moved.            |
 | Has `.tf` files, no git module block, no `.atelier/` | `atelier init` | **Relocate**: move files to `./module/`, generate wrapper, migrate state.    |
+| Any (has `.atelier/` or `.clone/`)  | `atelier purge`    | Prompt, then remove `.atelier/` and `.clone/`. Wrapper files untouched.                    |
+| Any (neither exists)               | `atelier purge`    | Print "nothing to purge".                                                                  |
 
 See [ADR-0002](adr/0002-author-and-plan-scope.md).
 
@@ -278,6 +297,31 @@ bordered header bar at the top and a bordered footer bar at the bottom.
   1. Required variables (no default)
   2. Non-object-map optionals
   3. Object-map optionals (`map(object(…))`)
+
+#### Multi-module grouping
+
+When the wrapper's `main.tf` contains multiple `module {}` blocks, the left
+pane groups variables by module with section headers:
+
+```
+── mimir ──────────────────
+[✓] channel
+[ ] s3_endpoint
+── seaweedfs ──────────────
+[ ] model_name
+```
+
+- Each section header is styled distinctly (bold, secondary colour) and
+  rendered as `── <module-name> ──` padded with box-drawing characters.
+- Headers are not selectable; the cursor skips over them.
+- Within each section, variables follow the same priority sort.
+- The primary module (the one Atelier was initialised against) appears first;
+  secondary modules are sorted alphabetically.
+- In single-module wrappers, no section headers are shown (no visual change
+  from the prior single-module experience).
+
+See [ADR-0015](adr/0015-multi-module-grouping.md).
+
 - Each variable has a modified-vs-default marker:
   - `[ ]` — at default
   - `[✓]` — modified
