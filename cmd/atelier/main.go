@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/convert"
+	"github.com/MichaelThamm/atelier/internal/gitops"
 	"github.com/MichaelThamm/atelier/internal/manifest"
 	"github.com/MichaelThamm/atelier/internal/session"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
@@ -271,6 +273,27 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	m.SourceURL = sourceURLFromState(state)
 	m.SetPresets(presets)
 
+	// Discover and load secondary modules from main.tf. Also use the
+	// actual block name from main.tf to ensure the primary module's display
+	// name is correct (PrepareState may derive a different name).
+	actualPrimaryName := state.ModuleBlockName
+	if blocks, err := wrapper.ReadModuleBlocks(wrapperDir); err == nil {
+		// Find the block whose source matches the primary state's source.
+		for _, blk := range blocks {
+			if blk.Source == state.Source {
+				actualPrimaryName = blk.Name
+				break
+			}
+		}
+	}
+	if actualPrimaryName != state.ModuleBlockName {
+		// Correct the primary module's display name and internal block name.
+		state.ModuleBlockName = actualPrimaryName
+		m.Modules[0] = tui.ModuleEntry{State: state, Name: actualPrimaryName}
+		m.ModuleName = actualPrimaryName
+	}
+	loadSecondaryModules(m, wrapperDir, actualPrimaryName)
+
 	// Construct a Planner so pressing P in the TUI runs a real terraform
 	// plan against the wrapper. A failure to locate terraform was already
 	// reported in runOpen / runInit, so this should not error in practice;
@@ -307,6 +330,157 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		return err
 	}
 	return nil
+}
+
+// loadSecondaryModules discovers module blocks in main.tf beyond the primary
+// one, clones their sources, parses their variables, and adds them to the TUI
+// model. Failures are non-fatal — the secondary module is simply not shown.
+func loadSecondaryModules(m *tui.Model, wrapperDir, primaryBlockName string) {
+	blocks, err := wrapper.ReadModuleBlocks(wrapperDir)
+	if err != nil {
+		return
+	}
+
+	// Resolve the primary module's source for robust duplicate detection.
+	// We match on both block name AND normalised source URL to handle cases
+	// where ModuleBlockName differs from the actual HCL label.
+	primarySource := ""
+	for _, blk := range blocks {
+		if blk.Name == primaryBlockName {
+			primarySource = blk.Source
+			break
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	type result struct {
+		state *wrapper.State
+		name  string
+	}
+	var results []result
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, blk := range blocks {
+		if blk.Name == primaryBlockName || blk.Source == "" {
+			continue
+		}
+		// Also skip if the source URL matches the primary module's source
+		// (duplicate detection when block names don't match due to internal
+		// naming vs HCL label mismatch).
+		if primarySource != "" && blk.Source == primarySource {
+			continue
+		}
+		wg.Add(1)
+		go func(blk wrapper.ModuleBlockInfo) {
+			defer wg.Done()
+			st := loadSecondaryModule(ctx, wrapperDir, blk)
+			if st != nil {
+				mu.Lock()
+				results = append(results, result{state: st, name: blk.Name})
+				mu.Unlock()
+			}
+		}(blk)
+	}
+	wg.Wait()
+
+	// Add in the order they appear in main.tf.
+	nameOrder := make(map[string]int, len(blocks))
+	for i, blk := range blocks {
+		nameOrder[blk.Name] = i
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return nameOrder[results[i].name] < nameOrder[results[j].name]
+	})
+	for _, r := range results {
+		m.AddModule(r.state, r.name)
+	}
+}
+
+// loadSecondaryModule clones and parses a secondary module's variables.
+func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.ModuleBlockInfo) *wrapper.State {
+	srcURL, ref := decomposeModuleSource(blk.Source)
+	if srcURL == "" {
+		return nil
+	}
+	modPath := modulePathFromSource(blk.Source)
+
+	// Clone into .atelier/clone/<reponame>.
+	cloneDir, _, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
+		WrapperDir:  wrapperDir,
+		Source:      srcURL,
+		LocalSource: isLocalPath(srcURL),
+		Ref:         ref,
+		GitRunner:   &gitops.Git{},
+	})
+	if err != nil {
+		return nil
+	}
+
+	state, err := bootstrap.PrepareState(wrapperDir, cloneDir, modPath, "", ref, srcURL)
+	if err != nil {
+		return nil
+	}
+	state.ModuleBlockName = blk.Name
+	state.Source = blk.Source
+
+	// Overlay existing values from main.tf.
+	pm, err := wrapper.ReadMainForBlock(wrapperDir, blk.Name, state.Vars)
+	if err == nil && pm != nil {
+		for k, v := range pm.Values {
+			state.Values[k] = v
+		}
+		state.UnknownAttrs = pm.UnknownAttrs
+	}
+	return state
+}
+
+// decomposeModuleSource parses a terraform module source string into the
+// git URL and ref components.
+func decomposeModuleSource(source string) (url, ref string) {
+	s := source
+	if i := strings.Index(s, "?ref="); i >= 0 {
+		ref = s[i+len("?ref="):]
+		s = s[:i]
+	}
+	s = strings.TrimPrefix(s, "git::")
+	// Strip the "//<path>" module sub-path suffix.
+	searchFrom := 0
+	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
+		searchFrom = schemeEnd + 3
+	}
+	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
+		s = s[:searchFrom+idx]
+	}
+	return s, ref
+}
+
+// modulePathFromSource extracts the module sub-path from a terraform source.
+func modulePathFromSource(source string) string {
+	s := source
+	// Strip ?ref= query.
+	if q := strings.Index(s, "?ref="); q >= 0 {
+		s = s[:q]
+	}
+	s = strings.TrimPrefix(s, "git::")
+	// Find the "//" separator after the scheme.
+	searchFrom := 0
+	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
+		searchFrom = schemeEnd + 3
+	}
+	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
+		return s[searchFrom+idx+2:]
+	}
+	return ""
+}
+
+// isLocalPath heuristically checks if a source looks like a local path.
+func isLocalPath(source string) bool {
+	return strings.HasPrefix(source, "/") ||
+		strings.HasPrefix(source, "./") ||
+		strings.HasPrefix(source, "../")
 }
 
 func modulePathFromState(s *wrapper.State) string {

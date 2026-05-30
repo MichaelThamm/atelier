@@ -86,7 +86,23 @@ func (m *Model) renderLeftPane() string {
 
 	for i := start; i < end; i++ {
 		r := m.rows[i]
-		marker := varMarker(m.State, r.VarName)
+		if r.IsHeader {
+			// Render section header: "── module_name ──"
+			name := r.VarName
+			if len(name) > maxVisualWidth-4 {
+				name = name[:maxVisualWidth-5] + "…"
+			}
+			// Build a padded line: "── name ──" centered/left-aligned.
+			pad := maxVisualWidth - len(name) - 4 // 4 = "── " + " ─"
+			if pad < 1 {
+				pad = 1
+			}
+			line := fmt.Sprintf("── %s %s", name, strings.Repeat("─", pad))
+			line = styleSectionHeader.Render(line)
+			fmt.Fprintln(&b, line)
+			continue
+		}
+		marker := varMarker(m.moduleStateForRow(r), r.VarName)
 		name := r.VarName
 		// Truncate the variable name to prevent wrapping.
 		if len(name) > maxNameWidth {

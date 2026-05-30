@@ -27,6 +27,11 @@ import (
 // Model is the top-level TUI model.
 type Model struct {
 	State *wrapper.State
+	// Modules holds all module states for multi-module wrappers. When
+	// len(Modules) > 1, the left pane shows section headers to group
+	// variables by module. When empty or len==1, behaves as before.
+	Modules []ModuleEntry
+
 	// Module display info shown in the status bar.
 	ModuleName   string
 	LiteralRef   string
@@ -170,9 +175,17 @@ const (
 	statusError
 )
 
-// rowEntry is one row in the left pane: a variable.
+// rowEntry is one row in the left pane: either a variable or a section header.
 type rowEntry struct {
-	VarName string
+	VarName   string
+	ModuleIdx int  // index into Model.Modules
+	IsHeader  bool // true for non-selectable group headers
+}
+
+// ModuleEntry represents one module in a multi-module wrapper session.
+type ModuleEntry struct {
+	State *wrapper.State
+	Name  string // display name (typically the module block name)
 }
 
 // New builds a Model around a wrapper.State.
@@ -180,10 +193,19 @@ func New(state *wrapper.State, modName string) *Model {
 	m := &Model{
 		State:      state,
 		ModuleName: modName,
+		Modules:    []ModuleEntry{{State: state, Name: modName}},
 	}
 	m.recomputeRows()
 	m.refreshEditor()
 	return m
+}
+
+// AddModule appends an additional module to the TUI. Variables from all
+// modules are shown in the left pane, grouped under section headers when
+// there is more than one module.
+func (m *Model) AddModule(state *wrapper.State, name string) {
+	m.Modules = append(m.Modules, ModuleEntry{State: state, Name: name})
+	m.recomputeRows()
 }
 
 // SetPresets installs resolved presets from the manifest. When non-empty,
@@ -194,8 +216,26 @@ func (m *Model) SetPresets(p []ResolvedPreset) {
 
 func (m *Model) recomputeRows() {
 	var rows []rowEntry
-	for _, v := range m.State.Vars {
-		rows = append(rows, rowEntry{VarName: v.Name})
+	if len(m.Modules) > 1 {
+		// Multi-module: group variables under section headers.
+		for idx, mod := range m.Modules {
+			rows = append(rows, rowEntry{
+				VarName:   mod.Name,
+				ModuleIdx: idx,
+				IsHeader:  true,
+			})
+			for _, v := range mod.State.Vars {
+				rows = append(rows, rowEntry{
+					VarName:   v.Name,
+					ModuleIdx: idx,
+				})
+			}
+		}
+	} else {
+		// Single module: flat list, no headers (backward compat).
+		for _, v := range m.State.Vars {
+			rows = append(rows, rowEntry{VarName: v.Name})
+		}
 	}
 	m.rows = rows
 	if m.cursor >= len(rows) {
@@ -203,6 +243,10 @@ func (m *Model) recomputeRows() {
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
+	}
+	// If cursor landed on a header, advance to the first variable.
+	if m.cursor < len(m.rows) && m.rows[m.cursor].IsHeader {
+		m.skipHeader(+1)
 	}
 }
 
@@ -213,7 +257,28 @@ func (m *Model) SelectedVariable() *tfvars.Variable {
 		return nil
 	}
 	r := m.rows[m.cursor]
-	return m.State.FindVar(r.VarName)
+	if r.IsHeader {
+		return nil
+	}
+	st := m.moduleStateForRow(r)
+	return st.FindVar(r.VarName)
+}
+
+// ActiveModuleState returns the wrapper.State for the variable currently
+// under the cursor. Falls back to the primary State.
+func (m *Model) ActiveModuleState() *wrapper.State {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return m.State
+	}
+	return m.moduleStateForRow(m.rows[m.cursor])
+}
+
+// moduleStateForRow returns the wrapper.State that owns the given row entry.
+func (m *Model) moduleStateForRow(r rowEntry) *wrapper.State {
+	if len(m.Modules) > 1 && r.ModuleIdx < len(m.Modules) {
+		return m.Modules[r.ModuleIdx].State
+	}
+	return m.State
 }
 
 func (m *Model) refreshEditor() {
@@ -222,7 +287,8 @@ func (m *Model) refreshEditor() {
 		m.editor = nil
 		return
 	}
-	current, _ := m.State.VariableValue(v.Name)
+	st := m.ActiveModuleState()
+	current, _ := st.VariableValue(v.Name)
 	m.editor = newEditor(v, current)
 	m.editorScroll = 0 // reset scroll when switching variables
 }
@@ -300,13 +366,11 @@ func (m *Model) startPlan() tea.Cmd {
 	if tp, ok := m.Planner.(*TfexecPlanner); ok {
 		tp.Progress = m.progress
 	}
-	state := m.State
+	modules := m.Modules
 	planner := m.Planner
 	return func() tea.Msg {
-		if state != nil {
-			if err := state.Write(); err != nil {
-				return planErrorMsg{err: fmt.Errorf("save wrapper: %w", err)}
-			}
+		if err := writeAllModules(modules); err != nil {
+			return planErrorMsg{err: fmt.Errorf("save wrapper: %w", err)}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -383,13 +447,11 @@ func (m *Model) scheduleValidate() tea.Cmd {
 
 // startValidate saves state and runs `terraform validate` asynchronously.
 func (m *Model) startValidate() tea.Cmd {
-	state := m.State
+	modules := m.Modules
 	validator := m.Validator
 	return func() tea.Msg {
-		if state != nil {
-			if err := state.Write(); err != nil {
-				return validateErrorMsg{err: fmt.Errorf("save wrapper: %w", err)}
-			}
+		if err := writeAllModules(modules); err != nil {
+			return validateErrorMsg{err: fmt.Errorf("save wrapper: %w", err)}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -999,6 +1061,10 @@ func (m *Model) moveCursor(delta int) {
 	c := m.cursor
 	for i := 0; i < abs(delta); i++ {
 		c += step
+		// Skip over header rows.
+		for c >= 0 && c < len(m.rows) && m.rows[c].IsHeader {
+			c += step
+		}
 		if c < 0 || c >= len(m.rows) {
 			return
 		}
@@ -1006,6 +1072,19 @@ func (m *Model) moveCursor(delta int) {
 	m.cursor = c
 	m.scrollToCursor()
 	m.refreshEditor()
+}
+
+// skipHeader advances the cursor past a header in the given direction.
+func (m *Model) skipHeader(dir int) {
+	for m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].IsHeader {
+		m.cursor += dir
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.cursor >= len(m.rows) {
+		m.cursor = len(m.rows) - 1
+	}
 }
 
 // scrollToCursor adjusts leftScroll so the cursor is visible within the
@@ -1028,13 +1107,14 @@ func (m *Model) leftPaneVisibleRows() int {
 }
 
 func (m *Model) applyEditorValue(v *tfvars.Variable, val cty.Value) {
-	if m.State.Values == nil {
-		m.State.Values = map[string]cty.Value{}
+	st := m.ActiveModuleState()
+	if st.Values == nil {
+		st.Values = map[string]cty.Value{}
 	}
 	if val == cty.NilVal {
-		delete(m.State.Values, v.Name)
+		delete(st.Values, v.Name)
 	} else {
-		m.State.Values[v.Name] = val
+		st.Values[v.Name] = val
 	}
 	m.dirty = true
 }
@@ -1069,7 +1149,8 @@ func (m *Model) resetCurrent() {
 	}
 
 	// Whole-variable reset.
-	delete(m.State.Values, v.Name)
+	st := m.ActiveModuleState()
+	delete(st.Values, v.Name)
 	m.dirty = true
 	m.refreshEditor()
 	m.status = "variable reset to default"
@@ -1080,10 +1161,10 @@ func (m *Model) resetCurrent() {
 // the error from the write, or nil. Exposed so the runtime layer (cmd) can
 // run a final flush before exit.
 func (m *Model) SaveIfDirty() error {
-	if !m.dirty || m.State == nil {
+	if !m.dirty {
 		return nil
 	}
-	if err := m.State.Write(); err != nil {
+	if err := writeAllModules(m.Modules); err != nil {
 		return err
 	}
 	m.dirty = false
@@ -1129,6 +1210,19 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// writeAllModules writes the state for every module in the session.
+// Each module's State.Write() is idempotent on its own block in main.tf.
+func writeAllModules(modules []ModuleEntry) error {
+	for _, mod := range modules {
+		if mod.State != nil {
+			if err := mod.State.Write(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Format helper: short SHA.
