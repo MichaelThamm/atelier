@@ -48,6 +48,7 @@ Usage:
   atelier init --source PATH [--module SUBDIR]
                                                Bootstrap from a local module directory.
   atelier init [--module-dir NAME]             Adopt an existing Terraform project in-place.
+  atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier --help                               Print this help.
 
 The wrapper is the durable artifact: a normal Terraform project Atelier
@@ -75,6 +76,9 @@ func run(args []string) error {
 	}
 	if args[0] == "init" {
 		return runInit(args[1:])
+	}
+	if args[0] == "purge" {
+		return runPurge(args[1:])
 	}
 	return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 }
