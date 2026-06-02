@@ -55,6 +55,27 @@ module (typically a public git repository), and Atelier:
   read-only HCL with an "edit in `$EDITOR`" affordance in v1.
 - Multiple instances of the same provider via `alias`.
 
+### Explicit scope boundaries
+
+Atelier is an **interactive module discovery and configuration tool**. It is
+not an orchestration tool, not a deployment platform, and not a multi-
+environment manager. The following are permanently out of scope (see
+[ADR-0016](adr/0016-scope-boundaries-no-orchestration.md)):
+
+- **Multi-environment fan-out.** No dev/staging/prod directory hierarchies.
+  One wrapper = one environment. Use Terragrunt or Terraform workspaces for
+  fan-out.
+- **Cross-root dependency orchestration.** No DAG execution across separate
+  state files. Atelier operates on a single Terraform root.
+- **DRY config inheritance.** No parent/child config merging. The wrapper is
+  self-contained.
+- **Remote state management.** No auto-configuring backends. Backend
+  configuration is the user's responsibility.
+- **Deployment rollout orchestration.** No approval gates or phased rollouts.
+  `terraform apply` is the deployment mechanism.
+- **Platform lock-in.** No features that require HCP Terraform, Spacelift,
+  or any managed cloud account. Atelier is local-first.
+
 ## 3. Glossary
 
 - **Module** — a Terraform module: a directory of `.tf` files declaring
@@ -215,17 +236,26 @@ refs. See [ADR-0007](adr/0007-sparse-wrapper-write-rule.md).
 
 ```
 atelier                                    # open TUI on existing wrapper in CWD
-atelier init <git-url>                     # bootstrap a new wrapper in CWD
-atelier init --source <path>               # bootstrap from a local module
-atelier init <git-url> --module <subdir>   # skip the candidate picker
-atelier init <git-url> --ref <ref>         # set initial ref (default: HEAD)
-atelier init <git-url> --module <subdir> --ref <ref>   # combined
 atelier init                               # adopt an existing Terraform project
+atelier init --source <path>               # bootstrap from a local module
 atelier init --module-dir <name>           # adopt with custom subdir (relocate path)
+atelier module add <git-url>               # add a module to the wrapper (bootstraps if needed)
+atelier module add <git-url> --as <name>   # add with explicit HCL block name
+atelier module add <git-url> --ref <ref>   # add at a specific ref
+atelier module add <git-url> --module <subdir>  # skip the candidate picker
+atelier module rm <name> [--force]         # remove a module from the wrapper
+atelier module list                        # list modules in the wrapper
 atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ directories
+atelier --help                             # print usage
 ```
 
-That is the complete v1 CLI surface. Notably absent:
+See [ADR-0018](adr/0018-additive-module-command.md) for the `module`
+subcommand design.
+
+`atelier init <git-url>` is **removed**. The only way to add a module from a
+URL is `atelier module add <url>`.
+
+That is the complete CLI surface. Notably absent:
 
 - No `atelier plan` / `atelier apply` (use `terraform` directly in the
   wrapper).
@@ -233,6 +263,23 @@ That is the complete v1 CLI surface. Notably absent:
 
 Outputs are viewable from within the TUI (see §7.6); a standalone
 `atelier output` subcommand is not provided.
+
+### 6.1 Module subcommand
+
+`atelier module add <git-url>` is the primary entry point for adding modules:
+
+- If no wrapper exists, bootstraps a fresh wrapper (same as legacy `init`).
+- If a wrapper exists, appends a `module {}` block to `main.tf`.
+- Derives the HCL block name from the candidate directory basename unless
+  `--as` is provided.
+- Runs `terraform init` and launches the TUI with the new module focused.
+
+`atelier module rm <name>` removes a module block, its outputs, and its
+clone. Does not run `terraform apply -destroy` — state cleanup is the user's
+responsibility.
+
+`atelier module list` prints a table (name, source, ref) without launching
+the TUI.
 
 ### 6.2 Purge
 
@@ -250,17 +297,17 @@ This is useful for cleaning up Atelier state without disturbing the wrapper
 itself, e.g. before archiving a wrapper directory or forcing a fresh
 re-introspection on next open.
 
-### 6.1 Behaviour matrix
+### 6.3 Behaviour matrix
 
 | CWD state                          | Command            | Behaviour                                                                                  |
 |------------------------------------|--------------------|--------------------------------------------------------------------------------------------|
-| Empty                              | `atelier`          | Error: `Not a wrapper directory. Run 'atelier init <source>' to bootstrap.`                |
+| Empty                              | `atelier`          | Error: `Not a wrapper directory. Run 'atelier module add <url>' to bootstrap.`             |
 | Has wrapper files **and** `.atelier/` | `atelier`          | Open TUI normally.                                                                         |
 | Has wrapper files, missing `.atelier/` | `atelier`          | Auto-rehydrate: parse `main.tf`, re-clone module, repopulate `.atelier/`, open TUI.        |
-| Empty                              | `atelier init <url>` | Bootstrap wrapper.                                                                       |
-| Non-empty, no `main.tf`            | `atelier init <url>` | Bootstrap; preserve existing files (`.gitignore`, `README.md`, etc.).                     |
+| Empty                              | `atelier module add <url>` | Bootstrap wrapper + add module.                                                    |
+| Non-empty, no `main.tf`            | `atelier module add <url>` | Bootstrap; preserve existing files (`.gitignore`, `README.md`, etc.).               |
+| Has existing wrapper               | `atelier module add <url>` | Append module block to existing `main.tf`.                                         |
 | Has existing `main.tf` + `.atelier/` | `atelier init`   | Error: `Already initialized. Use 'atelier' to open.`                                       |
-| Has existing `main.tf` + `.atelier/` | `atelier init <url>` | Error: `Wrapper exists. Use 'atelier' to open, or remove main.tf to re-init.`            |
 | Has `.tf` with git `module {}`, no `.atelier/` | `atelier init` | **Adopt**: create `.atelier/`, clone upstream, open TUI. No files moved.            |
 | Has `.tf` files, no git module block, no `.atelier/` | `atelier init` | **Relocate**: move files to `./module/`, generate wrapper, migrate state.    |
 | Any (has `.atelier/` or `.clone/`)  | `atelier purge`    | Prompt, then remove `.atelier/` and `.clone/`. Wrapper files untouched.                    |
@@ -361,10 +408,13 @@ elements (panel borders, summary lines) subtract from this budget.
 - Validation indicator: `✓ valid` or `✗ N error(s), M warning(s)`.
 
 **Footer** (contextual hints change by mode):
-- Editor mode: `[Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [R] ref  [Q] quit  [?] help`
+- Editor mode: `[cos_lite] [Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [R] ref  [Q] quit  [?] help`
 - Plan mode: `[↑↓/g/G] navigate  [Enter] toggle  [[ ]] diff scroll  [P] re-plan  [A] apply  [O] outputs  [Esc] back  [?] help`
 - Hints for `[F]`, `[R]`, `[O]`, `[A]`, `[E]` appear only when the
   corresponding feature is available.
+- In multi-module wrappers, the footer shows the active module context
+  (e.g. `[cos_lite]`) so the user always knows which module `R` and `F`
+  will target.
 
 - When validation or plan emits errors, the first line of the error is shown
   in the footer. Pressing `E` opens a full-screen error detail modal
@@ -375,11 +425,29 @@ elements (panel borders, summary lines) subtract from this budget.
 
 ### 7.4 Ref switch view (modal)
 
-Triggered by `R` from the left pane. Shows the module name, git source URL,
-current ref (with resolved SHA), and an input field for the new ref. On
-`Enter`, the module is re-cloned and reinitialised; a spinner shows progress.
-On completion, the user returns to the editor with the new ref active. See
-§5.3.1.
+Triggered by `R` from the left pane. In multi-module wrappers, `R` targets
+the module that owns the currently selected variable (determined by
+`rowEntry.ModuleIdx`). When the cursor is on a section header, `R` targets
+that section's module.
+
+The modal shows the module name prominently, the git source URL, current ref
+(with resolved SHA), and an input field for the new ref:
+
+```
+╭─ Switch ref: cos_lite ──────────────────╮
+│ Source: git::https://github.com/...     │
+│ Current: main (827b891)                 │
+│                                         │
+│ New ref: █                              │
+╰─────────────────────────────────────────╯
+```
+
+On `Enter`, the module is re-cloned and reinitialised; a spinner shows
+progress. On completion, the user returns to the editor with the new ref
+active. See §5.3.1.
+
+See [ADR-0018](adr/0018-additive-module-command.md) for the context-aware
+ref switch design.
 
 ### 7.5 Plan view (modal-ish)
 
@@ -720,7 +788,49 @@ consistent, boxed appearance.
 JSON output values in the output view use syntax highlighting: keys, strings,
 numbers, booleans, and null each have distinct colours drawn from the palette.
 
-## 15. Open questions for v1
+## 15. Inter-module wiring
+
+When the wrapper contains multiple modules, Atelier offers **wire
+suggestions** — type-compatible output→input connections between modules.
+See [ADR-0017](adr/0017-inter-module-wiring.md).
+
+### 15.1 Wire suggestions in the editor
+
+When the user focuses a variable in module B, and another module in the
+wrapper declares an output whose type is assignable to the variable's type,
+a wire suggestion appears below the editor widget:
+
+```
+model_name (string, required)
+  ╰─ Wire to: module.cos_lite.model_name (string)
+```
+
+Suggestions are sorted by name similarity then alphabetically. Selecting a
+suggestion writes a standard Terraform module reference:
+
+```hcl
+module "alerting" {
+  source     = "..."
+  model_name = module.cos_lite.model_name
+}
+```
+
+### 15.2 Wire indicator
+
+Variables wired to module references show `[→]` in the left pane instead of
+`[✓]`. This distinguishes wired values from user-edited literals.
+
+### 15.3 Unwiring
+
+Editing a wired variable replaces the reference with a literal value.
+`Ctrl+R` (reset to default) removes the wire and restores the default.
+
+### 15.4 Scope
+
+- v1.x: wire suggestions for scalar types (`string`, `number`, `bool`).
+- Future: collection and object type wiring.
+
+## 16. Open questions for v1
 
 These are minor and can be settled during implementation; flagged here so
 they don't get lost.

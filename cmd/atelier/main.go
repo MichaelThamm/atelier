@@ -43,11 +43,13 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 
 Usage:
   atelier                                      Open the wrapper in the current directory.
-  atelier init <git-url> [--ref REF] [--module SUBDIR]
-                                               Bootstrap a wrapper from a git URL.
+  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
+                                               Add a module to the wrapper (bootstraps if needed).
+  atelier module rm <name> [--force]           Remove a module from the wrapper.
+  atelier module list                          List modules in the wrapper.
+  atelier init [--module-dir NAME]             Adopt an existing Terraform project in-place.
   atelier init --source PATH [--module SUBDIR]
                                                Bootstrap from a local module directory.
-  atelier init [--module-dir NAME]             Adopt an existing Terraform project in-place.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier --help                               Print this help.
 
@@ -64,15 +66,17 @@ func main() {
 }
 
 func run(args []string) error {
-	for _, a := range args {
-		if a == "--help" || a == "-h" {
-			fmt.Print(usage)
-			return nil
-		}
+	// Only check top-level --help (not within subcommands).
+	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
+		fmt.Print(usage)
+		return nil
 	}
 
 	if len(args) == 0 {
 		return runOpen()
+	}
+	if args[0] == "module" {
+		return runModule(args[1:])
 	}
 	if args[0] == "init" {
 		return runInit(args[1:])
@@ -91,7 +95,7 @@ func runOpen() error {
 	}
 	mainPath := filepath.Join(cwd, wrapper.MainTF)
 	if _, err := os.Stat(mainPath); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("not a wrapper directory. Run 'atelier init <source>' to bootstrap")
+		return fmt.Errorf("not a wrapper directory. Run 'atelier module add <url>' to bootstrap")
 	} else if err != nil {
 		return err
 	}
@@ -128,7 +132,12 @@ func runInit(args []string) error {
 		return runInitAdopt(cwd, opts.ModuleDir)
 	}
 
-	// Source provided — bootstrap a new wrapper from remote/local.
+	// If the source is a git URL (not local), redirect to `atelier module add`.
+	if !opts.LocalSource {
+		return fmt.Errorf("'atelier init <url>' is removed. Use 'atelier module add %s' instead", opts.Source)
+	}
+
+	// Local source provided — bootstrap a new wrapper from local path.
 	opts.WrapperDir = cwd
 
 	// Error if .atelier/ already exists (already initialized).

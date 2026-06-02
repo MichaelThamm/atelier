@@ -83,6 +83,13 @@ func (s *State) writeMain() error {
 			body.SetAttributeRaw(v.Name, todoTokens(v.Type.String()))
 			continue
 		}
+		// If the value is a string that looks like an HCL expression
+		// reference (module.X.Y, var.X, local.X), write it as raw tokens
+		// so it's emitted unquoted as an expression.
+		if writeVal.Type() == cty.String && isExpressionRef(writeVal.AsString()) {
+			body.SetAttributeRaw(v.Name, expressionTokens(writeVal.AsString()))
+			continue
+		}
 		body.SetAttributeValue(v.Name, writeVal)
 	}
 
@@ -118,6 +125,94 @@ func todoTokens(typeHint string) hclwrite.Tokens {
 		{Type: hclsyntax.TokenIdent, Bytes: []byte("null")},
 		{Type: hclsyntax.TokenComment, Bytes: []byte(" # TODO: required (" + typeHint + ")\n"), SpacesBefore: 1},
 	}
+}
+
+// isExpressionRef detects if a string value looks like an HCL expression
+// reference that should be written unquoted. Supports:
+//   - module.<name>.<attr>
+//   - var.<name>
+//   - local.<name>
+//   - data.<type>.<name>.<attr>
+//
+// The value must consist entirely of valid HCL identifier characters and dots.
+func isExpressionRef(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	// Must start with a known reference prefix.
+	prefixes := []string{"module.", "var.", "local.", "data."}
+	hasPrefix := false
+	for _, p := range prefixes {
+		if len(s) > len(p) && s[:len(p)] == p {
+			hasPrefix = true
+			break
+		}
+	}
+	if !hasPrefix {
+		return false
+	}
+	// Must contain at least two parts (prefix.name).
+	parts := 0
+	for i, c := range s {
+		if c == '.' {
+			if i == 0 || i == len(s)-1 {
+				return false // leading/trailing dot
+			}
+			parts++
+			continue
+		}
+		if !isIdentChar(byte(c)) {
+			return false
+		}
+	}
+	// module.X.Y needs at least 2 dots, var.X needs 1, etc.
+	return parts >= 1
+}
+
+// isIdentChar returns true for characters valid in HCL identifiers.
+func isIdentChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') || c == '_'
+}
+
+// expressionTokens creates a raw token sequence for an HCL expression
+// reference like `module.cos_lite.model_uuid`. Each dot-separated segment
+// is written as an identifier token separated by dot tokens.
+func expressionTokens(expr string) hclwrite.Tokens {
+	parts := splitDot(expr)
+	tokens := make(hclwrite.Tokens, 0, len(parts)*2-1)
+	for i, part := range parts {
+		if i > 0 {
+			tokens = append(tokens, &hclwrite.Token{
+				Type:  hclsyntax.TokenDot,
+				Bytes: []byte("."),
+			})
+		}
+		tokens = append(tokens, &hclwrite.Token{
+			Type:  hclsyntax.TokenIdent,
+			Bytes: []byte(part),
+		})
+	}
+	// Trailing newline so the formatter handles it correctly.
+	tokens = append(tokens, &hclwrite.Token{
+		Type:  hclsyntax.TokenNewline,
+		Bytes: []byte("\n"),
+	})
+	return tokens
+}
+
+// splitDot splits a string on '.' — a simpler strings.Split without importing.
+func splitDot(s string) []string {
+	var parts []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' {
+			parts = append(parts, s[start:i])
+			start = i + 1
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
 }
 
 // writeAtomic writes data to path via a sibling temp file and rename, which
