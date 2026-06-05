@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/MichaelThamm/atelier/internal/state"
 )
 
 // planNodeKind is what a node in the plan tree represents: a module
@@ -89,6 +91,83 @@ func BuildPlanTree(plan *tfjson.Plan) *planNode {
 					Label:  resourceLabel(rc),
 					Action: actionMarker(rc.Change.Actions),
 					Change: rc,
+				})
+			}
+			modNode.Children = append(modNode.Children, typNode)
+		}
+		root.Children = append(root.Children, modNode)
+	}
+	return root
+}
+
+// BuildStateTree builds a plan-tree-compatible structure from the terraform
+// state, grouped by module → type → resource. This allows navigating state
+// resources using the same tree UI when the plan has no changes.
+func BuildStateTree(s *state.State) *planNode {
+	root := &planNode{Kind: nodeModule, Label: "<root>"}
+	if s == nil || len(s.Resources) == 0 {
+		return root
+	}
+
+	type resInfo struct {
+		Label   string
+		Address string
+	}
+
+	// Group: module → type → resources
+	type typeGroup struct {
+		resources []resInfo
+	}
+	type modGroup struct {
+		types     map[string]*typeGroup
+		typeOrder []string
+	}
+
+	modules := map[string]*modGroup{}
+	var moduleOrder []string
+
+	for _, r := range s.Resources {
+		mod := r.Module
+		if mod == "" {
+			mod = "(root)"
+		}
+		mg, ok := modules[mod]
+		if !ok {
+			mg = &modGroup{types: map[string]*typeGroup{}}
+			modules[mod] = mg
+			moduleOrder = append(moduleOrder, mod)
+		}
+		tg, ok := mg.types[r.Type]
+		if !ok {
+			tg = &typeGroup{}
+			mg.types[r.Type] = tg
+			mg.typeOrder = append(mg.typeOrder, r.Type)
+		}
+		// Build label from address, stripping module prefix for brevity.
+		label := r.Address
+		if r.Module != "" {
+			label = strings.TrimPrefix(r.Address, r.Module+".")
+		}
+		tg.resources = append(tg.resources, resInfo{Label: label, Address: r.Address})
+	}
+
+	sort.Strings(moduleOrder)
+
+	for _, mod := range moduleOrder {
+		mg := modules[mod]
+		modNode := &planNode{Kind: nodeModule, Label: mod}
+
+		sort.Strings(mg.typeOrder)
+		for _, typ := range mg.typeOrder {
+			tg := mg.types[typ]
+			typNode := &planNode{Kind: nodeType, Label: typ, Collapsed: true}
+			for _, r := range tg.resources {
+				typNode.Children = append(typNode.Children, &planNode{
+					Kind:   nodeResource,
+					Label:  r.Label,
+					Action: " ", // no action marker for state
+					// Store the address in a ResourceChange-like way for lookups.
+					Change: &tfjson.ResourceChange{Address: r.Address},
 				})
 			}
 			modNode.Children = append(modNode.Children, typNode)

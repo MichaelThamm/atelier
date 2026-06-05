@@ -455,7 +455,7 @@ Triggered by `P`. Replaces the right pane (and optionally expands across both)
 with the plan output:
 
 ```
-Plan: 12 to add, 0 to change, 0 to destroy.
+Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 modules
 
 ▾ module.cos_lite
   ▾ juju_application.alertmanager
@@ -474,10 +474,17 @@ Plan: 12 to add, 0 to change, 0 to destroy.
   content exceeds the available height. The tree scrolls with `↑↓/PgUp/PgDn/g/G`;
   the diff pane scrolls with `[` and `]`. A scroll indicator shows position
   percentage when content overflows.
+- The summary header shows both the plan delta and a state context line
+  (total resource count and module count), read directly from
+  `terraform.tfstate` without invoking terraform.
+- Pressing `S` toggles between the plan diff view and a **state view** that
+  shows the full resource tree from the current state with attribute values
+  in the right pane. When the plan has no changes, the state view is shown
+  automatically.
 - Pressing `A` from the plan view runs `terraform apply` using the cached
   plan file. A spinner shows progress; success invalidates the plan (since
-  the infrastructure now matches). Errors are surfaced in the status bar
-  and viewable via `E`.
+  the infrastructure now matches) and reloads the state. Errors are surfaced
+  in the status bar and viewable via `E`.
 - Pressing `O` shows the output view (see §7.6).
 - `Esc` returns to the editor.
 - Inline per-attribute diffs *inside* tree nodes are out of scope for v1; see

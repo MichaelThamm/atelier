@@ -7,20 +7,31 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/MichaelThamm/atelier/internal/state"
 )
 
 // renderPlanScreen renders the full-screen plan view: a summary header,
 // then a tree-on-left + attribute-diff-on-right split, then the status
 // bar. Triggered when m.planState == planReady.
 func (m *Model) renderPlanScreen() string {
-	summary := stylePlanSummary.Render(PlanSummary(m.plan))
+	summaryText := PlanSummary(m.plan)
+	if m.tfState != nil {
+		summaryText += "  |  " + m.tfState.SummaryLine()
+	}
+	summary := stylePlanSummary.Render(summaryText)
 
 	tree := m.renderPlanTree()
-	diff := m.renderPlanDiff()
+	var rightPane string
+	if m.planShowState {
+		rightPane = m.renderStateValues()
+	} else {
+		rightPane = m.renderPlanDiff()
+	}
 
 	header := m.renderHeader()
 	footer := m.renderFooter()
-	body := lipgloss.JoinHorizontal(lipgloss.Top, tree, diff)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, tree, rightPane)
 	return lipgloss.JoinVertical(lipgloss.Left, header, summary, body, footer)
 }
 
@@ -31,7 +42,13 @@ func (m *Model) renderPlanTree() string {
 	const leftWidth = 44
 	// Inner content width = panel width minus padding (1 left + 1 right).
 	const innerWidth = leftWidth - 2
-	rows := flattenedRows(m.planTree)
+
+	// Pick the active tree: state tree when in state mode, plan tree otherwise.
+	activeTree := m.planTree
+	if m.planShowState && m.stateTree != nil {
+		activeTree = m.stateTree
+	}
+	rows := flattenedRows(activeTree)
 
 	// Panel style depends on whether the tree or diff pane is focused.
 	panelStyle := stylePanelFocused
@@ -228,6 +245,84 @@ func joinActions(c *tfjson.Change) string {
 		parts[i] = string(a)
 	}
 	return strings.Join(parts, " then ")
+}
+
+// renderStateValues renders the right pane in "state mode" — showing
+// attribute values for the currently selected resource from terraform state.
+func (m *Model) renderStateValues() string {
+	rightWidth := m.width - 46
+	if rightWidth < 24 {
+		rightWidth = 24
+	}
+
+	panelStyle := stylePanel
+	if m.planDiffFocus {
+		panelStyle = stylePanelFocused
+	}
+
+	// Find the state resource matching the selected plan resource.
+	rc := m.SelectedPlanChange()
+	if rc == nil {
+		hint := "Select a resource to view its current state values."
+		hint = ansi.Wordwrap(hint, rightWidth-2, " ")
+		return panelStyle.Width(rightWidth).Height(m.planPanelHeight()).Render(
+			styleDescription.Render(hint))
+	}
+
+	res := m.findStateResource(rc.Address)
+	if res == nil {
+		msg := fmt.Sprintf("Resource %s not found in state.\n(It may be newly created by this plan.)", rc.Address)
+		msg = ansi.Wordwrap(msg, rightWidth-2, " ")
+		return panelStyle.Width(rightWidth).Height(m.planPanelHeight()).Render(
+			styleDescription.Render(msg))
+	}
+
+	var b strings.Builder
+	fmt.Fprintln(&b, styleVarHeader.Render(res.Address))
+	fmt.Fprintln(&b, styleDescription.Render(
+		fmt.Sprintf("%s.%s — current state", res.Type, res.Name)))
+	fmt.Fprintln(&b)
+
+	lines := res.AttributeLines()
+	if len(lines) == 0 {
+		fmt.Fprintln(&b, styleDescription.Render("(no attributes)"))
+	} else {
+		for _, l := range lines {
+			fmt.Fprintln(&b, "  "+l)
+		}
+	}
+
+	wrapped := ansi.Wordwrap(b.String(), rightWidth-2, " ")
+	allLines := strings.Split(wrapped, "\n")
+	ph := m.planPanelHeight()
+	if len(allLines) > ph {
+		maxScroll := len(allLines) - ph
+		if m.planDiffScroll > maxScroll {
+			m.planDiffScroll = maxScroll
+		}
+		if m.planDiffScroll < 0 {
+			m.planDiffScroll = 0
+		}
+		end := m.planDiffScroll + ph
+		if end > len(allLines) {
+			end = len(allLines)
+		}
+		allLines = allLines[m.planDiffScroll:end]
+	}
+	return panelStyle.Width(rightWidth).Height(m.planPanelHeight()).Render(strings.Join(allLines, "\n"))
+}
+
+// findStateResource looks up a resource by its full address in the loaded state.
+func (m *Model) findStateResource(address string) *state.Resource {
+	if m.tfState == nil {
+		return nil
+	}
+	for i := range m.tfState.Resources {
+		if m.tfState.Resources[i].Address == address {
+			return &m.tfState.Resources[i]
+		}
+	}
+	return nil
 }
 
 // planPanelHeight returns the inner height for plan screen panels

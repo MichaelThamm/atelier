@@ -349,6 +349,13 @@ func (m *Model) statusHints() string {
 			return "[↑↓] scroll diff  [Tab/Esc] back to tree  [?] help"
 		}
 		hints := "[↑↓] navigate  [Enter] toggle  [Tab] focus diff  [P] re-plan"
+		if m.tfState != nil {
+			if m.planShowState {
+				hints += "  [S] show diff"
+			} else {
+				hints += "  [S] show state"
+			}
+		}
 		if m.Applier != nil && m.applyState != applyLoading {
 			hints += "  [A] apply"
 		}
@@ -388,6 +395,9 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "  Enter/Space    Toggle collapse/expand")
 		fmt.Fprintln(&b, "  [ / ]          Scroll diff pane up/down")
 		fmt.Fprintln(&b, "  P              Re-run terraform plan")
+		if m.tfState != nil {
+			fmt.Fprintln(&b, "  S              Toggle state/diff view")
+		}
 		if m.Applier != nil {
 			fmt.Fprintln(&b, "  A              Apply the current plan")
 		}

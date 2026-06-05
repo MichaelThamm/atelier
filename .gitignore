@@ -1,4 +1,3 @@
-# Managed by Atelier — extend freely below.
 .atelier/
 .terraform/
 terraform.tfstate
@@ -7,4 +6,5 @@ terraform.tfstate.backup
 *.tfstate.backup
 secrets.auto.tfvars
 *.snap
+atelier
 atelier_dev

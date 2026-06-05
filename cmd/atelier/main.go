@@ -33,6 +33,7 @@ import (
 	"github.com/MichaelThamm/atelier/internal/gitops"
 	"github.com/MichaelThamm/atelier/internal/manifest"
 	"github.com/MichaelThamm/atelier/internal/session"
+	tfstate "github.com/MichaelThamm/atelier/internal/state"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/tui"
@@ -284,6 +285,7 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	m.LiteralRef = res.LiteralRef
 	m.ResolvedSHA = res.ResolvedSHA
 	m.SourceURL = sourceURLFromState(state)
+	m.WrapperDir = wrapperDir
 	m.SetPresets(presets)
 
 	// Discover and load secondary modules from main.tf. Also use the
@@ -332,6 +334,11 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 			currentVars:   state.Vars,
 			currentValues: state.Values,
 		}
+	}
+
+	// Load terraform state for the plan view context line.
+	if s, _ := tfstate.Read(wrapperDir); s != nil {
+		m.SetTFState(s)
 	}
 
 	prog := tea.NewProgram(m, tea.WithAltScreen())

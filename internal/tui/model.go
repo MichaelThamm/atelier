@@ -19,6 +19,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/MichaelThamm/atelier/internal/state"
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
@@ -38,6 +39,10 @@ type Model struct {
 	ResolvedSHA  string
 	SourceURL    string
 	ManifestPath string
+
+	// WrapperDir is the directory containing main.tf and terraform.tfstate.
+	// Used for reloading state after apply.
+	WrapperDir string
 
 	rows   []rowEntry
 
@@ -79,10 +84,12 @@ type Model struct {
 	planState    planState
 	plan         *tfjson.Plan
 	planTree     *planNode
+	stateTree    *planNode // state resources as a tree (for browsing when no changes)
 	planCursor   int
 	planScroll   int // scroll offset for the plan tree pane
 	planDiffScroll int // scroll offset for the plan diff pane
 	planDiffFocus  bool // true when the diff pane is focused (Tab toggle)
+	planShowState  bool // true when left+right panes show state instead of diff
 	planErr      string
 	planSpinnerFrame int
 	progress     *ProgressTracker // live progress from terraform subprocess
@@ -128,6 +135,10 @@ type Model struct {
 	refOrphaned  []string // vars that no longer exist after a ref switch
 
 	helpModal bool // true when the [?] help overlay is visible
+
+	// tfState is the parsed terraform.tfstate loaded at TUI startup.
+	// Used to show state context in the plan view. May be nil.
+	tfState *state.State
 }
 
 // planState enumerates the four states the plan flow can be in: idle (no
@@ -212,6 +223,11 @@ func (m *Model) AddModule(state *wrapper.State, name string) {
 // the user can press F from the left pane to open the preset picker.
 func (m *Model) SetPresets(p []ResolvedPreset) {
 	m.presets = p
+}
+
+// SetTFState sets the parsed terraform state for display in the plan view.
+func (m *Model) SetTFState(s *state.State) {
+	m.tfState = s
 }
 
 func (m *Model) recomputeRows() {
@@ -496,6 +512,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case planResultMsg:
 		m.plan = msg.plan
 		m.planTree = BuildPlanTree(msg.plan)
+		// Build state tree for the [S] toggle (always available if state exists).
+		if m.tfState != nil && m.tfState.Summary.Total > 0 {
+			m.stateTree = BuildStateTree(m.tfState)
+		}
+		// Auto-show state when plan has no changes.
+		m.planShowState = len(flattenedRows(m.planTree)) == 0 && m.stateTree != nil
 		m.planCursor = 0
 		m.planScroll = 0
 		m.planDiffScroll = 0
@@ -530,6 +552,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.planState = planIdle
 		m.plan = nil
 		m.planTree = nil
+		// Reload state after successful apply.
+		if m.WrapperDir != "" {
+			if s, _ := state.Read(m.WrapperDir); s != nil {
+				m.tfState = s
+			}
+		}
 		// Fetch outputs after successful apply.
 		return m, m.startFetchOutputs()
 	case outputResultMsg:
@@ -781,6 +809,15 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Switch focus to the diff pane.
 		m.planDiffFocus = true
 		return m, nil
+	case "s", "S":
+		// Toggle between diff view and state values view.
+		if m.tfState != nil && m.stateTree != nil {
+			m.planShowState = !m.planShowState
+			m.planCursor = 0
+			m.planScroll = 0
+			m.planDiffScroll = 0
+		}
+		return m, nil
 	case "p", "P":
 		// Re-run plan.
 		m.planState = planLoading
@@ -831,7 +868,7 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.planDiffScroll = 0
 	case "enter", " ", "space", "right", "left", "l", "h":
 		// Toggle collapse on the focused row when it has children.
-		rows := flattenedRows(m.planTree)
+		rows := flattenedRows(m.activeTree())
 		if m.planCursor >= 0 && m.planCursor < len(rows) {
 			n := rows[m.planCursor].Node
 			if len(n.Children) > 0 {
@@ -876,7 +913,7 @@ func (m *Model) handlePlanDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) movePlanCursor(delta int) {
-	rows := flattenedRows(m.planTree)
+	rows := flattenedRows(m.activeTree())
 	if len(rows) == 0 {
 		return
 	}
@@ -886,10 +923,10 @@ func (m *Model) movePlanCursor(delta int) {
 // SelectedPlanChange returns the resource_change under the plan cursor, or
 // nil when the cursor is on a non-leaf row (module/type) or no plan exists.
 func (m *Model) SelectedPlanChange() *tfjson.ResourceChange {
-	if m.planState != planReady || m.planTree == nil {
+	if m.planState != planReady {
 		return nil
 	}
-	rows := flattenedRows(m.planTree)
+	rows := flattenedRows(m.activeTree())
 	if m.planCursor < 0 || m.planCursor >= len(rows) {
 		return nil
 	}
@@ -898,6 +935,14 @@ func (m *Model) SelectedPlanChange() *tfjson.ResourceChange {
 		return nil
 	}
 	return n.Change
+}
+
+// activeTree returns the tree currently displayed in the left pane.
+func (m *Model) activeTree() *planNode {
+	if m.planShowState && m.stateTree != nil {
+		return m.stateTree
+	}
+	return m.planTree
 }
 
 // handlePresetKey routes keys while the preset picker overlay is visible.
