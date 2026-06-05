@@ -70,13 +70,14 @@ type readOnlyEditor struct {
 }
 
 func (e *readOnlyEditor) Update(msg tea.Msg) (Editor, tea.Cmd) { return e, nil }
-func (e *readOnlyEditor) View() string                          { return styleDescription.Render(e.text) }
+func (e *readOnlyEditor) View() string                         { return styleDescription.Render(e.text) }
 
 // --- bool ---
 
 type boolEditor struct {
 	v       *tfvars.Variable
 	value   cty.Value
+	touched bool
 }
 
 func newBoolEditor(v *tfvars.Variable, current cty.Value) *boolEditor {
@@ -99,10 +100,13 @@ func (e *boolEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 			} else {
 				e.value = cty.False
 			}
+			e.touched = true
 		case "t", "y":
 			e.value = cty.True
+			e.touched = true
 		case "f", "n":
 			e.value = cty.False
+			e.touched = true
 		}
 	}
 	return e, nil
@@ -115,13 +119,15 @@ func (e *boolEditor) View() string {
 	return fmt.Sprintf("[%s]  %s", state, styleHelp.Render("(space to toggle)"))
 }
 func (e *boolEditor) CurrentValue() cty.Value { return e.value }
+func (e *boolEditor) Touched() bool           { return e.touched }
 
 // --- string ---
 
 type stringEditor struct {
-	v     *tfvars.Variable
-	value string
-	null  bool // user explicitly cleared (null)
+	v       *tfvars.Variable
+	value   string
+	null    bool // user explicitly cleared (null)
+	touched bool
 }
 
 func newStringEditor(v *tfvars.Variable, current cty.Value) *stringEditor {
@@ -153,12 +159,15 @@ func (e *stringEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 			e.value = e.value[:len(e.value)-1]
 		}
 		e.null = false
+		e.touched = true
 	case tea.KeyRunes, tea.KeySpace:
 		e.value += string(k.Runes)
 		e.null = false
+		e.touched = true
 	case tea.KeyCtrlU:
 		e.value = ""
 		e.null = false
+		e.touched = true
 	}
 	return e, nil
 }
@@ -176,6 +185,7 @@ func (e *stringEditor) CurrentValue() cty.Value {
 	}
 	return cty.StringVal(e.value)
 }
+func (e *stringEditor) Touched() bool { return e.touched }
 
 // --- number ---
 
@@ -185,8 +195,9 @@ func (e *stringEditor) CurrentValue() cty.Value {
 // increment/decrement — those characters need to be typeable as part of
 // the number (leading sign, exponent sign).
 type numberEditor struct {
-	v    *tfvars.Variable
-	text string
+	v       *tfvars.Variable
+	text    string
+	touched bool
 }
 
 // numberRunes is the set of characters accepted inside the input. Anything
@@ -214,14 +225,17 @@ func (e *numberEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		if len(e.text) > 0 {
 			e.text = e.text[:len(e.text)-1]
 		}
+		e.touched = true
 		return e, nil
 	case tea.KeyCtrlU:
 		e.text = ""
+		e.touched = true
 		return e, nil
 	case tea.KeyRunes:
 		for _, r := range k.Runes {
 			if strings.ContainsRune(numberRunes, r) {
 				e.text += string(r)
+				e.touched = true
 			}
 		}
 	}
@@ -249,6 +263,7 @@ func (e *numberEditor) CurrentValue() cty.Value {
 	}
 	return cty.NilVal
 }
+func (e *numberEditor) Touched() bool { return e.touched }
 
 // --- map(string) ---
 
@@ -784,8 +799,8 @@ type objectEditor struct {
 }
 
 type objectFieldRow struct {
-	Name   string
-	Type   *tftypes.Type
+	Name string
+	Type *tftypes.Type
 	// HasDefault and Default mirror the declared optional(T, default) on
 	// the underlying type, so ResetFocused can rebuild the sub-editor with
 	// the right starting value without re-parsing the type expression.

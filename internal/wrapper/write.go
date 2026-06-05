@@ -63,10 +63,39 @@ func (s *State) writeMain() error {
 	// source attribute — always written.
 	body.SetAttributeValue("source", cty.StringVal(s.Source))
 
+	// Index any user-authored attributes Atelier can't represent as a
+	// cty.Value — references (data.x.y, var.z, module.m.o), function calls,
+	// interpolations, etc. The reader stores these verbatim in UnknownAttrs.
+	// They must be preserved across saves rather than clobbered by the
+	// value-based logic below (which would otherwise delete them because
+	// there is no cty value to write). See ADR-0007 §10.2.
+	rawByName := make(map[string][]byte, len(s.UnknownAttrs))
+	for _, ra := range s.UnknownAttrs {
+		rawByName[ra.Name] = ra.RawExpr
+	}
+
 	// Iterate variables in declaration order so the output is stable and
 	// matches the user's mental model of the module.
 	for i := range s.Vars {
 		v := &s.Vars[i]
+
+		// If the user set this variable to an expression Atelier couldn't
+		// evaluate (and has not since overridden it with a concrete value via
+		// the TUI), re-emit the original expression verbatim. We write it
+		// explicitly from the stored expression bytes so the value survives
+		// even on a from-scratch write, rather than depending on hclwrite
+		// passthrough of an existing attribute.
+		if rawExpr, isRaw := rawByName[v.Name]; isRaw {
+			if _, hasConcrete := s.Values[v.Name]; !hasConcrete {
+				if toks := exprTokens(rawExpr); toks != nil {
+					body.SetAttributeRaw(v.Name, toks)
+				}
+				// If the expression couldn't be re-lexed (empty/corrupt
+				// bytes), fall back to leaving any existing attribute in place.
+				continue
+			}
+		}
+
 		current, _ := s.VariableValue(v.Name)
 		if !ShouldEmit(v, current) {
 			body.RemoveAttribute(v.Name)
@@ -84,11 +113,13 @@ func (s *State) writeMain() error {
 			continue
 		}
 		// If the value is a string that looks like an HCL expression
-		// reference (module.X.Y, var.X, local.X), write it as raw tokens
-		// so it's emitted unquoted as an expression.
+		// reference (module.X.Y, var.X, local.X, data.X.Y["k"]), write it as
+		// raw tokens so it's emitted unquoted as an expression.
 		if writeVal.Type() == cty.String && isExpressionRef(writeVal.AsString()) {
-			body.SetAttributeRaw(v.Name, expressionTokens(writeVal.AsString()))
-			continue
+			if toks := exprTokens([]byte(writeVal.AsString())); toks != nil {
+				body.SetAttributeRaw(v.Name, toks)
+				continue
+			}
 		}
 		body.SetAttributeValue(v.Name, writeVal)
 	}
@@ -127,92 +158,55 @@ func todoTokens(typeHint string) hclwrite.Tokens {
 	}
 }
 
-// isExpressionRef detects if a string value looks like an HCL expression
-// reference that should be written unquoted. Supports:
-//   - module.<name>.<attr>
-//   - var.<name>
-//   - local.<name>
-//   - data.<type>.<name>.<attr>
-//
-// The value must consist entirely of valid HCL identifier characters and dots.
+// isExpressionRef reports whether a string value should be emitted as an
+// unquoted HCL expression rather than a quoted string literal. To avoid
+// mistaking ordinary string values (e.g. "stable") for references, the value
+// must begin with a known reference prefix (module./var./local./data.) AND
+// parse as a valid HCL expression that references at least one symbol. This
+// correctly handles dotted references, index access (data.x.y["k"]) and
+// nested traversals.
 func isExpressionRef(s string) bool {
-	if len(s) == 0 {
+	if !hasRefPrefix(s) {
 		return false
 	}
-	// Must start with a known reference prefix.
-	prefixes := []string{"module.", "var.", "local.", "data."}
-	hasPrefix := false
-	for _, p := range prefixes {
+	expr, diags := hclsyntax.ParseExpression([]byte(s), "atelier-ref", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return false
+	}
+	return len(expr.Variables()) > 0
+}
+
+// hasRefPrefix reports whether s begins with one of Terraform's reference
+// scopes followed by a dot.
+func hasRefPrefix(s string) bool {
+	for _, p := range []string{"module.", "var.", "local.", "data."} {
 		if len(s) > len(p) && s[:len(p)] == p {
-			hasPrefix = true
-			break
+			return true
 		}
 	}
-	if !hasPrefix {
-		return false
-	}
-	// Must contain at least two parts (prefix.name).
-	parts := 0
-	for i, c := range s {
-		if c == '.' {
-			if i == 0 || i == len(s)-1 {
-				return false // leading/trailing dot
-			}
-			parts++
-			continue
-		}
-		if !isIdentChar(byte(c)) {
-			return false
-		}
-	}
-	// module.X.Y needs at least 2 dots, var.X needs 1, etc.
-	return parts >= 1
+	return false
 }
 
-// isIdentChar returns true for characters valid in HCL identifiers.
-func isIdentChar(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') || c == '_'
-}
-
-// expressionTokens creates a raw token sequence for an HCL expression
-// reference like `module.cos_lite.model_uuid`. Each dot-separated segment
-// is written as an identifier token separated by dot tokens.
-func expressionTokens(expr string) hclwrite.Tokens {
-	parts := splitDot(expr)
-	tokens := make(hclwrite.Tokens, 0, len(parts)*2-1)
-	for i, part := range parts {
-		if i > 0 {
-			tokens = append(tokens, &hclwrite.Token{
-				Type:  hclsyntax.TokenDot,
-				Bytes: []byte("."),
-			})
-		}
-		tokens = append(tokens, &hclwrite.Token{
-			Type:  hclsyntax.TokenIdent,
-			Bytes: []byte(part),
-		})
+// exprTokens lexes raw HCL expression source (e.g. a reference such as
+// `data.vault_generic_secret.s3.data["endpoint_url"]`, an index expression, or
+// a function call) into hclwrite tokens suitable for SetAttributeRaw. It reuses
+// hclwrite's own lexer by parsing a synthetic `_ = <expr>` assignment and
+// extracting the expression tokens, so arbitrary expressions round-trip
+// faithfully. Returns nil if the source is empty or can't be parsed.
+func exprTokens(src []byte) hclwrite.Tokens {
+	if len(src) == 0 {
+		return nil
 	}
-	// Trailing newline so the formatter handles it correctly.
-	tokens = append(tokens, &hclwrite.Token{
-		Type:  hclsyntax.TokenNewline,
-		Bytes: []byte("\n"),
-	})
-	return tokens
-}
-
-// splitDot splits a string on '.' — a simpler strings.Split without importing.
-func splitDot(s string) []string {
-	var parts []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '.' {
-			parts = append(parts, s[start:i])
-			start = i + 1
-		}
+	synthetic := append([]byte("_ = "), src...)
+	f, diags := hclwrite.ParseConfig(synthetic, "atelier-rawexpr", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return nil
 	}
-	parts = append(parts, s[start:])
-	return parts
+	attr := f.Body().GetAttribute("_")
+	if attr == nil {
+		return nil
+	}
+	return attr.Expr().BuildTokens(nil)
 }
 
 // writeAtomic writes data to path via a sibling temp file and rename, which

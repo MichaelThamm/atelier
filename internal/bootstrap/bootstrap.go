@@ -286,9 +286,21 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		}
 		srcURL, refStr := decomposeSource(pm.Source)
 		prev = &session.Session{
-			SourceURL:       srcURL,
-			LiteralRef:      refStr,
-			ModuleBlockName: pm.ModuleBlockName,
+			SourceURL:           srcURL,
+			LiteralRef:          refStr,
+			ModuleBlockName:     pm.ModuleBlockName,
+			ModuleCandidatePath: modulePathFromSource(pm.Source),
+		}
+	}
+
+	// Recover the module sub-path if it's missing. Sessions written by an
+	// earlier auto-rehydrate (or any wrapper whose session.json predates this
+	// fix) may have an empty ModuleCandidatePath, which makes PrepareState read
+	// variables from the repository root instead of the module's subdirectory.
+	// Re-derive it from the primary module block's source in main.tf.
+	if prev.ModuleCandidatePath == "" {
+		if pm, err := wrapper.ReadMain(wrapperDir, nil); err == nil && pm != nil {
+			prev.ModuleCandidatePath = modulePathFromSource(pm.Source)
 		}
 	}
 
@@ -483,6 +495,26 @@ func composeSource(remote, modulePath, ref string) string {
 		url += "?ref=" + ref
 	}
 	return url
+}
+
+// modulePathFromSource extracts the "//<subdir>" module path from a
+// Terraform git source string, returning "" when the source points at the
+// repository root. It mirrors decomposeSource's path-stripping logic but
+// returns the discarded subdirectory instead of the base URL.
+func modulePathFromSource(source string) string {
+	s := source
+	if q := strings.Index(s, "?ref="); q >= 0 {
+		s = s[:q]
+	}
+	s = strings.TrimPrefix(s, "git::")
+	searchFrom := 0
+	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
+		searchFrom = schemeEnd + 3
+	}
+	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
+		return s[searchFrom+idx+2:]
+	}
+	return ""
 }
 
 // decomposeSource splits "git::https://...//path?ref=v1" into the base URL

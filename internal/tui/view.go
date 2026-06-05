@@ -155,6 +155,16 @@ func (m *Model) renderRightPane() string {
 			fmt.Fprintln(&b, styleDescription.Render(desc))
 		}
 		fmt.Fprintln(&b)
+		// If this variable is wired to an expression Atelier can't model as a
+		// value (a reference like data.x.y["k"]), surface it read-only so the
+		// user can see the current wiring instead of an empty field.
+		if expr, wired := m.ActiveModuleState().WiredExpression(v.Name); wired {
+			fmt.Fprintln(&b, styleWiredTag.Render("→ wired to expression"))
+			fmt.Fprintln(&b, styleWiredExpr.Render(expr))
+			fmt.Fprintln(&b)
+			fmt.Fprintln(&b, styleHelp.Render("Type a value to override this reference; Ctrl+R keeps it cleared."))
+			fmt.Fprintln(&b)
+		}
 		if m.editor != nil {
 			fmt.Fprintln(&b, m.editor.View())
 		}
@@ -480,6 +490,11 @@ func varMarker(state *wrapper.State, name string) string {
 	v := state.FindVar(name)
 	if v == nil {
 		return styleMarkerAtDefault.Render("[ ]")
+	}
+	// Variable wired to an HCL expression Atelier can't model as a value
+	// (a data/var/local/module reference, index access, function call, ...).
+	if _, wired := state.WiredExpression(name); wired {
+		return styleMarkerExpr.Render("[→]")
 	}
 	current, present := state.Values[name]
 	if !v.HasDefault {

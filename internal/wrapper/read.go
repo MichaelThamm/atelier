@@ -77,24 +77,29 @@ func ReadMain(dir string, vars []tfvars.Variable) (*ParsedMain, error) {
 				if dd.HasErrors() {
 					// Couldn't evaluate (e.g. references to other variables);
 					// treat it as raw and skip materialising as a cty.Value.
-					pm.UnknownAttrs = append(pm.UnknownAttrs, RawAttr{
-						Name: attr.Name,
-						Raw:  rangeBytes(data, attr.SrcRange),
-					})
+					pm.UnknownAttrs = append(pm.UnknownAttrs, rawAttr(data, attr))
 					continue
 				}
 				pm.Values[attr.Name] = val
 				continue
 			}
 			// Unknown attribute — preserve.
-			pm.UnknownAttrs = append(pm.UnknownAttrs, RawAttr{
-				Name: attr.Name,
-				Raw:  rangeBytes(data, attr.SrcRange),
-			})
+			pm.UnknownAttrs = append(pm.UnknownAttrs, rawAttr(data, attr))
 		}
 		return pm, nil
 	}
 	return nil, fmt.Errorf("no module block in main.tf")
+}
+
+// rawAttr captures an attribute Atelier can't model as a cty.Value, storing
+// both the whole `name = expr` bytes and just the expression bytes so the
+// writer can re-emit the value deterministically.
+func rawAttr(src []byte, attr *hclsyntax.Attribute) RawAttr {
+	return RawAttr{
+		Name:    attr.Name,
+		Raw:     rangeBytes(src, attr.SrcRange),
+		RawExpr: rangeBytes(src, attr.Expr.Range()),
+	}
 }
 
 func rangeBytes(src []byte, r hcl.Range) []byte {
@@ -203,19 +208,13 @@ func ReadMainForBlock(dir string, blockName string, vars []tfvars.Variable) (*Pa
 			if _, isVar := varSet[attr.Name]; isVar {
 				val, dd := attr.Expr.Value(nil)
 				if dd.HasErrors() {
-					pm.UnknownAttrs = append(pm.UnknownAttrs, RawAttr{
-						Name: attr.Name,
-						Raw:  rangeBytes(data, attr.SrcRange),
-					})
+					pm.UnknownAttrs = append(pm.UnknownAttrs, rawAttr(data, attr))
 					continue
 				}
 				pm.Values[attr.Name] = val
 				continue
 			}
-			pm.UnknownAttrs = append(pm.UnknownAttrs, RawAttr{
-				Name: attr.Name,
-				Raw:  rangeBytes(data, attr.SrcRange),
-			})
+			pm.UnknownAttrs = append(pm.UnknownAttrs, rawAttr(data, attr))
 		}
 		return pm, nil
 	}

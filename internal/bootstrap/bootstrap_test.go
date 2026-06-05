@@ -1,9 +1,12 @@
 package bootstrap
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/MichaelThamm/atelier/internal/session"
 )
 
 func TestRepoBasename(t *testing.T) {
@@ -178,5 +181,119 @@ func TestCandidatePaths(t *testing.T) {
 	cs := candidatePaths(nil)
 	if len(cs) != 0 {
 		t.Errorf("nil → non-empty: %v", cs)
+	}
+}
+
+func TestModulePathFromSource(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"git::https://github.com/canonical/observability-stack.git//terraform/cos", "terraform/cos"},
+		{"git::https://example.com/m.git//terraform/cos-lite?ref=v1.2.0", "terraform/cos-lite"},
+		{"https://example.com/m.git?ref=main", ""},
+		{"git::https://example.com/m.git", ""},
+		{"./local//modules/x", "modules/x"},
+		{"/abs/repo//terraform/cos", "terraform/cos"},
+	}
+	for _, c := range cases {
+		if got := modulePathFromSource(c.in); got != c.want {
+			t.Errorf("modulePathFromSource(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestLoadExisting_autoRehydratePreservesSubdir is a regression test for the
+// bug where auto-rehydrating a wrapper (no session.json) whose module source
+// pointed at a subdirectory (e.g. //terraform/cos) dropped the subdir. That
+// left ModuleCandidatePath empty, causing PrepareState to read variables from
+// the repository root instead of the module directory — so the primary module
+// rendered with zero variables.
+func TestLoadExisting_autoRehydratePreservesSubdir(t *testing.T) {
+	// Fake "repo" with the module living in a subdirectory.
+	repoDir := t.TempDir()
+	const modSubdir = "terraform/cos-lite"
+	candidateDir := filepath.Join(repoDir, modSubdir)
+	if err := os.MkdirAll(candidateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candidateDir, "variables.tf"), []byte(`
+variable "model_uuid" {
+  type = string
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrapper directory with a main.tf whose module source is a local path
+	// carrying a //subdir suffix, and NO session.json (forces auto-rehydrate).
+	wrapperDir := t.TempDir()
+	mainTF := "module \"cos_lite\" {\n  source = \"" + repoDir + "//" + modSubdir + "\"\n}\n"
+	if err := os.WriteFile(filepath.Join(wrapperDir, "main.tf"), []byte(mainTF), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := LoadExisting(context.Background(), wrapperDir, nil)
+	if err != nil {
+		t.Fatalf("LoadExisting: %v", err)
+	}
+	if len(res.State.Vars) == 0 {
+		t.Fatalf("expected variables to load from %q, got 0 (subdir was dropped)", modSubdir)
+	}
+
+	// session.json must persist the recovered subdir for subsequent opens.
+	sess, err := session.Load(wrapperDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.ModuleCandidatePath != modSubdir {
+		t.Errorf("ModuleCandidatePath = %q, want %q", sess.ModuleCandidatePath, modSubdir)
+	}
+}
+
+// TestLoadExisting_recoversEmptyModuleCandidatePath covers wrappers whose
+// session.json was written by the earlier buggy auto-rehydrate and therefore
+// has an empty module_candidate_path. LoadExisting must re-derive it from the
+// module source in main.tf rather than reading the repository root.
+func TestLoadExisting_recoversEmptyModuleCandidatePath(t *testing.T) {
+	repoDir := t.TempDir()
+	const modSubdir = "terraform/cos"
+	candidateDir := filepath.Join(repoDir, modSubdir)
+	if err := os.MkdirAll(candidateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(candidateDir, "variables.tf"), []byte(`
+variable "risk" {
+  type    = string
+  default = "stable"
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wrapperDir := t.TempDir()
+	mainTF := "module \"cos\" {\n  source = \"" + repoDir + "//" + modSubdir + "\"\n}\n"
+	if err := os.WriteFile(filepath.Join(wrapperDir, "main.tf"), []byte(mainTF), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-seed a corrupted session.json: empty module_candidate_path.
+	if err := session.Save(wrapperDir, &session.Session{
+		SourceURL:           repoDir,
+		ModuleBlockName:     "cos",
+		ModuleCandidatePath: "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := LoadExisting(context.Background(), wrapperDir, nil)
+	if err != nil {
+		t.Fatalf("LoadExisting: %v", err)
+	}
+	if len(res.State.Vars) == 0 {
+		t.Fatalf("expected variables to load from %q, got 0 (empty path not recovered)", modSubdir)
+	}
+	sess, err := session.Load(wrapperDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.ModuleCandidatePath != modSubdir {
+		t.Errorf("ModuleCandidatePath = %q, want %q", sess.ModuleCandidatePath, modSubdir)
 	}
 }

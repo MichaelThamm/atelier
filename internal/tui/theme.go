@@ -157,14 +157,17 @@ var (
 	styleMarkerAtDefault = lipgloss.NewStyle().Foreground(colorFaint)
 	styleMarkerModified  = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 	styleMarkerRequired  = lipgloss.NewStyle().Foreground(colorDanger).Bold(true)
+	styleMarkerExpr      = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
 
 	// Left-pane section headers (multi-module grouping).
 	styleSectionHeader = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
 
 	// Right-pane editor accents.
-	styleVarHeader     = lipgloss.NewStyle().Foreground(colorText).Bold(true)
-	styleSensitiveTag  = lipgloss.NewStyle().Foreground(colorSensitive).Italic(true)
-	styleRequiredTag   = lipgloss.NewStyle().Foreground(colorDanger).Italic(true)
+	styleVarHeader    = lipgloss.NewStyle().Foreground(colorText).Bold(true)
+	styleSensitiveTag = lipgloss.NewStyle().Foreground(colorSensitive).Italic(true)
+	styleRequiredTag  = lipgloss.NewStyle().Foreground(colorDanger).Italic(true)
+	styleWiredTag     = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
+	styleWiredExpr    = lipgloss.NewStyle().Foreground(colorText)
 
 	// Plan view.
 	stylePlanSummary  = lipgloss.NewStyle().Foreground(colorText).Bold(true).Underline(true)

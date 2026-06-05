@@ -778,16 +778,37 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if e2, ok := m.editor.(EditorWithValue); ok {
 			// Push edited value back into state on each tick. Auto-save.
 			if v := m.SelectedVariable(); v != nil {
-				m.applyEditorValue(v, e2.CurrentValue())
-				// Schedule debounced validate after each edit.
-				if valCmd := m.scheduleValidate(); valCmd != nil {
-					cmd = tea.Batch(cmd, valCmd)
+				if m.shouldApplyEditorValue(v) {
+					m.applyEditorValue(v, e2.CurrentValue())
+					// Schedule debounced validate after each edit.
+					if valCmd := m.scheduleValidate(); valCmd != nil {
+						cmd = tea.Batch(cmd, valCmd)
+					}
 				}
 			}
 		}
 		return m, cmd
 	}
 	return m, nil
+}
+
+// shouldApplyEditorValue decides whether the live editor value should be
+// pushed into state on this tick. A variable wired to a preserved expression
+// (a reference Atelier can't model) is treated as read-only until the user
+// actually edits the field, so merely focusing or navigating into it doesn't
+// clobber the expression with an empty/placeholder value. Once the user types,
+// the editor reports Touched() and the concrete value takes over (which also
+// drops the preserved expression via applyEditorValue).
+func (m *Model) shouldApplyEditorValue(v *tfvars.Variable) bool {
+	if _, wired := m.ActiveModuleState().WiredExpression(v.Name); !wired {
+		return true
+	}
+	if tr, ok := m.editor.(interface{ Touched() bool }); ok {
+		return tr.Touched()
+	}
+	// No way to tell whether a complex wired editor was edited; stay
+	// read-only to avoid clobbering the expression.
+	return false
 }
 
 // handlePlanKey routes keys while the plan view is active. The tree owns
@@ -978,6 +999,8 @@ func (m *Model) applyPreset(i int) {
 	p := m.presets[i]
 	for name, val := range p.Values {
 		m.State.Values[name] = val
+		// The preset value supersedes any reference expression on this var,
+		// but we keep the preserved raw form so a later reset can restore it.
 	}
 	m.refreshEditor()
 	m.status = fmt.Sprintf("Applied preset: %s", p.Name)
@@ -1160,6 +1183,11 @@ func (m *Model) applyEditorValue(v *tfvars.Variable, val cty.Value) {
 		delete(st.Values, v.Name)
 	} else {
 		st.Values[v.Name] = val
+		// A concrete value supersedes any reference expression the variable
+		// was originally wired to (both the [→] display and the writer prefer
+		// Values when present), but we deliberately KEEP the preserved raw
+		// form so a later Ctrl+R can restore the original reference instead of
+		// leaving the variable empty.
 	}
 	m.dirty = true
 }
@@ -1196,9 +1224,17 @@ func (m *Model) resetCurrent() {
 	// Whole-variable reset.
 	st := m.ActiveModuleState()
 	delete(st.Values, v.Name)
+	// We do NOT drop any preserved reference expression here. Removing the
+	// concrete override lets the original wiring resurface, so a variable that
+	// was read as e.g. `data.vault_generic_secret.s3.data["..."]` returns to
+	// its [→] view instead of becoming an empty/required field.
 	m.dirty = true
 	m.refreshEditor()
-	m.status = "variable reset to default"
+	if _, wired := st.WiredExpression(v.Name); wired {
+		m.status = "variable reset to original reference"
+	} else {
+		m.status = "variable reset to default"
+	}
 	m.statusLvl = statusInfo
 }
 

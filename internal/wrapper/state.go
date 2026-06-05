@@ -12,6 +12,8 @@
 package wrapper
 
 import (
+	"strings"
+
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/tfvars"
@@ -60,9 +62,18 @@ type State struct {
 	// alphabetically). Atelier forwards these in the wrapper's outputs.tf.
 	OutputNames []string
 
-	// UnknownAttrs holds any attributes inside the module {} block Atelier
-	// didn't recognise (count, for_each, providers, depends_on, etc.). They
-	// are preserved verbatim across saves (ADR-0007 §10.2).
+	// UnknownAttrs holds attributes inside the module {} block whose value
+	// Atelier cannot represent as a cty.Value. Two kinds land here:
+	//
+	//   1. Attributes that aren't declared variables (count, for_each,
+	//      providers, depends_on, ...).
+	//   2. Declared variables the user wired to an expression Atelier can't
+	//      evaluate to a constant — references (data.x.y, var.z, module.m.o),
+	//      index access, function calls, interpolations, etc.
+	//
+	// In both cases the original source is preserved verbatim across saves
+	// (ADR-0007 §10.2): writeMain re-emits the stored expression rather than
+	// reconstructing the attribute from a value it doesn't have.
 	UnknownAttrs []RawAttr
 }
 
@@ -96,7 +107,12 @@ type RequiredProvider struct {
 // re-emit it unchanged.
 type RawAttr struct {
 	Name string
-	Raw  []byte
+	// Raw is the whole attribute, i.e. `name = expr` bytes.
+	Raw []byte
+	// RawExpr is just the right-hand-side expression bytes (`expr`). The
+	// writer uses this to deterministically re-emit the value via
+	// SetAttributeRaw, rather than relying on incidental hclwrite passthrough.
+	RawExpr []byte
 }
 
 // VariableValue returns the current value for a variable, falling back to
@@ -114,6 +130,49 @@ func (s *State) VariableValue(name string) (cty.Value, bool) {
 		}
 	}
 	return cty.NilVal, false
+}
+
+// ClearUnknownAttr drops any preserved raw attribute for the given variable
+// name. Call this when the user supplies a concrete value or resets the
+// variable through the TUI, so a stale reference expression doesn't resurface
+// on the next save.
+func (s *State) ClearUnknownAttr(name string) {
+	if len(s.UnknownAttrs) == 0 {
+		return
+	}
+	out := s.UnknownAttrs[:0]
+	for _, ra := range s.UnknownAttrs {
+		if ra.Name == name {
+			continue
+		}
+		out = append(out, ra)
+	}
+	s.UnknownAttrs = out
+}
+
+// WiredExpression returns the verbatim HCL expression a variable is currently
+// wired to (e.g. a data-source reference such as
+// `data.vault_generic_secret.s3.data["endpoint_url"]`), when Atelier preserved
+// one and the user has not overridden it with a concrete value. The bool is
+// false when the variable has a concrete value in Values or no preserved
+// expression. Used by the TUI to surface references it can't model as values.
+func (s *State) WiredExpression(name string) (string, bool) {
+	if _, hasConcrete := s.Values[name]; hasConcrete {
+		return "", false
+	}
+	for _, ra := range s.UnknownAttrs {
+		if ra.Name != name {
+			continue
+		}
+		expr := strings.TrimSpace(string(ra.RawExpr))
+		if expr == "" {
+			// Fall back to the whole `name = expr` form when expression-only
+			// bytes are unavailable (e.g. older persisted state).
+			expr = strings.TrimSpace(string(ra.Raw))
+		}
+		return expr, expr != ""
+	}
+	return "", false
 }
 
 // FindVar returns the declaration for a variable name, or nil if not found.
