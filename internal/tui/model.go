@@ -133,6 +133,7 @@ type Model struct {
 	refSwitching bool   // true when a ref switch is in flight (spinner)
 	refErr       string // error from last ref switch attempt
 	refOrphaned  []string // vars that no longer exist after a ref switch
+	refModuleIdx int      // index of the module being ref-switched
 
 	helpModal bool // true when the [?] help overlay is visible
 
@@ -197,6 +198,15 @@ type rowEntry struct {
 type ModuleEntry struct {
 	State *wrapper.State
 	Name  string // display name (typically the module block name)
+
+	// Ref identity for THIS specific module. Populated for git-sourced
+	// modules so each module can be ref-switched independently.
+	SourceURL   string
+	Ref         string
+	ResolvedSHA string
+	// Switcher performs the ref switch for this module. Nil for local
+	// sources (no remote to switch); the R key is a no-op for those.
+	Switcher RefSwitcher
 }
 
 // New builds a Model around a wrapper.State.
@@ -215,7 +225,13 @@ func New(state *wrapper.State, modName string) *Model {
 // modules are shown in the left pane, grouped under section headers when
 // there is more than one module.
 func (m *Model) AddModule(state *wrapper.State, name string) {
-	m.Modules = append(m.Modules, ModuleEntry{State: state, Name: name})
+	m.AddModuleEntry(ModuleEntry{State: state, Name: name})
+}
+
+// AddModuleEntry appends a fully-populated module entry (including its ref
+// identity and per-module switcher) to the session.
+func (m *Model) AddModuleEntry(e ModuleEntry) {
+	m.Modules = append(m.Modules, e)
 	m.recomputeRows()
 }
 
@@ -295,6 +311,68 @@ func (m *Model) moduleStateForRow(r rowEntry) *wrapper.State {
 		return m.Modules[r.ModuleIdx].State
 	}
 	return m.State
+}
+
+// activeModuleIdx returns the index into m.Modules of the module owning the
+// variable under the cursor. Falls back to the primary module (0).
+func (m *Model) activeModuleIdx() int {
+	if m.cursor >= 0 && m.cursor < len(m.rows) {
+		idx := m.rows[m.cursor].ModuleIdx
+		if idx >= 0 && idx < len(m.Modules) {
+			return idx
+		}
+	}
+	return 0
+}
+
+// activeModule returns the ModuleEntry owning the variable under the cursor,
+// or nil when there are no modules.
+func (m *Model) activeModule() *ModuleEntry {
+	if len(m.Modules) == 0 {
+		return nil
+	}
+	return &m.Modules[m.activeModuleIdx()]
+}
+
+// activeSwitcher returns the RefSwitcher for the active module. Per-module
+// switchers take precedence; the global m.RefSwitcher is a fallback so that
+// single-module sessions (and tests) that only set m.RefSwitcher keep working.
+func (m *Model) activeSwitcher() RefSwitcher {
+	if e := m.activeModule(); e != nil && e.Switcher != nil {
+		return e.Switcher
+	}
+	return m.RefSwitcher
+}
+
+// switcherForIdx returns the RefSwitcher for a specific module index, with the
+// same global fallback as activeSwitcher.
+func (m *Model) switcherForIdx(idx int) RefSwitcher {
+	if idx >= 0 && idx < len(m.Modules) && m.Modules[idx].Switcher != nil {
+		return m.Modules[idx].Switcher
+	}
+	return m.RefSwitcher
+}
+
+// activeRefInfo returns display info (name, source, ref, sha) for the active
+// module, falling back to the legacy model-level fields for single-module
+// sessions that don't populate per-entry ref identity.
+func (m *Model) activeRefInfo() (name, source, ref, sha string) {
+	if e := m.activeModule(); e != nil {
+		name, source, ref, sha = e.Name, e.SourceURL, e.Ref, e.ResolvedSHA
+	}
+	if name == "" {
+		name = m.ModuleName
+	}
+	if source == "" {
+		source = m.SourceURL
+	}
+	if ref == "" {
+		ref = m.LiteralRef
+	}
+	if sha == "" {
+		sha = m.ResolvedSHA
+	}
+	return name, source, ref, sha
 }
 
 func (m *Model) refreshEditor() {
@@ -483,10 +561,10 @@ func (m *Model) startValidate() tea.Cmd {
 // messages to the TUI.
 func (m *Model) startRefSwitch(newRef string) tea.Cmd {
 	m.progress = NewProgressTracker()
-	if pa, ok := m.RefSwitcher.(ProgressAware); ok {
+	switcher := m.switcherForIdx(m.refModuleIdx)
+	if pa, ok := switcher.(ProgressAware); ok {
 		pa.SetProgress(m.progress)
 	}
-	switcher := m.RefSwitcher
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -750,10 +828,23 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case "r", "R":
-		// Open ref switch modal from the left pane (if RefSwitcher is configured).
-		if m.focus == focusLeft && m.RefSwitcher != nil {
+		// Open the ref switch modal for the module under the cursor. Gated on
+		// the active module having a switcher (git source). Local sources have
+		// no remote to switch, so R is a no-op with a hint.
+		if m.focus == focusLeft {
+			if m.activeSwitcher() == nil {
+				if len(m.Modules) > 1 {
+					name, _, _, _ := m.activeRefInfo()
+					m.status = fmt.Sprintf("%s has a local source — no ref to switch", name)
+					m.statusLvl = statusInfo
+					m.statusAt = time.Now()
+				}
+				return m, nil
+			}
+			m.refModuleIdx = m.activeModuleIdx()
+			_, _, ref, _ := m.activeRefInfo()
 			m.refModal = true
-			m.refInput = m.LiteralRef
+			m.refInput = ref
 			m.refErr = ""
 			m.refOrphaned = nil
 			return m, nil
@@ -1023,7 +1114,8 @@ func (m *Model) handleRefModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyEnter:
 		newRef := strings.TrimSpace(m.refInput)
-		if newRef == "" || newRef == m.LiteralRef {
+		_, _, curRef, _ := m.activeRefInfo()
+		if newRef == "" || newRef == curRef {
 			m.refModal = false
 			return m, nil
 		}
@@ -1048,32 +1140,65 @@ func (m *Model) handleRefModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // applyRefSwitch merges a successful ref switch result into the model,
-// preserving user overrides and recording orphaned variables.
+// preserving user overrides and recording orphaned variables. The switch is
+// applied to the module captured in refModuleIdx (the one the user invoked R
+// on), which may be the primary or any secondary module.
 func (m *Model) applyRefSwitch(result *RefSwitchResult) {
 	m.refSwitching = false
 	m.refOrphaned = result.OrphanedVars
 
-	// Preserve existing user values — only drop them from the active var list,
-	// not from state.Values. This allows switching back to recover them.
-	oldValues := m.State.Values
-
-	// Replace state with the new one from the switched ref.
-	m.State = result.State
-	m.LiteralRef = result.LiteralRef
-	m.ResolvedSHA = result.ResolvedSHA
-
-	// Re-apply user overrides only for variables that exist in the new ref.
-	if m.State.Values == nil {
-		m.State.Values = make(map[string]cty.Value)
+	idx := m.refModuleIdx
+	if idx < 0 || idx >= len(m.Modules) {
+		idx = 0
 	}
-	newVarNames := make(map[string]bool, len(m.State.Vars))
-	for _, v := range m.State.Vars {
+	entry := &m.Modules[idx]
+
+	// Carry over user overrides for variables that still exist in the new ref.
+	// Two kinds of override must survive a ref switch:
+	//   1. concrete values   -> entry.State.Values
+	//   2. wired expressions  -> entry.State.UnknownAttrs (e.g.
+	//      model_uuid = data.juju_model.x.uuid). These do NOT live in Values,
+	//      so failing to carry them over silently deletes the reference from
+	//      the rendered module block on the next write.
+	// Overrides for variables that no longer exist in the new ref are
+	// intentionally dropped (reported as orphaned).
+	oldState := entry.State
+	newState := result.State
+	if newState.Values == nil {
+		newState.Values = make(map[string]cty.Value)
+	}
+	newVarNames := make(map[string]bool, len(newState.Vars))
+	for _, v := range newState.Vars {
 		newVarNames[v.Name] = true
 	}
-	for name, val := range oldValues {
+	for name, val := range oldState.Values {
 		if newVarNames[name] {
-			m.State.Values[name] = val
+			newState.Values[name] = val
 		}
+	}
+	if len(oldState.UnknownAttrs) > 0 {
+		carried := make([]wrapper.RawAttr, 0, len(oldState.UnknownAttrs))
+		for _, ra := range oldState.UnknownAttrs {
+			if newVarNames[ra.Name] {
+				carried = append(carried, ra)
+			}
+		}
+		newState.UnknownAttrs = carried
+	}
+
+	// Write the new state back into the owning entry. This is the single
+	// source of truth used by writeAllModules — failing to update it here is
+	// what previously caused a switched ref to silently revert on the next
+	// save.
+	entry.State = newState
+	entry.Ref = result.LiteralRef
+	entry.ResolvedSHA = result.ResolvedSHA
+
+	// Keep the primary alias and legacy header fields coherent.
+	if idx == 0 {
+		m.State = newState
+		m.LiteralRef = result.LiteralRef
+		m.ResolvedSHA = result.ResolvedSHA
 	}
 
 	// Rebuild the UI.
@@ -1087,7 +1212,7 @@ func (m *Model) applyRefSwitch(result *RefSwitchResult) {
 	}
 
 	// Status message.
-	msg := fmt.Sprintf("Switched to ref: %s (%s)", result.LiteralRef, shortSHA(result.ResolvedSHA))
+	msg := fmt.Sprintf("Switched %s to ref: %s (%s)", entry.Name, result.LiteralRef, shortSHA(result.ResolvedSHA))
 	if len(result.OrphanedVars) > 0 {
 		names := strings.Join(result.OrphanedVars, ", ")
 		msg += fmt.Sprintf(" · %d orphaned: %s", len(result.OrphanedVars), names)
@@ -1324,15 +1449,16 @@ func kindLabel(t *tftypes.Type) string {
 
 // Module-info banner used by the status line.
 func (m *Model) moduleBanner() string {
+	name, _, ref, sha := m.activeRefInfo()
 	parts := []string{}
-	if m.ModuleName != "" {
-		parts = append(parts, fmt.Sprintf("Module: %s", m.ModuleName))
+	if name != "" {
+		parts = append(parts, fmt.Sprintf("Module: %s", name))
 	}
-	if m.LiteralRef != "" {
-		parts = append(parts, fmt.Sprintf("ref %s", m.LiteralRef))
+	if ref != "" {
+		parts = append(parts, fmt.Sprintf("ref %s", ref))
 	}
-	if m.ResolvedSHA != "" {
-		parts = append(parts, fmt.Sprintf("(%s)", shortSHA(m.ResolvedSHA)))
+	if sha != "" {
+		parts = append(parts, fmt.Sprintf("(%s)", shortSHA(sha)))
 	}
 	return strings.Join(parts, " ")
 }

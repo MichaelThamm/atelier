@@ -307,6 +307,24 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		m.Modules[0] = tui.ModuleEntry{State: state, Name: actualPrimaryName}
 		m.ModuleName = actualPrimaryName
 	}
+
+	// Populate the primary module's ref identity + per-module switcher so the
+	// R key can switch it independently of any secondaries.
+	m.Modules[0].SourceURL = sourceURLFromState(state)
+	m.Modules[0].Ref = res.LiteralRef
+	m.Modules[0].ResolvedSHA = res.ResolvedSHA
+	if res.LiteralRef != "" || res.ResolvedSHA != "" {
+		m.Modules[0].Switcher = &prodRefSwitcher{
+			wrapperDir:    wrapperDir,
+			sourceURL:     sourceURLFromState(state),
+			modulePath:    modulePathFromState(state),
+			blockName:     state.ModuleBlockName,
+			isPrimary:     true,
+			currentVars:   state.Vars,
+			currentValues: state.Values,
+		}
+	}
+
 	loadSecondaryModules(m, wrapperDir, actualPrimaryName)
 
 	// Construct a Planner so pressing P in the TUI runs a real terraform
@@ -325,15 +343,11 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	}
 
 	// Construct a RefSwitcher for non-local-source wrappers. Local sources
-	// (--source path) don't have a git remote to switch refs on.
+	// (--source path) don't have a git remote to switch refs on. This mirrors
+	// m.Modules[0].Switcher and is kept as a global fallback for callers/tests
+	// that consult m.RefSwitcher directly.
 	if res.LiteralRef != "" || res.ResolvedSHA != "" {
-		m.RefSwitcher = &prodRefSwitcher{
-			wrapperDir:    wrapperDir,
-			sourceURL:     sourceURLFromState(state),
-			modulePath:    modulePathFromState(state),
-			currentVars:   state.Vars,
-			currentValues: state.Values,
-		}
+		m.RefSwitcher = m.Modules[0].Switcher
 	}
 
 	// Load terraform state for the plan view context line.
@@ -361,22 +375,11 @@ func loadSecondaryModules(m *tui.Model, wrapperDir, primaryBlockName string) {
 		return
 	}
 
-	// Resolve the primary module's source for robust duplicate detection.
-	// We match on both block name AND normalised source URL to handle cases
-	// where ModuleBlockName differs from the actual HCL label.
-	primarySource := ""
-	for _, blk := range blocks {
-		if blk.Name == primaryBlockName {
-			primarySource = blk.Source
-			break
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	type result struct {
-		state *wrapper.State
+		entry tui.ModuleEntry
 		name  string
 	}
 	var results []result
@@ -384,22 +387,20 @@ func loadSecondaryModules(m *tui.Model, wrapperDir, primaryBlockName string) {
 	var wg sync.WaitGroup
 
 	for _, blk := range blocks {
+		// Skip the primary block (already loaded) and blocks without a source.
+		// Modules are keyed by their unique HCL label, NOT by source URL, so a
+		// second block pointing at the same source at a different ref is shown
+		// as its own module.
 		if blk.Name == primaryBlockName || blk.Source == "" {
-			continue
-		}
-		// Also skip if the source URL matches the primary module's source
-		// (duplicate detection when block names don't match due to internal
-		// naming vs HCL label mismatch).
-		if primarySource != "" && blk.Source == primarySource {
 			continue
 		}
 		wg.Add(1)
 		go func(blk wrapper.ModuleBlockInfo) {
 			defer wg.Done()
-			st := loadSecondaryModule(ctx, wrapperDir, blk)
-			if st != nil {
+			e := loadSecondaryModule(ctx, wrapperDir, blk)
+			if e != nil {
 				mu.Lock()
-				results = append(results, result{state: st, name: blk.Name})
+				results = append(results, result{entry: *e, name: blk.Name})
 				mu.Unlock()
 			}
 		}(blk)
@@ -415,12 +416,13 @@ func loadSecondaryModules(m *tui.Model, wrapperDir, primaryBlockName string) {
 		return nameOrder[results[i].name] < nameOrder[results[j].name]
 	})
 	for _, r := range results {
-		m.AddModule(r.state, r.name)
+		m.AddModuleEntry(r.entry)
 	}
 }
 
-// loadSecondaryModule clones and parses a secondary module's variables.
-func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.ModuleBlockInfo) *wrapper.State {
+// loadSecondaryModule clones and parses a secondary module's variables and
+// builds its ref identity + per-module switcher.
+func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.ModuleBlockInfo) *tui.ModuleEntry {
 	srcURL, ref := decomposeModuleSource(blk.Source)
 	if srcURL == "" {
 		return nil
@@ -428,7 +430,7 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 	modPath := modulePathFromSource(blk.Source)
 
 	// Clone into .atelier/clone/<reponame>.
-	cloneDir, _, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
+	cloneDir, sha, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
 		WrapperDir:  wrapperDir,
 		Source:      srcURL,
 		LocalSource: isLocalPath(srcURL),
@@ -439,7 +441,7 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 		return nil
 	}
 
-	state, err := bootstrap.PrepareState(wrapperDir, cloneDir, modPath, "", ref, srcURL)
+	state, err := bootstrap.PrepareState(wrapperDir, cloneDir, modPath, sha, ref, srcURL)
 	if err != nil {
 		return nil
 	}
@@ -454,7 +456,28 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 		}
 		state.UnknownAttrs = pm.UnknownAttrs
 	}
-	return state
+
+	entry := tui.ModuleEntry{
+		State:       state,
+		Name:        blk.Name,
+		SourceURL:   srcURL,
+		Ref:         ref,
+		ResolvedSHA: sha,
+	}
+	// Only git-sourced modules can be ref-switched; local sources get no
+	// switcher (R is a no-op for them).
+	if !isLocalPath(srcURL) {
+		entry.Switcher = &prodRefSwitcher{
+			wrapperDir:    wrapperDir,
+			sourceURL:     srcURL,
+			modulePath:    modPath,
+			blockName:     blk.Name,
+			isPrimary:     false,
+			currentVars:   state.Vars,
+			currentValues: state.Values,
+		}
+	}
+	return &entry
 }
 
 // decomposeModuleSource parses a terraform module source string into the
@@ -547,6 +570,8 @@ type prodRefSwitcher struct {
 	wrapperDir    string
 	sourceURL     string
 	modulePath    string
+	blockName     string
+	isPrimary     bool
 	currentVars   []tfvars.Variable
 	currentValues map[string]cty.Value
 	progress      *tui.ProgressTracker
@@ -577,6 +602,13 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	state, err := bootstrap.PrepareState(s.wrapperDir, cloneDir, s.modulePath, sha, newRef, s.sourceURL)
 	if err != nil {
 		return nil, err
+	}
+	// PrepareState derives a block name from the module path, which may not
+	// match the actual HCL label in main.tf (especially for secondary
+	// modules). Pin it to the block we're switching so Write targets the
+	// correct module block.
+	if s.blockName != "" {
+		state.ModuleBlockName = s.blockName
 	}
 
 	// Write the wrapper main.tf with the new source (ref) before running init,
@@ -637,16 +669,20 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	s.currentVars = state.Vars
 	s.currentValues = state.Values
 
-	// Save session with new ref.
-	if err := session.Save(s.wrapperDir, &session.Session{
-		SourceURL:           s.sourceURL,
-		LiteralRef:          newRef,
-		ResolvedSHA:         sha,
-		ModuleCandidatePath: s.modulePath,
-		ModuleBlockName:     state.ModuleBlockName,
-		LastOpened:          time.Now().UTC(),
-	}); err != nil {
-		return nil, fmt.Errorf("save session: %w", err)
+	// Save session with new ref. Only the primary module owns session.json;
+	// secondary modules are tracked entirely by their main.tf source string,
+	// so a secondary switch must not overwrite the primary's session identity.
+	if s.isPrimary {
+		if err := session.Save(s.wrapperDir, &session.Session{
+			SourceURL:           s.sourceURL,
+			LiteralRef:          newRef,
+			ResolvedSHA:         sha,
+			ModuleCandidatePath: s.modulePath,
+			ModuleBlockName:     state.ModuleBlockName,
+			LastOpened:          time.Now().UTC(),
+		}); err != nil {
+			return nil, fmt.Errorf("save session: %w", err)
+		}
 	}
 
 	return &tui.RefSwitchResult{

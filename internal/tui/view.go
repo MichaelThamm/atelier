@@ -87,8 +87,13 @@ func (m *Model) renderLeftPane() string {
 	for i := start; i < end; i++ {
 		r := m.rows[i]
 		if r.IsHeader {
-			// Render section header: "── module_name ──"
+			// Render section header: "── module_name @ref ──"
 			name := r.VarName
+			if r.ModuleIdx < len(m.Modules) {
+				if ref := m.Modules[r.ModuleIdx].Ref; ref != "" {
+					name = fmt.Sprintf("%s @%s", name, ref)
+				}
+			}
 			if len(name) > maxVisualWidth-4 {
 				name = name[:maxVisualWidth-5] + "…"
 			}
@@ -382,7 +387,7 @@ func (m *Model) statusHints() string {
 	if len(m.presets) > 0 {
 		hints += "  [F] preset"
 	}
-	if m.RefSwitcher != nil {
+	if m.activeSwitcher() != nil {
 		hints += "  [R] ref"
 	}
 	if m.statusLvl == statusError && m.statusDetail != "" {
@@ -428,7 +433,7 @@ func (m *Model) renderHelpModal() string {
 		if len(m.presets) > 0 {
 			fmt.Fprintln(&b, "  F              Open preset picker")
 		}
-		if m.RefSwitcher != nil {
+		if m.activeSwitcher() != nil {
 			fmt.Fprintln(&b, "  R              Switch module ref")
 		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
@@ -532,15 +537,16 @@ func (m *Model) renderRefModal() string {
 		return m.renderModalFrame("Switching ref", b.String(), "")
 	}
 
-	if m.ModuleName != "" {
-		fmt.Fprintf(&b, "Module:  %s\n", styleDescription.Render(m.ModuleName))
+	name, source, ref, sha := m.activeRefInfo()
+	if name != "" {
+		fmt.Fprintf(&b, "Module:  %s\n", styleDescription.Render(name))
 	}
-	if m.SourceURL != "" {
-		fmt.Fprintf(&b, "Source:  %s\n", styleDescription.Render(m.SourceURL))
+	if source != "" {
+		fmt.Fprintf(&b, "Source:  %s\n", styleDescription.Render(source))
 	}
-	fmt.Fprintf(&b, "Current: %s", styleDescription.Render(m.LiteralRef))
-	if m.ResolvedSHA != "" {
-		fmt.Fprintf(&b, " (%s)", shortSHA(m.ResolvedSHA))
+	fmt.Fprintf(&b, "Current: %s", styleDescription.Render(ref))
+	if sha != "" {
+		fmt.Fprintf(&b, " (%s)", shortSHA(sha))
 	}
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b)
