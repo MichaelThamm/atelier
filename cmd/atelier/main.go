@@ -315,13 +315,14 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	m.Modules[0].ResolvedSHA = res.ResolvedSHA
 	if res.LiteralRef != "" || res.ResolvedSHA != "" {
 		m.Modules[0].Switcher = &prodRefSwitcher{
-			wrapperDir:    wrapperDir,
-			sourceURL:     sourceURLFromState(state),
-			modulePath:    modulePathFromState(state),
-			blockName:     state.ModuleBlockName,
-			isPrimary:     true,
-			currentVars:   state.Vars,
-			currentValues: state.Values,
+			wrapperDir:          wrapperDir,
+			sourceURL:           sourceURLFromState(state),
+			modulePath:          modulePathFromState(state),
+			blockName:           state.ModuleBlockName,
+			isPrimary:           true,
+			currentVars:         state.Vars,
+			currentValues:       state.Values,
+			currentUnknownAttrs: state.UnknownAttrs,
 		}
 	}
 
@@ -467,13 +468,14 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 	// switcher (R is a no-op for them).
 	if !isLocalPath(srcURL) {
 		entry.Switcher = &prodRefSwitcher{
-			wrapperDir:    wrapperDir,
-			sourceURL:     srcURL,
-			modulePath:    modPath,
-			blockName:     blk.Name,
-			isPrimary:     false,
-			currentVars:   state.Vars,
-			currentValues: state.Values,
+			wrapperDir:          wrapperDir,
+			sourceURL:           srcURL,
+			modulePath:          modPath,
+			blockName:           blk.Name,
+			isPrimary:           false,
+			currentVars:         state.Vars,
+			currentValues:       state.Values,
+			currentUnknownAttrs: state.UnknownAttrs,
 		}
 	}
 	return &entry
@@ -573,7 +575,12 @@ type prodRefSwitcher struct {
 	isPrimary     bool
 	currentVars   []tfvars.Variable
 	currentValues map[string]cty.Value
-	progress      *tui.ProgressTracker
+	// currentUnknownAttrs holds wired expressions (e.g.
+	// model_uuid = data.juju_model.x.uuid) that live outside Values. They
+	// must be carried into the mid-switch state.Write() below, otherwise the
+	// rewritten module block silently loses the reference.
+	currentUnknownAttrs []wrapper.RawAttr
+	progress            *tui.ProgressTracker
 }
 
 func (s *prodRefSwitcher) SetProgress(p *tui.ProgressTracker) {
@@ -627,6 +634,20 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 			state.Values[name] = val
 		}
 	}
+	// Carry over wired expressions (UnknownAttrs) for variables that still
+	// exist in the new ref. These do NOT live in Values, so without this the
+	// state.Write() below would drop them from the rewritten module block —
+	// e.g. model_uuid = data.juju_model.service_model.uuid disappears, leaving
+	// an invalid module that terraform init/plan rejects.
+	if len(s.currentUnknownAttrs) > 0 {
+		carried := make([]wrapper.RawAttr, 0, len(s.currentUnknownAttrs))
+		for _, ra := range s.currentUnknownAttrs {
+			if newVarNames[ra.Name] {
+				carried = append(carried, ra)
+			}
+		}
+		state.UnknownAttrs = carried
+	}
 	if err := state.Write(); err != nil {
 		return nil, fmt.Errorf("write wrapper: %w", err)
 	}
@@ -664,9 +685,11 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		}
 	}
 
-	// Update the switcher's current vars and values for future switches.
+	// Update the switcher's current vars, values, and wired expressions for
+	// future switches.
 	s.currentVars = state.Vars
 	s.currentValues = state.Values
+	s.currentUnknownAttrs = state.UnknownAttrs
 
 	// Save session with new ref. Only the primary module owns session.json;
 	// secondary modules are tracked entirely by their main.tf source string,

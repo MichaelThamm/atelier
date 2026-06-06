@@ -94,11 +94,13 @@ func (m *Model) renderLeftPane() string {
 					name = fmt.Sprintf("%s @%s", name, ref)
 				}
 			}
-			if len(name) > maxVisualWidth-4 {
-				name = name[:maxVisualWidth-5] + "…"
-			}
-			// Build a padded line: "── name ──" centered/left-aligned.
-			pad := maxVisualWidth - len(name) - 4 // 4 = "── " + " ─"
+			// Layout: "── " (3 cols) + name + " " (1 col) + trailing dashes,
+			// totalling maxVisualWidth. Reserve 5 cols (prefix + space + at
+			// least one trailing dash) for the name. Use display width, not
+			// byte length: the ellipsis and box-drawing chars are multi-byte
+			// but single-column, so len() overshoots and wraps the line.
+			name = ansi.Truncate(name, maxVisualWidth-5, "…")
+			pad := maxVisualWidth - lipgloss.Width(name) - 4 // 4 = "── " + " "
 			if pad < 1 {
 				pad = 1
 			}

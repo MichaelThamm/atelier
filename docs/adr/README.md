@@ -23,6 +23,10 @@ Format follows the Michael Nygard template, lightly extended.
 | 0013 | [Snap packaging](0013-snap-packaging.md)                                                    | Proposed |
 | 0014 | [Unified layout budget and scroll support](0014-unified-layout-budget.md)                   | Accepted |
 | 0015 | [Multi-module grouping in the left pane](0015-multi-module-grouping.md)                     | Accepted |
+| 0016 | [Scope boundaries — no orchestration overlap with Terragrunt](0016-scope-boundaries-no-orchestration.md) | Accepted |
+| 0017 | [Inter-module wiring in the TUI](0017-inter-module-wiring.md)                               | Accepted |
+| 0018 | [Additive `atelier module` command](0018-additive-module-command.md)                       | Accepted |
+| 0019 | [Unified module version display](0019-unified-module-version-display.md)                    | Proposed |
 
 ## Conventions
 

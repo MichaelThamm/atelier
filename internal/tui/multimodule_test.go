@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/tfvars"
@@ -156,5 +157,32 @@ func TestMultiModule_renderLeftPane_showsHeaders(t *testing.T) {
 	}
 	if !strings.Contains(stripped, "── seaweedfs") {
 		t.Errorf("left pane should contain seaweedfs header, got:\n%s", stripped)
+	}
+}
+
+// TestMultiModule_renderLeftPane_headerNeverOverflows guards against the
+// section header wrapping bug: a long "name @ref" header must be truncated so
+// the rendered line never exceeds the pane's inner content width. Previously
+// the math used byte length, so the multi-byte ellipsis pushed the line one
+// column over the border and wrapped onto the next row.
+func TestMultiModule_renderLeftPane_headerNeverOverflows(t *testing.T) {
+	const innerWidth = 30 // leftWidth(32) - 2 border cols; see renderLeftPane
+
+	st := mimirState(t)
+	m := New(st, "mimir")
+	m.AddModule(seaweedState(t), "ingress_configurator")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	// A ref long enough that "ingress_configurator @rev..." exceeds the pane.
+	m.Modules[1].Ref = "rev123456789"
+
+	view := m.renderLeftPane()
+	for _, line := range strings.Split(stripANSI(view), "\n") {
+		if !strings.HasPrefix(strings.TrimLeft(line, " "), "──") {
+			continue // only assert on header lines
+		}
+		trimmed := strings.TrimRight(line, " ")
+		if w := lipgloss.Width(trimmed); w > innerWidth {
+			t.Errorf("header line overflows pane (%d > %d cols): %q", w, innerWidth, trimmed)
+		}
 	}
 }
