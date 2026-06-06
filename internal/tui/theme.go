@@ -178,12 +178,4 @@ var (
 	stylePlanChange   = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 	stylePlanDelete   = lipgloss.NewStyle().Foreground(colorDanger).Bold(true)
 	stylePlanReplace  = lipgloss.NewStyle().Foreground(colorReplace).Bold(true)
-
-	// JSON syntax highlighting (output view).
-	styleJsonKey    = lipgloss.NewStyle().Foreground(colorSecondary)
-	styleJsonString = lipgloss.NewStyle().Foreground(colorSuccess)
-	styleJsonNumber = lipgloss.NewStyle().Foreground(colorWarning)
-	styleJsonBool   = lipgloss.NewStyle().Foreground(colorPrimary)
-	styleJsonNull   = lipgloss.NewStyle().Foreground(colorMuted).Italic(true)
-	styleJsonBrace  = lipgloss.NewStyle().Foreground(colorFaint)
 )

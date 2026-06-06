@@ -259,9 +259,6 @@ func runModuleRm(args []string) error {
 		return fmt.Errorf("removing module block: %w", err)
 	}
 
-	// Remove associated outputs from outputs.tf.
-	_ = wrapper.RemoveModuleOutputs(cwd, name)
-
 	// Clean up the clone directory if it exists.
 	cloneBase := filepath.Join(cwd, wrapper.AtelierDir, "clone")
 	if entries, err := os.ReadDir(cloneBase); err == nil {

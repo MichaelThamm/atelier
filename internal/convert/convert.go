@@ -174,7 +174,7 @@ func runRelocate(ctx context.Context, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("no files relocated; aborting")
 	}
 
-	// Step 4: Read variables, outputs, required_providers from the relocated module.
+	// Step 4: Read variables and required_providers from the relocated module.
 	vars, err := tfvars.LoadDir(moduleDir)
 	if err != nil {
 		return nil, fmt.Errorf("parse variables from module: %w", err)
@@ -182,10 +182,6 @@ func runRelocate(ctx context.Context, opts Options) (*Result, error) {
 	reqProviders, err := bootstrap.ReadRequiredProviders(moduleDir)
 	if err != nil {
 		return nil, fmt.Errorf("read required_providers: %w", err)
-	}
-	outputNames, err := wrapper.DiscoverOutputNames(moduleDir)
-	if err != nil {
-		return nil, fmt.Errorf("discover outputs: %w", err)
 	}
 
 	// Derive the module block name from the directory name.
@@ -202,7 +198,6 @@ func runRelocate(ctx context.Context, opts Options) (*Result, error) {
 		RequiredProviders: reqProviders,
 		Providers:         providers,
 		Variables:         bootstrap.ConvertVariables(vars),
-		OutputNames:       outputNames,
 	}); err != nil {
 		return nil, fmt.Errorf("wrapper bootstrap: %w", err)
 	}
@@ -234,7 +229,6 @@ func runRelocate(ctx context.Context, opts Options) (*Result, error) {
 		Values:            map[string]cty.Value{},
 		Providers:         providers,
 		RequiredProviders: reqProviders,
-		OutputNames:       outputNames,
 	}
 	if err := session.Save(opts.Dir, &session.Session{
 		SourceURL:           source,

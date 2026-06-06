@@ -374,9 +374,6 @@ func (m *Model) statusHints() string {
 		if m.Applier != nil && m.applyState != applyLoading {
 			hints += "  [A] apply"
 		}
-		if m.OutputProvider != nil || (m.plan != nil && len(m.plan.OutputChanges) > 0) {
-			hints += "  [O] outputs"
-		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			hints += "  [E] error"
 		}
@@ -415,9 +412,6 @@ func (m *Model) renderHelpModal() string {
 		}
 		if m.Applier != nil {
 			fmt.Fprintln(&b, "  A              Apply the current plan")
-		}
-		if m.OutputProvider != nil || (m.plan != nil && len(m.plan.OutputChanges) > 0) {
-			fmt.Fprintln(&b, "  O              Show terraform outputs")
 		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			fmt.Fprintln(&b, "  E              Show error details")

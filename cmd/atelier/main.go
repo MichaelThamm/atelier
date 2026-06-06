@@ -337,7 +337,6 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		m.Planner = tp
 		m.Applier = tp
 		m.Validator = tp
-		m.OutputProvider = tp
 	} else {
 		fmt.Fprintln(os.Stderr, "warning: planner unavailable:", err)
 	}

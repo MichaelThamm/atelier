@@ -58,10 +58,6 @@ type State struct {
 	// wrapper picks up the right plugin versions.
 	RequiredProviders map[string]RequiredProvider
 
-	// OutputNames lists the module's declared output names (sorted
-	// alphabetically). Atelier forwards these in the wrapper's outputs.tf.
-	OutputNames []string
-
 	// UnknownAttrs holds attributes inside the module {} block whose value
 	// Atelier cannot represent as a cty.Value. Two kinds land here:
 	//
