@@ -131,11 +131,17 @@ type CloneOptions struct {
 	Ref    string // tag, branch, or SHA. Empty means HEAD.
 	Target string // destination directory. Must not exist.
 	Depth  int    // 0 → shallow with depth 1
+	// Subdir, when non-empty, restricts the working tree to this path (plus
+	// repository-root files) via a partial (--filter=blob:none) sparse
+	// checkout. Use when only a single module subdirectory is needed so we
+	// don't download blobs for the entire repository.
+	Subdir string
 }
 
 // Clone runs git clone --depth <D> [--branch <ref>] <url> <target>. For SHA
 // refs we follow with `git fetch && git checkout <sha>` since `--branch`
-// doesn't accept SHAs.
+// doesn't accept SHAs. When opts.Subdir is set, the clone is a partial,
+// sparse checkout limited to that subdirectory.
 func Clone(ctx context.Context, r Runner, opts CloneOptions) error {
 	if opts.URL == "" || opts.Target == "" {
 		return errors.New("clone: URL and Target are required")
@@ -147,7 +153,14 @@ func Clone(ctx context.Context, r Runner, opts CloneOptions) error {
 	if depth <= 0 {
 		depth = 1
 	}
+	sparse := opts.Subdir != ""
 	args := []string{"clone", fmt.Sprintf("--depth=%d", depth)}
+	if sparse {
+		// Partial clone: fetch trees but no blobs until checkout, and
+		// initialize sparse-checkout (cone mode) so only root files are
+		// materialized until we narrow to the subdir below.
+		args = append(args, "--filter=blob:none", "--sparse")
+	}
 	if opts.Ref != "" && !isHexSHA(opts.Ref) {
 		args = append(args, "--branch", opts.Ref)
 	}
@@ -155,6 +168,13 @@ func Clone(ctx context.Context, r Runner, opts CloneOptions) error {
 	_, stderr, err := r.Run(ctx, "", args...)
 	if err != nil {
 		return fmt.Errorf("git clone: %w (%s)", err, strings.TrimSpace(string(stderr)))
+	}
+	if sparse {
+		// Narrow the working tree (and on-demand blob fetch) to just the
+		// module subdirectory.
+		if _, stderr, err := r.Run(ctx, opts.Target, "sparse-checkout", "set", opts.Subdir); err != nil {
+			return fmt.Errorf("git sparse-checkout set %s: %w (%s)", opts.Subdir, err, strings.TrimSpace(string(stderr)))
+		}
 	}
 	if opts.Ref != "" && isHexSHA(opts.Ref) {
 		// Fetch the specific SHA and check it out. Shallow clones don't

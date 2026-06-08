@@ -103,6 +103,31 @@ func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedS
 
 	repoName := repoBasename(opts.Source)
 	cloneDir = filepath.Join(CloneSubdir(opts.WrapperDir), repoName)
+
+	// Warm-start fast path: if a previous clone is already checked out at the
+	// resolved SHA, reuse it instead of deleting and re-cloning. ls-remote has
+	// confirmed the remote hasn't moved, so the on-disk tree is current. This
+	// turns the common case (re-opening a wrapper whose ref hasn't changed)
+	// from a full network clone into a single ls-remote round-trip. A `.git`
+	// check guards against spawning git on a missing/partial directory, and
+	// (for sparse clones) we confirm the needed subdir is actually materialized
+	// before trusting the cache.
+	if resolvedSHA != "" {
+		if _, statErr := os.Stat(filepath.Join(cloneDir, ".git")); statErr == nil {
+			if head, herr := gitops.HeadSHA(ctx, opts.GitRunner, cloneDir); herr == nil && head == resolvedSHA {
+				if opts.ModulePath == "" {
+					return cloneDir, resolvedSHA, nil
+				}
+				if _, e := os.Stat(filepath.Join(cloneDir, opts.ModulePath)); e == nil {
+					return cloneDir, resolvedSHA, nil
+				}
+				// SHA matches but the subdir isn't present (e.g. a prior
+				// sparse clone narrowed to a different module); fall through
+				// to re-clone with the correct sparse set.
+			}
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(cloneDir), 0o755); err != nil {
 		return "", "", err
 	}
@@ -114,6 +139,7 @@ func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedS
 		URL:    opts.Source,
 		Ref:    ref,
 		Target: cloneDir,
+		Subdir: opts.ModulePath,
 	}
 	if err := gitops.Clone(ctx, opts.GitRunner, cloneOpts); err != nil {
 		return "", "", err
@@ -308,6 +334,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		Source:      prev.SourceURL,
 		LocalSource: isLocalSource(prev.SourceURL),
 		Ref:         prev.LiteralRef,
+		ModulePath:  prev.ModuleCandidatePath,
 		GitRunner:   gitRunner,
 	})
 	if err != nil {

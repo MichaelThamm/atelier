@@ -297,3 +297,113 @@ variable "risk" {
 		t.Errorf("ModuleCandidatePath = %q, want %q", sess.ModuleCandidatePath, modSubdir)
 	}
 }
+
+// scriptedGit is a gitops.Runner stub that serves canned stdout per call and
+// records the git subcommands it was asked to run, so tests can assert which
+// invocations happened (e.g. that a clone was or wasn't issued).
+type scriptedGit struct {
+	stdouts [][]byte
+	calls   [][]string
+	idx     int
+}
+
+func (s *scriptedGit) Run(_ context.Context, dir string, args ...string) ([]byte, []byte, error) {
+	s.calls = append(s.calls, append([]string{dir}, args...))
+	var out []byte
+	if s.idx < len(s.stdouts) {
+		out = s.stdouts[s.idx]
+	}
+	s.idx++
+	return out, nil, nil
+}
+
+// ran reports whether any recorded call's git subcommand matches sub.
+func (s *scriptedGit) ran(sub string) bool {
+	for _, c := range s.calls {
+		// c[0] is the working dir; c[1] is the git subcommand.
+		if len(c) > 1 && c[1] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+const testSHA = "0123456789abcdef0123456789abcdef01234567"
+
+// TestResolveAndClone_reusesCloneAtSameSHA verifies the warm-start fast path:
+// when a prior clone already sits at the resolved SHA, ResolveAndClone reuses
+// it (ls-remote + rev-parse only) instead of wiping and re-cloning.
+func TestResolveAndClone_reusesCloneAtSameSHA(t *testing.T) {
+	wrapperDir := t.TempDir()
+	cloneDir := filepath.Join(CloneSubdir(wrapperDir), "foo")
+	if err := os.MkdirAll(filepath.Join(cloneDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(cloneDir, "marker")
+	if err := os.WriteFile(marker, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	git := &scriptedGit{stdouts: [][]byte{
+		[]byte(testSHA + "\tHEAD\n"), // ls-remote
+		[]byte(testSHA + "\n"),       // rev-parse HEAD
+	}}
+	dir, sha, err := ResolveAndClone(context.Background(), InitOptions{
+		WrapperDir: wrapperDir,
+		Source:     "https://example.com/foo.git",
+		GitRunner:  git,
+	})
+	if err != nil {
+		t.Fatalf("ResolveAndClone: %v", err)
+	}
+	if dir != cloneDir {
+		t.Errorf("cloneDir = %q, want %q", dir, cloneDir)
+	}
+	if sha != testSHA {
+		t.Errorf("resolvedSHA = %q, want %q", sha, testSHA)
+	}
+	if git.ran("clone") {
+		t.Error("expected no clone on warm-start cache hit")
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("existing clone was wiped (marker gone): %v", err)
+	}
+}
+
+// TestResolveAndClone_reclonesWhenSHADiffers verifies that a stale clone (HEAD
+// no longer matches the resolved SHA) is wiped and re-cloned.
+func TestResolveAndClone_reclonesWhenSHADiffers(t *testing.T) {
+	wrapperDir := t.TempDir()
+	cloneDir := filepath.Join(CloneSubdir(wrapperDir), "foo")
+	if err := os.MkdirAll(filepath.Join(cloneDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(cloneDir, "marker")
+	if err := os.WriteFile(marker, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const otherSHA = "fedcba9876543210fedcba9876543210fedcba98"
+	git := &scriptedGit{stdouts: [][]byte{
+		[]byte(testSHA + "\tHEAD\n"), // ls-remote → resolved SHA
+		[]byte(otherSHA + "\n"),      // rev-parse HEAD → stale SHA
+		nil,                          // clone
+	}}
+	_, sha, err := ResolveAndClone(context.Background(), InitOptions{
+		WrapperDir: wrapperDir,
+		Source:     "https://example.com/foo.git",
+		GitRunner:  git,
+	})
+	if err != nil {
+		t.Fatalf("ResolveAndClone: %v", err)
+	}
+	if sha != testSHA {
+		t.Errorf("resolvedSHA = %q, want %q", sha, testSHA)
+	}
+	if !git.ran("clone") {
+		t.Error("expected a re-clone when the existing clone is at a different SHA")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Errorf("expected stale clone to be wiped, marker stat err = %v", err)
+	}
+}

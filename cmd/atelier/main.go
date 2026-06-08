@@ -106,7 +106,13 @@ func runOpen() error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+	// LoadExisting may re-resolve and (cold) re-clone the primary module before
+	// the alt-screen comes up. Show a spinner labelled with the total module
+	// count so it matches what the user sees in the TUI (the secondary-load
+	// phase below reuses the same label, so it reads as one continuous step).
+	stop := startSpinner(loadingMessage(cwd))
 	res, err := bootstrap.LoadExisting(ctx, cwd, nil)
+	stop()
 	if err != nil {
 		return err
 	}
@@ -366,6 +372,33 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	return nil
 }
 
+// loadingMessage returns the startup spinner label for a wrapper, reflecting
+// how many module blocks it declares so the message matches what the user
+// sees in the TUI (e.g. "Loading 3 module(s)…"). Falls back to a generic
+// label when the count can't be determined.
+func loadingMessage(wrapperDir string) string {
+	if n := countModuleBlocks(wrapperDir); n > 0 {
+		return fmt.Sprintf("Loading %d module(s)…", n)
+	}
+	return "Loading wrapper…"
+}
+
+// countModuleBlocks returns the number of module {} blocks in main.tf that
+// carry a source (i.e. the modules Atelier will load).
+func countModuleBlocks(wrapperDir string) int {
+	blocks, err := wrapper.ReadModuleBlocks(wrapperDir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, blk := range blocks {
+		if blk.Source != "" {
+			n++
+		}
+	}
+	return n
+}
+
 // loadSecondaryModules discovers module blocks in main.tf beyond the primary
 // one, clones their sources, parses their variables, and adds them to the TUI
 // model. Failures are non-fatal — the secondary module is simply not shown.
@@ -373,6 +406,25 @@ func loadSecondaryModules(m *tui.Model, wrapperDir, primaryBlockName string) {
 	blocks, err := wrapper.ReadModuleBlocks(wrapperDir)
 	if err != nil {
 		return
+	}
+
+	// Count total vs. secondary blocks. The spinner reports the TOTAL (so it
+	// matches the count the user sees in the TUI), but we only show it when
+	// there is at least one secondary still to clone — the primary was already
+	// loaded under the same label in runOpen.
+	totalCount, secondaryCount := 0, 0
+	for _, blk := range blocks {
+		if blk.Source == "" {
+			continue
+		}
+		totalCount++
+		if blk.Name != primaryBlockName {
+			secondaryCount++
+		}
+	}
+	if secondaryCount > 0 {
+		stop := startSpinner(fmt.Sprintf("Loading %d module(s)…", totalCount))
+		defer stop()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -429,12 +481,13 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 	}
 	modPath := modulePathFromSource(blk.Source)
 
-	// Clone into .atelier/clone/<reponame>.
+	// Clone into .atelier/clone/<reponame>, limited to the module subdir.
 	cloneDir, sha, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
 		WrapperDir:  wrapperDir,
 		Source:      srcURL,
 		LocalSource: isLocalPath(srcURL),
 		Ref:         ref,
+		ModulePath:  modPath,
 		GitRunner:   &gitops.Git{},
 	})
 	if err != nil {
@@ -596,6 +649,7 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		WrapperDir: s.wrapperDir,
 		Source:     s.sourceURL,
 		Ref:        newRef,
+		ModulePath: s.modulePath,
 	})
 	if err != nil {
 		return nil, err

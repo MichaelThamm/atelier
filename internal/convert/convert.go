@@ -108,6 +108,7 @@ func runAdopt(ctx context.Context, opts Options, mod *moduleBlockInfo) (*Result,
 		WrapperDir: opts.Dir,
 		Source:     mod.SourceURL,
 		Ref:        mod.Ref,
+		ModulePath: mod.ModulePath,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("clone upstream module: %w", err)

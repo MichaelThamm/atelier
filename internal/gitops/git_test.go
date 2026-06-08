@@ -200,3 +200,41 @@ func TestClone_shaRef_followsUpFetchAndCheckout(t *testing.T) {
 		t.Errorf("expected checkout, got %v", r.calls[2])
 	}
 }
+
+func TestClone_subdir_partialSparseCheckout(t *testing.T) {
+	r := &fakeRunner{stdouts: [][]byte{nil, nil}}
+	err := Clone(context.Background(), r, CloneOptions{
+		URL:    "https://example.com/m.git",
+		Ref:    "main",
+		Target: "/tmp/atelier-clone-test-sparse-doesnotexist",
+		Subdir: "terraform/cos",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.calls) != 2 {
+		t.Fatalf("expected 2 calls (clone, sparse-checkout set), got %d: %+v", len(r.calls), r.calls)
+	}
+	clone := r.calls[0]
+	if !containsArg(clone, "--filter=blob:none") || !containsArg(clone, "--sparse") {
+		t.Errorf("clone missing partial/sparse flags: %v", clone)
+	}
+	if !containsArg(clone, "--branch") {
+		t.Errorf("clone missing --branch: %v", clone)
+	}
+	sc := r.calls[1]
+	// args: dir, "sparse-checkout", "set", "terraform/cos"
+	if sc[1] != "sparse-checkout" || sc[2] != "set" || sc[len(sc)-1] != "terraform/cos" {
+		t.Errorf("unexpected sparse-checkout call: %v", sc)
+	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
