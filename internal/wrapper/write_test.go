@@ -256,6 +256,53 @@ func TestWrite_concreteValueSupersedesRawExpression(t *testing.T) {
 	}
 }
 
+// TestWrite_prunesOrphanedArgumentAfterRefSwitch is a regression test for the
+// bug where switching a module to a ref that dropped a variable left the stale
+// argument in main.tf. Reproduces observability-stack track/2 → main, where
+// `model_uuid` no longer exists; the leftover `model_uuid = null` made
+// `terraform init` fail with "An argument named model_uuid is not expected
+// here."
+func TestWrite_prunesOrphanedArgumentAfterRefSwitch(t *testing.T) {
+	dir := t.TempDir()
+	initial := `module "cos_lite" {
+  source     = "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=track/2"
+  model_uuid = null
+  model = {
+    name = "demo"
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, MainTF), []byte(initial), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// New schema (ref=main) no longer declares model_uuid.
+	s := &State{
+		Dir:             dir,
+		ModuleBlockName: "cos_lite",
+		Source:          "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main",
+		Vars: []tfvars.Variable{
+			mustVar(t, "model", "object({name = string})", cty.NilVal, false),
+		},
+		Values: map[string]cty.Value{
+			"model": cty.ObjectVal(map[string]cty.Value{"name": cty.StringVal("demo")}),
+		},
+	}
+	if err := s.Write(); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, MainTF))
+	out := string(got)
+	if strings.Contains(out, "model_uuid") {
+		t.Errorf("orphaned model_uuid should be removed after ref switch; got:\n%s", out)
+	}
+	if !strings.Contains(out, "?ref=main") {
+		t.Errorf("source should be updated to main; got:\n%s", out)
+	}
+	if !strings.Contains(out, `name = "demo"`) {
+		t.Errorf("still-declared model var should survive; got:\n%s", out)
+	}
+}
+
 func TestWrite_atDefault_removesAttribute(t *testing.T) {
 	dir := t.TempDir()
 	initial := `module "x" {

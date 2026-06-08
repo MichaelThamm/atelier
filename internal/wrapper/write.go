@@ -124,6 +124,32 @@ func (s *State) writeMain() error {
 		body.SetAttributeValue(v.Name, writeVal)
 	}
 
+	// Prune attributes orphaned by a schema change. When a ref switch moves the
+	// module to a revision that dropped a variable (e.g. switching
+	// observability-stack from track/2 to main removes `model_uuid`), the old
+	// argument still sits in the parsed main.tf. The loop above only visits
+	// variables in the *new* schema, so it never touches the orphan and the
+	// stale line survives — making `terraform init` fail with "An argument
+	// named X is not expected here." Remove any attribute that isn't the
+	// source, a Terraform meta-argument, a currently-declared variable, or a
+	// preserved user expression (UnknownAttrs).
+	keep := make(map[string]bool, len(s.Vars)+len(s.UnknownAttrs)+8)
+	keep["source"] = true
+	for _, meta := range []string{"version", "count", "for_each", "providers", "depends_on"} {
+		keep[meta] = true
+	}
+	for i := range s.Vars {
+		keep[s.Vars[i].Name] = true
+	}
+	for _, ra := range s.UnknownAttrs {
+		keep[ra.Name] = true
+	}
+	for name := range body.Attributes() {
+		if !keep[name] {
+			body.RemoveAttribute(name)
+		}
+	}
+
 	// Write to a temporary file and rename for atomicity — important because
 	// the file watcher (`terraform validate` in the TUI) may race the write.
 	return writeAtomic(mainPath, hclwrite.Format(file.Bytes()), 0o644)
