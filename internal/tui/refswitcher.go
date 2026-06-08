@@ -36,4 +36,13 @@ type RefSwitchResult struct {
 	// NewVars lists variables added in the new ref that were not present
 	// in the previous state.
 	NewVars []tfvars.Variable
+	// InitIncomplete is true when the post-switch `terraform init -upgrade`
+	// did not finish cleanly. The switch still succeeds: the module is
+	// fetched (module installation precedes config validation) and the new
+	// schema is shown. The most common cause — the new ref added a required
+	// variable that isn't filled yet — is detected and phrased by the TUI
+	// from its own state, so this flag only needs to convey the bare signal.
+	// The planner re-runs init -upgrade on the next plan, and
+	// `terraform validate` surfaces the specific diagnostics in the meantime.
+	InitIncomplete bool
 }

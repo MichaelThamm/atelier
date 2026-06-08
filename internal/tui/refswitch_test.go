@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -140,6 +142,126 @@ func TestApplyRefSwitch_secondaryLeavesPrimaryUntouched(t *testing.T) {
 	}
 	if m.Modules[0].Ref != "1.0.0" {
 		t.Errorf("primary ref changed by a secondary switch: %q", m.Modules[0].Ref)
+	}
+}
+
+// A non-fatal post-switch init failure (e.g. the new ref added a required
+// variable not yet filled in) must NOT abort the switch: the new state is
+// applied and the actionable condition is surfaced at warn level — phrased as
+// a neutral fact (a required-unset count), not a procedural instruction.
+func TestApplyRefSwitch_requiredUnsetSurfacedAsWarn(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// sampleState's model_uuid is required (no default) and unset.
+	newState := newRefState(t, "cos_lite", "git::https://example.com/cos//modules/cos?ref=track/2")
+	m.refModuleIdx = 0
+	m.applyRefSwitch(&RefSwitchResult{
+		State:          newState,
+		LiteralRef:     "track/2",
+		ResolvedSHA:    "abc1234deadbeef",
+		InitIncomplete: true,
+	})
+
+	if m.Modules[0].State != newState {
+		t.Fatalf("switch was aborted: state not applied despite non-fatal init failure")
+	}
+	if m.statusLvl != statusWarn {
+		t.Errorf("status level = %v; want statusWarn", m.statusLvl)
+	}
+	if !strings.Contains(m.status, "required unset") {
+		t.Errorf("status should report the required-unset condition, got %q", m.status)
+	}
+}
+
+// When init is incomplete but no required variable is unset (e.g. a provider
+// install hiccup), the status says only that init is incomplete — still a
+// state, not an instruction.
+func TestApplyRefSwitch_initIncompleteWithoutRequiredUnset(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	newState := &wrapper.State{
+		ModuleBlockName: "cos_lite",
+		Source:          "git::https://example.com/cos//modules/cos?ref=track/2",
+		Vars: []tfvars.Variable{
+			{Name: "channel", Type: mustParseType(t, "string"), HasDefault: true, Default: cty.StringVal("dev")},
+		},
+		Values: map[string]cty.Value{},
+	}
+	m.refModuleIdx = 0
+	m.applyRefSwitch(&RefSwitchResult{
+		State:          newState,
+		LiteralRef:     "track/2",
+		ResolvedSHA:    "abc1234deadbeef",
+		InitIncomplete: true,
+	})
+
+	if m.statusLvl != statusWarn {
+		t.Errorf("status level = %v; want statusWarn", m.statusLvl)
+	}
+	if !strings.Contains(m.status, "init incomplete") {
+		t.Errorf("status should report init incomplete, got %q", m.status)
+	}
+	if strings.Contains(m.status, "required unset") {
+		t.Errorf("no required vars are unset; should not claim otherwise: %q", m.status)
+	}
+}
+
+// When the new ref introduces variables, the switch surfaces them in the
+// status and lands the cursor on the first new *required* var so the user is
+// taken straight to the breaking change (e.g. model_uuid -> model).
+func TestApplyRefSwitch_newVarsSurfacedAndFocused(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	newState := &wrapper.State{
+		ModuleBlockName: "cos_lite",
+		Source:          "git::https://example.com/cos//modules/cos?ref=track/2",
+		Vars: []tfvars.Variable{
+			{Name: "region", Type: mustParseType(t, "string"), HasDefault: true, Default: cty.StringVal("us")},
+			{Name: "model", Type: mustParseType(t, "string")}, // new, required
+		},
+		Values: map[string]cty.Value{},
+	}
+	m.refModuleIdx = 0
+	m.applyRefSwitch(&RefSwitchResult{
+		State:       newState,
+		LiteralRef:  "track/2",
+		ResolvedSHA: "abc1234deadbeef",
+		NewVars: []tfvars.Variable{
+			{Name: "region", Type: mustParseType(t, "string"), HasDefault: true, Default: cty.StringVal("us")},
+			{Name: "model", Type: mustParseType(t, "string")},
+		},
+	})
+
+	if !strings.Contains(m.status, "2 new: region, model") {
+		t.Errorf("status should list new vars, got %q", m.status)
+	}
+	if got := m.SelectedVariable(); got == nil || got.Name != "model" {
+		t.Errorf("cursor should land on first new required var 'model', got %+v", got)
+	}
+}
+
+// firstActionableNewVar prefers a required var, falls back to the first new
+// var, and returns "" when there are none.
+func TestFirstActionableNewVar(t *testing.T) {
+	if got := firstActionableNewVar(nil); got != "" {
+		t.Errorf("no new vars => empty, got %q", got)
+	}
+	allDefaulted := []tfvars.Variable{
+		{Name: "a", HasDefault: true},
+		{Name: "b", HasDefault: true},
+	}
+	if got := firstActionableNewVar(allDefaulted); got != "a" {
+		t.Errorf("all defaulted => first new var, got %q", got)
+	}
+	mixed := []tfvars.Variable{
+		{Name: "a", HasDefault: true},
+		{Name: "b"}, // required
+	}
+	if got := firstActionableNewVar(mixed); got != "b" {
+		t.Errorf("should prefer required var, got %q", got)
 	}
 }
 

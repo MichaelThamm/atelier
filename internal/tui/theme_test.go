@@ -81,6 +81,49 @@ func TestTheme_statusBar_errorRendersRedMark(t *testing.T) {
 	}
 }
 
+// A footer whose status text overflows the terminal width must stay on a
+// single line: lipgloss wraps overflowing content, which grows the footer's
+// height and pushes the top of the layout off-screen. The hints must survive.
+func TestFooter_singleLineWhenStatusOverflows(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.status = strings.Repeat("very-long-status-segment · ", 20)
+	m.statusLvl = statusWarn
+
+	bar := m.renderFooter()
+	// The footer is a bordered box: top border + one content line + bottom
+	// border = 3 lines. A wrapped status would add a fourth line.
+	if lines := strings.Count(bar, "\n") + 1; lines != 3 {
+		t.Fatalf("footer is %d lines; a single-line footer is 3 (with borders):\n%s", lines, bar)
+	}
+	if !strings.Contains(bar, "help") {
+		t.Errorf("navigation hints must remain visible after truncation; got:\n%s", bar)
+	}
+	if !strings.Contains(bar, "…") {
+		t.Errorf("overflowing status should be truncated with an ellipsis; got:\n%s", bar)
+	}
+}
+
+// The two panes plus the gap must span the full terminal width so the right
+// pane's border lines up with the full-width header and footer banners.
+func TestLayout_bodyMatchesBannerWidth(t *testing.T) {
+	for _, w := range []int{80, 100, 137, 200} {
+		m := New(sampleState(t), "cos_lite")
+		m = feed(m, tea.WindowSizeMsg{Width: w, Height: 30})
+
+		header := m.renderHeader()
+		body := lipgloss.JoinHorizontal(lipgloss.Top,
+			m.renderLeftPane(), " ", m.renderRightPane())
+
+		if hw := lipgloss.Width(header); hw != w {
+			t.Errorf("width %d: header spans %d, want full width", w, hw)
+		}
+		if bw := lipgloss.Width(body); bw != w {
+			t.Errorf("width %d: body spans %d, want %d to match the banners", w, bw, w)
+		}
+	}
+}
+
 func TestTheme_focusActiveCursor_differsFromInactive(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})

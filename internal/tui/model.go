@@ -1113,6 +1113,15 @@ func (m *Model) applyRefSwitch(result *RefSwitchResult) {
 
 	// Rebuild the UI.
 	m.recomputeRows()
+
+	// When the new ref introduced variables, land the cursor on the first
+	// one the user must act on — a new *required* var (no default) takes
+	// priority, falling back to the first new var. This turns a breaking
+	// API change (e.g. model_uuid -> model) into a guided edit instead of a
+	// cryptic "Missing required argument" the user has to hunt for.
+	if focus := firstActionableNewVar(result.NewVars); focus != "" {
+		m.focusVar(idx, focus)
+	}
 	m.refreshEditor()
 	m.dirty = true
 
@@ -1127,9 +1136,82 @@ func (m *Model) applyRefSwitch(result *RefSwitchResult) {
 		names := strings.Join(result.OrphanedVars, ", ")
 		msg += fmt.Sprintf(" · %d orphaned: %s", len(result.OrphanedVars), names)
 	}
+	if len(result.NewVars) > 0 {
+		names := make([]string, len(result.NewVars))
+		for i, v := range result.NewVars {
+			names[i] = v.Name
+		}
+		msg += fmt.Sprintf(" · %d new: %s", len(result.NewVars), strings.Join(names, ", "))
+	}
+	// Report the actionable condition as a neutral fact, not a procedure: the
+	// [!] markers and the auto-jumped cursor already show the user where to
+	// act. A required-unset count explains a non-fatal init failure; if init
+	// failed for some other reason, say only that it is incomplete.
+	lvl := statusInfo
+	if n := requiredUnsetCount(entry.State); n > 0 {
+		msg += fmt.Sprintf(" · %d required unset", n)
+		lvl = statusWarn
+	} else if result.InitIncomplete {
+		msg += " · init incomplete"
+		lvl = statusWarn
+	}
 	m.status = msg
-	m.statusLvl = statusInfo
+	m.statusLvl = lvl
 	m.statusAt = time.Now()
+}
+
+// requiredUnsetCount returns how many of the module's variables are required
+// (no default) but have neither a concrete value nor a wired expression — the
+// same condition the [!] marker reports per row.
+func requiredUnsetCount(st *wrapper.State) int {
+	if st == nil {
+		return 0
+	}
+	n := 0
+	for _, v := range st.Vars {
+		if v.HasDefault {
+			continue
+		}
+		if _, wired := st.WiredExpression(v.Name); wired {
+			continue
+		}
+		cur, present := st.Values[v.Name]
+		if !present || cur == cty.NilVal {
+			n++
+		}
+	}
+	return n
+}
+
+// firstActionableNewVar returns the name of the variable the user should be
+// taken to after a ref switch: the first new required variable (no default),
+// or the first new variable if all have defaults, or "" if there are none.
+func firstActionableNewVar(newVars []tfvars.Variable) string {
+	if len(newVars) == 0 {
+		return ""
+	}
+	for _, v := range newVars {
+		if !v.HasDefault {
+			return v.Name
+		}
+	}
+	return newVars[0].Name
+}
+
+// focusVar moves the cursor to the row owning variable `name` in module
+// `moduleIdx`, adjusting scroll so it is visible. No-op if not found.
+func (m *Model) focusVar(moduleIdx int, name string) {
+	for i, r := range m.rows {
+		if r.IsHeader || r.VarName != name {
+			continue
+		}
+		if len(m.Modules) > 1 && r.ModuleIdx != moduleIdx {
+			continue
+		}
+		m.cursor = i
+		m.scrollToCursor()
+		return
+	}
 }
 
 func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

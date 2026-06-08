@@ -227,8 +227,13 @@ func (m *Model) renderRightPane() string {
 		}
 		content = b.String()
 	}
-	// Account for left panel width (32) + border (2) + padding (2) + gap (1).
-	rightWidth := m.width - 38
+	// Size the right pane to fill the remaining width so its right border
+	// lines up with the full-width header/footer banners. The left panel
+	// occupies leftWidth(32) content + 2 border = 34 columns (its Padding is
+	// already inside Width), the gap is 1, and this panel adds its own 2
+	// border columns — so body width = 34 + 1 + (rightWidth + 2). Setting
+	// rightWidth = m.width - 37 makes that total exactly m.width.
+	rightWidth := m.width - 37
 	if rightWidth < 20 {
 		rightWidth = 20
 	}
@@ -320,6 +325,13 @@ func (m *Model) renderHeader() string {
 	leftW := lipgloss.Width(left)
 	// Inner width = m.width - 2 (border); padding takes 2 more.
 	contentW := m.width - 4
+	// Keep the header to a single line for the same reason as the footer: a
+	// wrapped header grows its height and the layout (sized for one line)
+	// clips the top.
+	if leftW > contentW {
+		left = ansi.Truncate(left, contentW, "…")
+		leftW = lipgloss.Width(left)
+	}
 	gap := contentW - leftW
 	if gap < 1 {
 		gap = 1
@@ -364,6 +376,19 @@ func (m *Model) renderFooter() string {
 	leftW := lipgloss.Width(left)
 	// Inner width = m.width - 2 (border); padding takes 2 more.
 	contentW := m.width - 4
+	// Keep the footer to a single line. lipgloss wraps content wider than the
+	// fixed Width, which would grow the footer's height and push the top of
+	// the layout off-screen (the panes are sized assuming a one-line footer).
+	// The hints are navigation and must stay visible, so truncate the status
+	// text to whatever room is left after reserving the hints and a gap.
+	availLeft := contentW - hintsW - 1
+	switch {
+	case availLeft <= 0:
+		left, leftW = "", 0
+	case leftW > availLeft:
+		left = ansi.Truncate(left, availLeft, "…")
+		leftW = lipgloss.Width(left)
+	}
 	gap := contentW - leftW - hintsW
 	if gap < 1 {
 		gap = 1

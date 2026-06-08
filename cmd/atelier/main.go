@@ -662,9 +662,21 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		tf.SetStdout(&tui.ProgressWriter{Tracker: s.progress})
 		defer tf.SetStdout(nil)
 	}
-	if err := tf.InitUpgrade(ctx); err != nil {
-		return nil, fmt.Errorf("terraform init -upgrade: %w", err)
-	}
+	// A ref switch that changes the module's API can leave the wrapper
+	// temporarily invalid — most commonly when the new ref adds a required
+	// variable the user hasn't filled yet, which Terraform reports as
+	// "Missing required argument" during init's config-load phase. That phase
+	// runs *after* module installation, so by the time it fails the new module
+	// revision is already fetched and the switch is otherwise complete. Treat
+	// such a failure as non-fatal: surface the new schema, let the user fill
+	// the gaps, and rely on the planner's ResetInit() (which re-runs
+	// init -upgrade on the next plan) plus `terraform validate` to resolve and
+	// report the specifics. This mirrors the fresh-bootstrap flow, which never
+	// gates on init at all. Hard init failures (bad ref, provider install)
+	// resurface fatally on the next plan with the full message. The TUI
+	// inspects the new schema to phrase the user-facing condition (e.g. how
+	// many required variables are unset), so we report only the bare signal.
+	initIncomplete := tf.InitUpgrade(ctx) != nil
 
 	// Determine orphaned variables (user had values but no longer in module).
 	oldVarNames := make(map[string]bool, len(s.currentVars))
@@ -708,11 +720,12 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	}
 
 	return &tui.RefSwitchResult{
-		State:        state,
-		ResolvedSHA:  sha,
-		LiteralRef:   newRef,
-		OrphanedVars: orphaned,
-		NewVars:      newVars,
+		State:          state,
+		ResolvedSHA:    sha,
+		LiteralRef:     newRef,
+		OrphanedVars:   orphaned,
+		NewVars:        newVars,
+		InitIncomplete: initIncomplete,
 	}, nil
 }
 

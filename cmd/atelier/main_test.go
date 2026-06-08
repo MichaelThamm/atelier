@@ -88,3 +88,4 @@ type parsedFields struct {
 	ModulePath  string
 	LocalSource bool
 }
+
