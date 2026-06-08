@@ -173,6 +173,38 @@ Target package: `internal/tui`. No new dependencies; `ansi.Truncate` and
 6. Run `go build ./... && go vet ./... && go test ./...`, then rebuild/install
    (`go build -o atelier ./cmd/atelier && go install ./cmd/atelier`).
 
+## Amendments (converged via design review, 2026-06-07)
+
+Three refinements emerged from a design-review pass and are now part of the
+shipped implementation. They refine — and in two places supersede — the body
+above.
+
+1. **Unpinned modules carry a dim affordance, gated on pinnability.** The body
+   renders every unpinned module as a bare name. That makes "intentionally
+   floating" indistinguishable from "ref data failed to load." Instead:
+   - A **remote** module (has a `SourceURL`) with no `?ref=` renders its bare
+     name plus a dim, italic `·unpinned` affordance (`styleUnpinnedTag`,
+     `colorFaint`). It is a *word*, never a sigil or sha-like token, so it
+     cannot be mistaken for a ref — and it signals "pinnable, not pinned."
+   - A **local** module (no `SourceURL`, nothing to pin) still renders as a
+     bare name. The affordance is gated on `ref == "" && source != ""`.
+   This keeps the honest "no synthesized ref" rule while replacing an
+   *absence* the user must reason about with a positive, quiet signal.
+
+2. **Overflowing refs middle-truncate.** The body right-truncates in the
+   pathological `@ref`-alone-overflows case (`rev123…`). For dated/namespaced
+   refs the distinguishing characters sit at the *tail*
+   (`release/2026-06-07-hotfix`), so right-truncation discards exactly what
+   disambiguates them. A `truncateMiddle` helper now preserves both head and
+   tail (`release…hotfix`).
+
+3. **The multi-module banner carries position.** Unifying the format so well
+   made the banner (`Module: traefik@rev301`) duplicate the active section
+   header (`── traefik@rev301`) near-verbatim. In multi-module sessions the
+   banner now reads `Module 2/3: traefik@rev301`, carrying the active module's
+   position — information the per-group headers cannot. Single-module sessions
+   are unchanged (`Module: <token>`).
+
 ## Alternatives considered
 
 - **Show the resolved SHA as the version token.** Rejected: the SHA is a clone
@@ -194,10 +226,10 @@ Target package: `internal/tui`. No new dependencies; `ansi.Truncate` and
 
 - Banner and section headers share one format and one helper; changing the
   token format later is a single-function edit.
-- Unpinned modules render as a bare name in both surfaces. This is an
-  intentional, honest asymmetry (pinned vs unpinned), not a missing-data bug.
-  Users distinguish "no pin" from "load failure" by the absence of any
-  surfaced error, not by a placeholder.
+- Unpinned modules render honestly per their pinnability (see Amendment 1):
+  remote modules get a dim `·unpinned` affordance; local modules render as a
+  bare name. This is an intentional, honest distinction (pinned / unpinned /
+  unpinnable), not a missing-data bug.
 - The left-pane header no longer spans the pane with dashes; the leading `── `
   plus `lipgloss` padding carries the grouping cue. This is a deliberate visual
   change to ADR-0015's header rendering.

@@ -1346,6 +1346,21 @@ func shortSHA(sha string) string {
 	return sha
 }
 
+// moduleLabel renders a module's display name with its git-ref pin, if any.
+// Unpinned modules render as the bare name (no SHA, no synthesized branch).
+func moduleLabel(name, ref string) string {
+	if ref == "" {
+		return name
+	}
+	return name + "@" + ref
+}
+
+// unpinnedMarker is the dim, non-ref affordance shown beside a remote module
+// that carries no git pin. It is a word (never a sigil or sha-like token) so
+// it cannot be mistaken for a ref, and it is only ever shown for pinnable
+// (remote) modules — local sources have nothing to pin (ADR-0019 amendment).
+const unpinnedMarker = "·unpinned"
+
 // stub used by view: format kind label briefly.
 func kindLabel(t *tftypes.Type) string {
 	if t == nil {
@@ -1354,20 +1369,25 @@ func kindLabel(t *tftypes.Type) string {
 	return t.Kind.String()
 }
 
-// Module-info banner used by the status line.
+// Module-info banner used by the status line. Single-module sessions render
+// "Module: <token>"; multi-module sessions add the active module's position
+// ("Module 2/3: …") so the banner carries information the per-group section
+// headers cannot. Unpinned remote modules get a dim "unpinned" affordance;
+// local (unpinnable) modules render as a bare name (ADR-0019).
 func (m *Model) moduleBanner() string {
-	name, _, ref, sha := m.activeRefInfo()
-	parts := []string{}
-	if name != "" {
-		parts = append(parts, fmt.Sprintf("Module: %s", name))
+	name, source, ref, _ := m.activeRefInfo()
+	if name == "" {
+		return ""
 	}
-	if ref != "" {
-		parts = append(parts, fmt.Sprintf("ref %s", ref))
+	prefix := "Module: "
+	if n := len(m.Modules); n > 1 {
+		prefix = fmt.Sprintf("Module %d/%d: ", m.activeModuleIdx()+1, n)
 	}
-	if sha != "" {
-		parts = append(parts, fmt.Sprintf("(%s)", shortSHA(sha)))
+	label := moduleLabel(name, ref)
+	if ref == "" && source != "" {
+		label += " " + styleUnpinnedTag.Render(unpinnedMarker)
 	}
-	return strings.Join(parts, " ")
+	return prefix + label
 }
 
 // formatValidateDiagnostics renders validate diagnostics into a multi-line

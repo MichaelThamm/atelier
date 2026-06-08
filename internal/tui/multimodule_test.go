@@ -186,3 +186,158 @@ func TestMultiModule_renderLeftPane_headerNeverOverflows(t *testing.T) {
 		}
 	}
 }
+
+// TestModuleLabel verifies the single version-token helper (ADR-0019): a
+// pinned module renders "name@ref"; an unpinned module renders the bare name
+// with no SHA and no synthesized branch.
+func TestModuleLabel(t *testing.T) {
+	if got := moduleLabel("traefik", "rev301"); got != "traefik@rev301" {
+		t.Errorf("pinned: got %q, want %q", got, "traefik@rev301")
+	}
+	if got := moduleLabel("cos", ""); got != "cos" {
+		t.Errorf("unpinned: got %q, want %q", got, "cos")
+	}
+}
+
+// TestModuleBanner_unifiedFormat verifies the top banner (ADR-0019, as
+// amended): single-module sessions render "Module: name@ref"; an unpinned
+// remote module gets a dim "unpinned" affordance while an unpinned *local*
+// module (no source to pin) stays a bare name. The banner never shows a
+// "(sha)" fragment.
+func TestModuleBanner_unifiedFormat(t *testing.T) {
+	t.Run("pinned", func(t *testing.T) {
+		m := New(mimirState(t), "traefik")
+		m.Modules[0].SourceURL = "git::https://example.com/repo//mod"
+		m.Modules[0].Ref = "rev301"
+		m.Modules[0].ResolvedSHA = "abc1234def5678"
+
+		banner := stripANSI(m.moduleBanner())
+		if banner != "Module: traefik@rev301" {
+			t.Errorf("got %q, want %q", banner, "Module: traefik@rev301")
+		}
+		if strings.Contains(banner, "(") {
+			t.Errorf("banner should not contain a SHA fragment: %q", banner)
+		}
+	})
+
+	t.Run("unpinned remote", func(t *testing.T) {
+		m := New(mimirState(t), "cos")
+		m.Modules[0].SourceURL = "git::https://example.com/repo//cos"
+		m.Modules[0].ResolvedSHA = "abc1234def5678" // present but must not show
+
+		banner := stripANSI(m.moduleBanner())
+		if !strings.HasPrefix(banner, "Module: cos") {
+			t.Errorf("got %q, want prefix %q", banner, "Module: cos")
+		}
+		if !strings.Contains(banner, "unpinned") {
+			t.Errorf("unpinned remote module should show affordance, got %q", banner)
+		}
+		if strings.Contains(banner, "(") {
+			t.Errorf("unpinned banner should not contain a SHA fragment: %q", banner)
+		}
+	})
+
+	t.Run("unpinned local", func(t *testing.T) {
+		m := New(mimirState(t), "cos") // no SourceURL: nothing to pin
+
+		banner := stripANSI(m.moduleBanner())
+		if banner != "Module: cos" {
+			t.Errorf("local module should be a bare name, got %q", banner)
+		}
+	})
+}
+
+// TestModuleBanner_multiModulePosition verifies that multi-module sessions
+// carry the active module's position in the banner, distinguishing it from
+// the per-group section headers (ADR-0019, as amended).
+func TestModuleBanner_multiModulePosition(t *testing.T) {
+	m := New(mimirState(t), "mimir")
+	m.AddModule(seaweedState(t), "seaweedfs")
+	m.Modules[1].Ref = "rev81"
+
+	// Cursor starts on the first variable of module 0 (mimir).
+	if got := stripANSI(m.moduleBanner()); got != "Module 1/2: mimir" {
+		t.Errorf("got %q, want %q", got, "Module 1/2: mimir")
+	}
+
+	// Move the cursor into the second module's variables.
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	for i := 0; i < len(m.rows); i++ {
+		if m.rows[i].ModuleIdx == 1 && !m.rows[i].IsHeader {
+			m.cursor = i
+			break
+		}
+	}
+	if got := stripANSI(m.moduleBanner()); got != "Module 2/2: seaweedfs@rev81" {
+		t.Errorf("got %q, want %q", got, "Module 2/2: seaweedfs@rev81")
+	}
+}
+
+// TestMultiModule_renderLeftPane_preservesRefSuffix verifies that when a
+// "name@ref" header overflows the pane, the name is truncated but the
+// actionable "@ref" suffix is preserved whole (ADR-0019).
+func TestMultiModule_renderLeftPane_preservesRefSuffix(t *testing.T) {
+	st := mimirState(t)
+	m := New(st, "mimir")
+	m.AddModule(seaweedState(t), "ingress_configurator")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.Modules[1].Ref = "rev123456789"
+
+	stripped := stripANSI(m.renderLeftPane())
+	if !strings.Contains(stripped, "@rev123456789") {
+		t.Errorf("left pane should preserve full @ref suffix, got:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "ingress_conf") {
+		t.Errorf("left pane should retain a truncated module name, got:\n%s", stripped)
+	}
+}
+
+// TestMultiModule_renderLeftPane_unpinnedAffordance verifies that an unpinned
+// remote module's header shows the dim "unpinned" affordance, while an
+// unpinned local module (no source) does not (ADR-0019, as amended).
+func TestMultiModule_renderLeftPane_unpinnedAffordance(t *testing.T) {
+	st := mimirState(t)
+	m := New(st, "mimir")
+	m.AddModule(seaweedState(t), "seaweedfs")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	// mimir is a remote module with no pin; seaweedfs is local.
+	m.Modules[0].SourceURL = "git::https://example.com/repo//mimir"
+
+	stripped := stripANSI(m.renderLeftPane())
+	mimirHeader, seaweedHeader := "", ""
+	for _, line := range strings.Split(stripped, "\n") {
+		switch {
+		case strings.Contains(line, "── mimir"):
+			mimirHeader = line
+		case strings.Contains(line, "── seaweedfs"):
+			seaweedHeader = line
+		}
+	}
+	if !strings.Contains(mimirHeader, "unpinned") {
+		t.Errorf("remote unpinned module header should show affordance, got %q", mimirHeader)
+	}
+	if strings.Contains(seaweedHeader, "unpinned") {
+		t.Errorf("local module header should not show affordance, got %q", seaweedHeader)
+	}
+}
+
+// TestTruncateMiddle verifies the ref middle-truncation helper preserves both
+// the head and the discriminating tail (ADR-0019, as amended).
+func TestTruncateMiddle(t *testing.T) {
+	if got := truncateMiddle("short", 10); got != "short" {
+		t.Errorf("no-op case: got %q, want %q", got, "short")
+	}
+	got := truncateMiddle("release/2026-06-07-hotfix", 12)
+	if lipgloss.Width(got) > 12 {
+		t.Errorf("result %q exceeds width 12", got)
+	}
+	if !strings.Contains(got, "…") {
+		t.Errorf("expected an ellipsis in %q", got)
+	}
+	if !strings.HasPrefix(got, "release") && !strings.HasPrefix(got, "releas") {
+		t.Errorf("expected head preserved, got %q", got)
+	}
+	if !strings.HasSuffix(got, "hotfix") && !strings.HasSuffix(got, "otfix") {
+		t.Errorf("expected discriminating tail preserved, got %q", got)
+	}
+}

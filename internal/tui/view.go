@@ -66,6 +66,32 @@ func (m *Model) renderModalFrame(title, body, footer string) string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, frame)
 }
 
+// truncateMiddle shortens s to at most max display columns, keeping the head
+// and tail and inserting an ellipsis in the middle. Used for long refs whose
+// distinguishing characters often sit at the end (e.g. dated release branches
+// like "release/2026-06-07-hotfix"), where plain right-truncation would
+// discard exactly the part that disambiguates them. Assumes ASCII-ish input
+// (git refs), so rune count tracks display width.
+func truncateMiddle(s string, max int) string {
+	if max < 1 {
+		return ""
+	}
+	if lipgloss.Width(s) <= max {
+		return s
+	}
+	if max == 1 {
+		return "…"
+	}
+	keep := max - 1 // reserve one column for the ellipsis
+	head := (keep + 1) / 2
+	tail := keep - head
+	r := []rune(s)
+	if tail == 0 {
+		return string(r[:head]) + "…"
+	}
+	return string(r[:head]) + "…" + string(r[len(r)-tail:])
+}
+
 // renderLeftPane draws the variable list inside a bordered panel.
 func (m *Model) renderLeftPane() string {
 	const leftWidth = 32
@@ -87,25 +113,49 @@ func (m *Model) renderLeftPane() string {
 	for i := start; i < end; i++ {
 		r := m.rows[i]
 		if r.IsHeader {
-			// Render section header: "── module_name @ref ──"
+			// Render section header: "── module@ref". The bordered panel pads
+			// each line to the pane width, so no trailing decorative dashes
+			// are needed (ADR-0019). Truncate the name but preserve the
+			// actionable "@ref" suffix whole; in the pathological case where
+			// "@ref" alone overflows we middle-truncate so the ref's
+			// distinguishing head and tail both survive. Remote modules with
+			// no pin get a dim "unpinned" affordance; local (unpinnable)
+			// modules render as a bare name.
 			name := r.VarName
+			ref, source := "", ""
 			if r.ModuleIdx < len(m.Modules) {
-				if ref := m.Modules[r.ModuleIdx].Ref; ref != "" {
-					name = fmt.Sprintf("%s @%s", name, ref)
+				ref = m.Modules[r.ModuleIdx].Ref
+				source = m.Modules[r.ModuleIdx].SourceURL
+			}
+			const headerPrefix = 3 // "── "
+			budget := maxVisualWidth - headerPrefix
+			var label string
+			switch {
+			case ref != "":
+				suffix := "@" + ref
+				nameBudget := budget - lipgloss.Width(suffix)
+				if nameBudget < 1 {
+					// Ref alone overflows: middle-truncate the whole label.
+					label = truncateMiddle(name+suffix, budget)
+				} else {
+					label = ansi.Truncate(name, nameBudget, "…") + suffix
 				}
+			case source != "":
+				// Unpinned remote module: bare name + dim affordance.
+				markerW := lipgloss.Width(unpinnedMarker) + 1 // + separating space
+				nameBudget := budget - markerW
+				if nameBudget < 1 {
+					// No room for both: keep the name, drop the affordance.
+					label = ansi.Truncate(name, budget, "…")
+				} else {
+					label = ansi.Truncate(name, nameBudget, "…") +
+						" " + styleUnpinnedTag.Render(unpinnedMarker)
+				}
+			default:
+				// Local (unpinnable) module: bare name only.
+				label = ansi.Truncate(name, budget, "…")
 			}
-			// Layout: "── " (3 cols) + name + " " (1 col) + trailing dashes,
-			// totalling maxVisualWidth. Reserve 5 cols (prefix + space + at
-			// least one trailing dash) for the name. Use display width, not
-			// byte length: the ellipsis and box-drawing chars are multi-byte
-			// but single-column, so len() overshoots and wraps the line.
-			name = ansi.Truncate(name, maxVisualWidth-5, "…")
-			pad := maxVisualWidth - lipgloss.Width(name) - 4 // 4 = "── " + " "
-			if pad < 1 {
-				pad = 1
-			}
-			line := fmt.Sprintf("── %s %s", name, strings.Repeat("─", pad))
-			line = styleSectionHeader.Render(line)
+			line := styleSectionHeader.Render("── " + label)
 			fmt.Fprintln(&b, line)
 			continue
 		}

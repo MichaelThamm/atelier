@@ -162,6 +162,11 @@ var (
 	// Left-pane section headers (multi-module grouping).
 	styleSectionHeader = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
 
+	// styleUnpinnedTag is the dim "unpinned" affordance shown beside a remote
+	// module that carries no git pin. Faint + italic so it reads as meta, never
+	// as a ref token (ADR-0019 amendment).
+	styleUnpinnedTag = lipgloss.NewStyle().Foreground(colorFaint).Italic(true)
+
 	// Right-pane editor accents.
 	styleVarHeader    = lipgloss.NewStyle().Foreground(colorText).Bold(true)
 	styleSensitiveTag = lipgloss.NewStyle().Foreground(colorSensitive).Italic(true)
