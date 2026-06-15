@@ -511,6 +511,29 @@ func (m *Model) renderHelpModal() string {
 			fmt.Fprintln(&b, "  E              Show error details")
 		}
 		fmt.Fprintln(&b, "  Q              Quit (auto-saves)")
+
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Editing a value (string, number, map cell):")
+		fmt.Fprintln(&b, "  ← →            Move caret one char")
+		fmt.Fprintln(&b, "  Ctrl+← Ctrl+→  Move caret one word")
+		fmt.Fprintln(&b, "  Alt+B  Alt+F   Move caret one word (Emacs)")
+		fmt.Fprintln(&b, "  Home/Ctrl+A    Caret to start")
+		fmt.Fprintln(&b, "  End/Ctrl+E     Caret to end")
+		fmt.Fprintln(&b, "  Backspace      Delete char before caret")
+		fmt.Fprintln(&b, "  Delete         Delete char under caret")
+		fmt.Fprintln(&b, "  Ctrl+W         Delete word before caret")
+		fmt.Fprintln(&b, "  Alt+Backspace  Delete word before caret")
+		fmt.Fprintln(&b, "  Alt+D          Delete word after caret")
+		fmt.Fprintln(&b, "  Ctrl+U         Delete to start of line")
+		fmt.Fprintln(&b, "  Ctrl+K         Delete to end of line")
+
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Map / map(object) editors:")
+		fmt.Fprintln(&b, "  Tab/Shift+Tab  Cycle cells (key → value → next row …)")
+		fmt.Fprintln(&b, "  ↑ ↓            Move between rows")
+		fmt.Fprintln(&b, "  Enter          Add row (on +Add row line)")
+		fmt.Fprintln(&b, "  Alt+Delete     Remove current row")
+		fmt.Fprintln(&b, "  Ctrl+Home/End  Jump to first/last field")
 	}
 
 	fmt.Fprintln(&b, "  Ctrl+C         Quit immediately")

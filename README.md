@@ -42,6 +42,40 @@ atelier
 | `^R` | Anywhere | Reset the current variable to its default |
 | `Q` | Left pane | Quit and save |
 
+### Editing a value
+
+The right-pane editors (string, number, and map cells) use a readline-style
+keymap so editing works like `bash`, `zsh`, or any standard text input
+field. See [ADR-0020](docs/adr/0020-readline-style-text-editing.md) for the
+rationale.
+
+| Key | Action |
+|-----|--------|
+| `←` / `→` | Move caret one character |
+| `Ctrl+←` / `Ctrl+→` | Move caret one word |
+| `Alt+B` / `Alt+F` | Move caret one word (Emacs-style alias) |
+| `Home` / `Ctrl+A` | Caret to start of cell |
+| `End` / `Ctrl+E` | Caret to end of cell |
+| `Backspace` | Delete the character before the caret |
+| `Delete` | Delete the character under the caret |
+| `Ctrl+W` / `Alt+Backspace` | Delete the previous word |
+| `Alt+D` | Delete the next word |
+| `Ctrl+U` | Delete from caret to start |
+| `Ctrl+K` | Delete from caret to end |
+
+Sensitive variables (`sensitive = true`) echo `•` characters; the keymap is
+unchanged.
+
+### Map / map(object) editors
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `Shift+Tab` | Cycle cells (key → value → next row's key …) |
+| `↑` / `↓` | Move between rows |
+| `Enter` | Add a new row (when the cursor is on the `+ Add row` line) |
+| `Alt+Delete` | Remove the current row |
+| `Ctrl+Home` / `Ctrl+End` | Jump to the first / last field (inside an object editor) |
+
 ### Output view
 
 | Key | Action |

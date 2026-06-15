@@ -6,12 +6,104 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
+
+// --- cellInput: the one readline cell -----------------------------------
+//
+// Every scalar text/number buffer in the right-pane editors flows through
+// this wrapper around bubbles/textinput. It centralises the readline
+// keymap (Home/End, Ctrl+←/→, Ctrl+W, Alt+D, …), sensitive-echo handling,
+// width/scroll behaviour, and rendering with our `[…]` bracket style — so
+// individual editors never re-implement any of it. See ADR-0020.
+type cellInput struct {
+	ti        textinput.Model
+	sensitive bool
+	// allowedRunes, when non-empty, restricts which runes can be inserted
+	// via keystrokes. Unmatched runes are silently dropped before the
+	// event reaches textinput (textinput's own Validate hook only records
+	// an error, it does not refuse the insertion). Used by numberEditor.
+	allowedRunes string
+}
+
+// newCellInput builds a cell input pre-seeded with value. allowedRunes is
+// optional; when non-empty, only those runes can be inserted via typing
+// (used by numberEditor to refuse non-numeric runes). sensitive switches
+// the cell to password-echo mode.
+func newCellInput(value string, sensitive bool, allowedRunes string) cellInput {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.CharLimit = 0
+	if sensitive {
+		ti.EchoMode = textinput.EchoPassword
+		ti.EchoCharacter = '•'
+	}
+	ti.SetValue(value)
+	ti.CursorEnd()
+	ti.Focus()
+	return cellInput{ti: ti, sensitive: sensitive, allowedRunes: allowedRunes}
+}
+
+// Update forwards a key event to the underlying textinput. Returns whether
+// the buffer or caret actually moved, so callers can avoid spurious
+// "touched" flags when the user is e.g. just navigating with arrow keys.
+//
+// When allowedRunes is set, rune events are filtered before forwarding —
+// disallowed runes are dropped silently. textinput's own Validate hook
+// only records an error and does not refuse the insertion, so we filter
+// here instead.
+func (c *cellInput) Update(msg tea.Msg) (textChanged bool, cmd tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok && k.Type == tea.KeyRunes && c.allowedRunes != "" {
+		filtered := k.Runes[:0:0]
+		for _, r := range k.Runes {
+			if strings.ContainsRune(c.allowedRunes, r) {
+				filtered = append(filtered, r)
+			}
+		}
+		if len(filtered) == 0 {
+			return false, nil
+		}
+		k.Runes = filtered
+		msg = k
+	}
+	prevValue := c.ti.Value()
+	prevPos := c.ti.Position()
+	var m textinput.Model
+	m, cmd = c.ti.Update(msg)
+	c.ti = m
+	return c.ti.Value() != prevValue || c.ti.Position() != prevPos, cmd
+}
+
+// View renders the cell in a `[…]` bracket. When unfocused, no caret is
+// drawn. Sensitive cells echo `•` regardless of focus.
+func (c *cellInput) View() string {
+	// Render without textinput's own bracket/prompt: we wrap in `[…]` for
+	// visual consistency with the rest of the editor surface.
+	return "[" + c.ti.View() + "]"
+}
+
+// Value reports the current buffer (decoded, not echoed).
+func (c *cellInput) Value() string { return c.ti.Value() }
+
+// SetValue replaces the buffer wholesale and parks the caret at the end.
+func (c *cellInput) SetValue(s string) {
+	c.ti.SetValue(s)
+	c.ti.CursorEnd()
+}
+
+// SetWidth configures the visible width for horizontal-scroll behaviour
+// inside the textinput. Pass 0 to disable.
+func (c *cellInput) SetWidth(w int) { c.ti.Width = w }
+
+// Focus marks the cell as receiving keystrokes; Blur drops focus so a
+// passive cell renders without a caret.
+func (c *cellInput) Focus() { c.ti.Focus() }
+func (c *cellInput) Blur()  { c.ti.Blur() }
 
 // Editor is the interface every type-specific right-pane editor satisfies.
 type Editor interface {
@@ -125,65 +217,55 @@ func (e *boolEditor) Touched() bool           { return e.touched }
 
 type stringEditor struct {
 	v       *tfvars.Variable
-	value   string
+	cell    cellInput
 	null    bool // user explicitly cleared (null)
 	touched bool
 }
 
 func newStringEditor(v *tfvars.Variable, current cty.Value) *stringEditor {
 	se := &stringEditor{v: v}
+	initial := ""
 	if current == cty.NilVal {
 		if v.HasDefault && !v.Default.IsNull() && v.Default.Type() == cty.String {
-			se.value = v.Default.AsString()
+			initial = v.Default.AsString()
 		}
-		return se
-	}
-	if current.IsNull() {
+	} else if current.IsNull() {
 		se.null = true
-		return se
+	} else if current.Type() == cty.String {
+		initial = current.AsString()
 	}
-	if current.Type() == cty.String {
-		se.value = current.AsString()
-	}
+	se.cell = newCellInput(initial, v != nil && v.Sensitive, "")
 	return se
 }
 
 func (e *stringEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
-	k, ok := msg.(tea.KeyMsg)
+	_, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return e, nil
 	}
-	switch k.Type {
-	case tea.KeyBackspace:
-		if len(e.value) > 0 {
-			e.value = e.value[:len(e.value)-1]
-		}
+	prev := e.cell.Value()
+	changed, cmd := e.cell.Update(msg)
+	if e.cell.Value() != prev {
 		e.null = false
-		e.touched = true
-	case tea.KeyRunes, tea.KeySpace:
-		e.value += string(k.Runes)
-		e.null = false
-		e.touched = true
-	case tea.KeyCtrlU:
-		e.value = ""
-		e.null = false
+	}
+	if changed {
 		e.touched = true
 	}
-	return e, nil
+	return e, cmd
 }
 func (e *stringEditor) View() string {
 	if e.v != nil && e.v.Sensitive {
-		return fmt.Sprintf("[%s] %s",
-			strings.Repeat("•", len(e.value)),
+		return fmt.Sprintf("%s %s",
+			e.cell.View(),
 			styleSensitiveTag.Render("sensitive"))
 	}
-	return fmt.Sprintf("[%s]", e.value)
+	return e.cell.View()
 }
 func (e *stringEditor) CurrentValue() cty.Value {
 	if e.null {
 		return cty.NullVal(cty.String)
 	}
-	return cty.StringVal(e.value)
+	return cty.StringVal(e.cell.Value())
 }
 func (e *stringEditor) Touched() bool { return e.touched }
 
@@ -196,58 +278,45 @@ func (e *stringEditor) Touched() bool { return e.touched }
 // the number (leading sign, exponent sign).
 type numberEditor struct {
 	v       *tfvars.Variable
-	text    string
+	cell    cellInput
 	touched bool
 }
 
 // numberRunes is the set of characters accepted inside the input. Anything
 // else is silently ignored so a stray letter keypress doesn't pollute the
-// buffer.
+// buffer. Enforced at the cellInput boundary, not via textinput.Validate
+// (textinput's Validate only records an error; it does not refuse the
+// insertion).
 const numberRunes = "0123456789.-+eE"
 
 func newNumberEditor(v *tfvars.Variable, current cty.Value) *numberEditor {
 	ne := &numberEditor{v: v}
+	initial := ""
 	if current != cty.NilVal && !current.IsNull() && current.Type() == cty.Number {
-		ne.text = current.AsBigFloat().Text('f', -1)
+		initial = current.AsBigFloat().Text('f', -1)
 	} else if v.HasDefault && !v.Default.IsNull() {
-		ne.text = v.Default.AsBigFloat().Text('f', -1)
+		initial = v.Default.AsBigFloat().Text('f', -1)
 	}
+	ne.cell = newCellInput(initial, false, numberRunes)
 	return ne
 }
 
 func (e *numberEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
-	k, ok := msg.(tea.KeyMsg)
+	_, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return e, nil
 	}
-	switch k.Type {
-	case tea.KeyBackspace:
-		if len(e.text) > 0 {
-			e.text = e.text[:len(e.text)-1]
-		}
+	changed, cmd := e.cell.Update(msg)
+	if changed {
 		e.touched = true
-		return e, nil
-	case tea.KeyCtrlU:
-		e.text = ""
-		e.touched = true
-		return e, nil
-	case tea.KeyRunes:
-		for _, r := range k.Runes {
-			if strings.ContainsRune(numberRunes, r) {
-				e.text += string(r)
-				e.touched = true
-			}
-		}
 	}
-	return e, nil
+	return e, cmd
 }
 
 func (e *numberEditor) View() string {
-	// Highlight unparseable input in danger so the user sees that what's
-	// in the buffer won't make it through to the wrapper.
-	body := fmt.Sprintf("[%s]", e.text)
-	if e.text != "" {
-		if _, err := strconv.ParseFloat(e.text, 64); err != nil {
+	body := e.cell.View()
+	if v := e.cell.Value(); v != "" {
+		if _, err := strconv.ParseFloat(v, 64); err != nil {
 			return styleRequiredTag.Render(body) + " " + styleHelp.Render("(invalid number)")
 		}
 	}
@@ -255,10 +324,11 @@ func (e *numberEditor) View() string {
 }
 
 func (e *numberEditor) CurrentValue() cty.Value {
-	if e.text == "" {
+	v := e.cell.Value()
+	if v == "" {
 		return cty.NilVal
 	}
-	if n, err := strconv.ParseFloat(e.text, 64); err == nil {
+	if n, err := strconv.ParseFloat(v, 64); err == nil {
 		return cty.NumberFloatVal(n)
 	}
 	return cty.NilVal
@@ -276,14 +346,14 @@ func (e *numberEditor) Touched() bool { return e.touched }
 //
 // Key bindings inside the editor:
 //
-//	↑/↓      move between rows; the add-row slot is one past the last data row
-//	←/→      switch between key and value cells within the current row
-//	Enter    on add-row: append a new empty row and focus its key
-//	Ctrl+D   delete the current row (no-op on add-row)
-//	Ctrl+U   clear the current cell
-//	Backspace remove the last char from the current cell
-//	(any printable rune) append to the current cell
+//	↑/↓                  move between rows; add-row slot is one past the last
+//	Tab / Shift+Tab      cycle cells: key → value → next-row key (and back)
+//	Enter                on add-row: append a new empty row and focus its key
+//	Alt+Delete           delete the current row (no-op on add-row)
+//	(any readline edit)  routed to the focused cell — see ADR-0020
 //
+// All caret-aware editing (←/→, Home/End, Ctrl+←/→, Ctrl+W, Backspace,
+// Delete, Ctrl+U, Ctrl+K, …) is owned by the focused cell's cellInput.
 // Non-string element types fall back to a read-only message — the
 // dispatching in newEditor handles that branch.
 type mapEditor struct {
@@ -294,8 +364,8 @@ type mapEditor struct {
 }
 
 type mapRow struct {
-	Key string
-	Val string
+	Key cellInput
+	Val cellInput
 }
 
 func newMapEditor(v *tfvars.Variable, current cty.Value) *mapEditor {
@@ -320,13 +390,14 @@ func newMapEditor(v *tfvars.Variable, current cty.Value) *mapEditor {
 		sort.Strings(keys)
 		for _, k := range keys {
 			val := m[k]
-			row := mapRow{Key: k}
+			valStr := ""
 			if !val.IsNull() && val.Type() == cty.String {
-				row.Val = val.AsString()
+				valStr = val.AsString()
 			}
-			me.rows = append(me.rows, row)
+			me.rows = append(me.rows, newMapRow(k, valStr))
 		}
 	}
+	me.applyFocus()
 	// Start on the add-row when the map is empty, otherwise on the first
 	// row's key.
 	if len(me.rows) == 0 {
@@ -335,9 +406,18 @@ func newMapEditor(v *tfvars.Variable, current cty.Value) *mapEditor {
 	return me
 }
 
+func newMapRow(key, val string) mapRow {
+	return mapRow{
+		Key: newCellInput(key, false, ""),
+		Val: newCellInput(val, false, ""),
+	}
+}
+
 func (e *mapEditor) onAddRow() bool { return e.rowCursor == len(e.rows) }
 
-func (e *mapEditor) currentCell() *string {
+// focusedCell returns a pointer to the focused cellInput, or nil when the
+// cursor sits on the add-row.
+func (e *mapEditor) focusedCell() *cellInput {
 	if e.onAddRow() || e.rowCursor < 0 || e.rowCursor >= len(e.rows) {
 		return nil
 	}
@@ -347,10 +427,23 @@ func (e *mapEditor) currentCell() *string {
 	return &e.rows[e.rowCursor].Val
 }
 
+// applyFocus blurs every cell and re-focuses the one under the cursor.
+// Called after any movement so only the active cell renders a caret.
+func (e *mapEditor) applyFocus() {
+	for i := range e.rows {
+		e.rows[i].Key.Blur()
+		e.rows[i].Val.Blur()
+	}
+	if c := e.focusedCell(); c != nil {
+		c.Focus()
+	}
+}
+
 func (e *mapEditor) addRow() {
-	e.rows = append(e.rows, mapRow{})
+	e.rows = append(e.rows, newMapRow("", ""))
 	e.rowCursor = len(e.rows) - 1
 	e.colCursor = 0
+	e.applyFocus()
 }
 
 func (e *mapEditor) deleteRow() {
@@ -362,6 +455,42 @@ func (e *mapEditor) deleteRow() {
 		e.rowCursor = len(e.rows)
 	}
 	e.colCursor = 0
+	e.applyFocus()
+}
+
+// cycleCell advances the cell-cursor key → value → next-row-key → … When
+// direction is -1 (Shift+Tab), it walks the other way. Wrapping past the
+// last row's value lands on the add-row.
+func (e *mapEditor) cycleCell(direction int) {
+	if direction >= 0 {
+		// Forward: key → value → next row's key → … → last value → add-row.
+		if e.onAddRow() {
+			// From add-row, Tab takes the user back to the very first cell.
+			if len(e.rows) > 0 {
+				e.rowCursor = 0
+				e.colCursor = 0
+			}
+		} else if e.colCursor == 0 {
+			e.colCursor = 1
+		} else {
+			e.rowCursor++
+			e.colCursor = 0
+		}
+	} else {
+		// Backward: value → key → previous row's value → …
+		if e.onAddRow() {
+			if len(e.rows) > 0 {
+				e.rowCursor = len(e.rows) - 1
+				e.colCursor = 1
+			}
+		} else if e.colCursor == 1 {
+			e.colCursor = 0
+		} else if e.rowCursor > 0 {
+			e.rowCursor--
+			e.colCursor = 1
+		}
+	}
+	e.applyFocus()
 }
 
 func (e *mapEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
@@ -369,64 +498,51 @@ func (e *mapEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 	if !ok {
 		return e, nil
 	}
-	switch k.Type {
-	case tea.KeyUp:
+	switch {
+	case k.Type == tea.KeyUp:
 		if e.rowCursor > 0 {
 			e.rowCursor--
 		}
+		e.applyFocus()
 		return e, nil
-	case tea.KeyDown:
+	case k.Type == tea.KeyDown:
 		if e.rowCursor < len(e.rows) {
 			e.rowCursor++
 		}
+		e.applyFocus()
 		return e, nil
-	case tea.KeyLeft:
-		e.colCursor = 0
+	case k.Type == tea.KeyTab:
+		e.cycleCell(+1)
 		return e, nil
-	case tea.KeyRight:
-		if !e.onAddRow() {
-			e.colCursor = 1
-		}
+	case k.Type == tea.KeyShiftTab:
+		e.cycleCell(-1)
 		return e, nil
-	case tea.KeyEnter:
+	case k.Type == tea.KeyEnter:
 		if e.onAddRow() {
 			e.addRow()
 		}
 		return e, nil
-	case tea.KeyBackspace:
-		if cell := e.currentCell(); cell != nil && len(*cell) > 0 {
-			*cell = (*cell)[:len(*cell)-1]
-		}
-		return e, nil
-	case tea.KeyCtrlU:
-		if cell := e.currentCell(); cell != nil {
-			*cell = ""
-		}
-		return e, nil
-	case tea.KeyCtrlD:
+	case k.Type == tea.KeyDelete && k.Alt:
+		// Alt+Delete is the row-delete chord (ADR-0020 §3). Ctrl+D, the
+		// previous binding, now belongs to the cell as delete-forward.
 		e.deleteRow()
 		return e, nil
-	case tea.KeySpace:
-		if cell := e.currentCell(); cell != nil {
-			*cell += " "
-		}
-		return e, nil
-	case tea.KeyRunes:
-		if cell := e.currentCell(); cell != nil {
-			*cell += string(k.Runes)
-		}
-		return e, nil
+	}
+	// Everything else is readline editing for the focused cell.
+	if c := e.focusedCell(); c != nil {
+		_, cmd := c.Update(msg)
+		return e, cmd
 	}
 	return e, nil
 }
 
 func (e *mapEditor) View() string {
 	var b strings.Builder
-	for i, row := range e.rows {
+	for i := range e.rows {
 		keyFocused := i == e.rowCursor && e.colCursor == 0
 		valFocused := i == e.rowCursor && e.colCursor == 1
-		key := renderMapCell(row.Key, keyFocused, "(key)")
-		val := renderMapCell(row.Val, valFocused, "(value)")
+		key := renderMapCell(&e.rows[i].Key, keyFocused, "(key)")
+		val := renderMapCell(&e.rows[i].Val, valFocused, "(value)")
 		fmt.Fprintf(&b, "  %s = %s\n", key, val)
 	}
 	addLabel := "+ Add row"
@@ -437,20 +553,20 @@ func (e *mapEditor) View() string {
 	}
 	fmt.Fprintln(&b)
 	fmt.Fprint(&b, styleHelp.Render(
-		"[↑↓] row   [←→] cell   [Enter] add row   [Ctrl+D] delete row"))
+		"[↑↓] row   [Tab] cell   [Enter] add row   [Alt+Del] delete row   [?] keys"))
 	return b.String()
 }
 
 // renderMapCell renders one cell, with a bracket wrapper. Empty unfocused
 // cells show a dim placeholder so the user knows what goes there.
-func renderMapCell(value string, focused bool, placeholder string) string {
+func renderMapCell(c *cellInput, focused bool, placeholder string) string {
 	if focused {
-		return styleCursorActive.Render("[" + value + "]")
+		return styleCursorActive.Render(c.View())
 	}
-	if value == "" {
+	if c.Value() == "" {
 		return "[" + styleHelp.Render(placeholder) + "]"
 	}
-	return "[" + value + "]"
+	return c.View()
 }
 
 func (e *mapEditor) CurrentValue() cty.Value {
@@ -459,10 +575,11 @@ func (e *mapEditor) CurrentValue() cty.Value {
 	}
 	m := map[string]cty.Value{}
 	for _, row := range e.rows {
-		if row.Key == "" {
+		key := row.Key.Value()
+		if key == "" {
 			continue // skip in-progress rows
 		}
-		m[row.Key] = cty.StringVal(row.Val)
+		m[key] = cty.StringVal(row.Val.Value())
 	}
 	if len(m) == 0 {
 		return cty.MapValEmpty(cty.String)
@@ -487,12 +604,12 @@ func (e *mapEditor) CursorLine() int {
 //
 // Key bindings:
 //
-//	↑/↓      move between rows
-//	Enter    on a data row: drill into the object value editor
-//	         on add-row: append a new entry and drill into it
-//	Ctrl+D   delete the current row (no-op on add-row or while drilled in)
-//	Backspace/runes   edit the key of the focused row
-//	Esc      (when drilled in) return to the key list
+//	↑/↓                  move between rows
+//	Enter                on a data row: drill into the object value editor
+//	                     on add-row: append a new entry and drill into it
+//	Alt+Delete           delete the current row (no-op on add-row or drilled in)
+//	(any readline edit)  routed to the focused row's key cell — see ADR-0020
+//	Esc                  (when drilled in) return to the key list
 type mapObjectEditor struct {
 	v         *tfvars.Variable
 	elemType  *tftypes.Type
@@ -505,7 +622,7 @@ type mapObjectEditor struct {
 }
 
 type mapObjectRow struct {
-	Key    string
+	Key    cellInput
 	editor Editor // objectEditor for this entry's value
 }
 
@@ -532,13 +649,16 @@ func newMapObjectEditor(v *tfvars.Variable, current cty.Value) *mapObjectEditor 
 		sort.Strings(keys)
 		for _, k := range keys {
 			val := m[k]
-			row := mapObjectRow{Key: k, editor: me.newEntryEditor(val)}
-			me.rows = append(me.rows, row)
+			me.rows = append(me.rows, mapObjectRow{
+				Key:    newCellInput(k, false, ""),
+				editor: me.newEntryEditor(val),
+			})
 		}
 	}
 	if len(me.rows) == 0 {
 		me.rowCursor = 0
 	}
+	me.applyFocus()
 	return me
 }
 
@@ -557,10 +677,25 @@ func (e *mapObjectEditor) newEntryEditor(current cty.Value) Editor {
 
 func (e *mapObjectEditor) onAddRow() bool { return e.rowCursor == len(e.rows) }
 
+// applyFocus blurs every row's key cell and re-focuses the one under the
+// cursor (no-op on the add-row). Called after any movement so only the
+// active cell renders a caret.
+func (e *mapObjectEditor) applyFocus() {
+	for i := range e.rows {
+		e.rows[i].Key.Blur()
+	}
+	if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
+		e.rows[e.rowCursor].Key.Focus()
+	}
+}
+
 func (e *mapObjectEditor) addRow() {
-	row := mapObjectRow{editor: e.newEntryEditor(cty.NilVal)}
-	e.rows = append(e.rows, row)
+	e.rows = append(e.rows, mapObjectRow{
+		Key:    newCellInput("", false, ""),
+		editor: e.newEntryEditor(cty.NilVal),
+	})
 	e.rowCursor = len(e.rows) - 1
+	e.applyFocus()
 }
 
 func (e *mapObjectEditor) deleteRow() {
@@ -571,6 +706,7 @@ func (e *mapObjectEditor) deleteRow() {
 	if e.rowCursor > len(e.rows) {
 		e.rowCursor = len(e.rows)
 	}
+	e.applyFocus()
 }
 
 func (e *mapObjectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
@@ -591,18 +727,20 @@ func (e *mapObjectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		return e, cmd
 	}
 
-	switch k.Type {
-	case tea.KeyUp:
+	switch {
+	case k.Type == tea.KeyUp:
 		if e.rowCursor > 0 {
 			e.rowCursor--
 		}
+		e.applyFocus()
 		return e, nil
-	case tea.KeyDown:
+	case k.Type == tea.KeyDown:
 		if e.rowCursor < len(e.rows) {
 			e.rowCursor++
 		}
+		e.applyFocus()
 		return e, nil
-	case tea.KeyEnter:
+	case k.Type == tea.KeyEnter:
 		if e.onAddRow() {
 			e.addRow()
 			// Immediately drill into the new row's value editor.
@@ -613,32 +751,16 @@ func (e *mapObjectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 			e.drilledInRow = e.rowCursor
 		}
 		return e, nil
-	case tea.KeyCtrlD:
+	case k.Type == tea.KeyDelete && k.Alt:
+		// Alt+Delete is the row-delete chord (ADR-0020 §3). Ctrl+D, the
+		// previous binding, now belongs to the focused cell.
 		e.deleteRow()
 		return e, nil
-	case tea.KeyBackspace:
-		if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
-			key := &e.rows[e.rowCursor].Key
-			if len(*key) > 0 {
-				*key = (*key)[:len(*key)-1]
-			}
-		}
-		return e, nil
-	case tea.KeyCtrlU:
-		if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
-			e.rows[e.rowCursor].Key = ""
-		}
-		return e, nil
-	case tea.KeySpace:
-		if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
-			e.rows[e.rowCursor].Key += " "
-		}
-		return e, nil
-	case tea.KeyRunes:
-		if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
-			e.rows[e.rowCursor].Key += string(k.Runes)
-		}
-		return e, nil
+	}
+	// Everything else is readline editing for the focused key cell.
+	if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
+		_, cmd := e.rows[e.rowCursor].Key.Update(msg)
+		return e, cmd
 	}
 	return e, nil
 }
@@ -647,7 +769,7 @@ func (e *mapObjectEditor) View() string {
 	// Drilled-in: show breadcrumb + entry editor.
 	if e.drilledIn != nil {
 		var b strings.Builder
-		key := e.rows[e.drilledInRow].Key
+		key := e.rows[e.drilledInRow].Key.Value()
 		if key == "" {
 			key = "(unnamed)"
 		}
@@ -658,9 +780,9 @@ func (e *mapObjectEditor) View() string {
 	}
 
 	var b strings.Builder
-	for i, row := range e.rows {
+	for i := range e.rows {
 		focused := i == e.rowCursor
-		key := renderMapCell(row.Key, focused, "(key)")
+		key := renderMapCell(&e.rows[i].Key, focused, "(key)")
 		editHint := styleHelp.Render("[edit ▸]")
 		if focused {
 			editHint = styleCursorActive.Render("[edit ▸]")
@@ -675,7 +797,7 @@ func (e *mapObjectEditor) View() string {
 	}
 	fmt.Fprintln(&b)
 	fmt.Fprint(&b, styleHelp.Render(
-		"[↑↓] row   [Enter] edit value   [Ctrl+D] delete row"))
+		"[↑↓] row   [Enter] edit value   [Alt+Del] delete row   [?] keys"))
 	return b.String()
 }
 
@@ -685,11 +807,12 @@ func (e *mapObjectEditor) CurrentValue() cty.Value {
 	}
 	m := map[string]cty.Value{}
 	for _, row := range e.rows {
-		if row.Key == "" {
+		key := row.Key.Value()
+		if key == "" {
 			continue
 		}
 		if wv, ok := row.editor.(EditorWithValue); ok {
-			m[row.Key] = wv.CurrentValue()
+			m[key] = wv.CurrentValue()
 		}
 	}
 	if len(m) == 0 {
@@ -880,6 +1003,23 @@ func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		return e, cmd
 	}
 
+	// --- Field-list jumps (g/G/Ctrl+Home/Ctrl+End). These take precedence
+	// over readline forwarding so the user always has a way to jump the
+	// field cursor even while a scalar field has a caret. (Plain
+	// Home/End belong to the cell — see below.)
+	keyStr := k.String()
+	switch {
+	case keyStr == "ctrl+home", keyStr == "g":
+		e.cursor = 0
+		return e, nil
+	case keyStr == "ctrl+end", keyStr == "G":
+		e.cursor = len(e.fields) - 1
+		if e.cursor < 0 {
+			e.cursor = 0
+		}
+		return e, nil
+	}
+
 	switch k.Type {
 	case tea.KeyUp:
 		if e.cursor > 0 {
@@ -891,12 +1031,20 @@ func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 			e.cursor++
 		}
 		return e, nil
-	case tea.KeyHome:
-		e.cursor = 0
-		return e, nil
-	case tea.KeyEnd:
-		e.cursor = len(e.fields) - 1
-		return e, nil
+	case tea.KeyHome, tea.KeyEnd:
+		// ADR-0020 §3: Home/End belong to the focused cell when one is
+		// active. Field-list jumps move to g/G or Ctrl+Home/Ctrl+End
+		// (handled above). Fall through to the sub-editor forwarding below
+		// when the focused field has a caret; for collection fields (no
+		// caret), still treat Home/End as field jumps.
+		if !objectFieldHasCellInput(e.focusedField()) {
+			if k.Type == tea.KeyHome {
+				e.cursor = 0
+			} else {
+				e.cursor = len(e.fields) - 1
+			}
+			return e, nil
+		}
 	case tea.KeyPgUp:
 		e.cursor -= 5
 		if e.cursor < 0 {
@@ -939,6 +1087,26 @@ func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		return e, cmd
 	}
 	return e, nil
+}
+
+// focusedField returns the editor for the field under the cursor, or nil
+// if the cursor is out of range.
+func (e *objectEditor) focusedField() Editor {
+	if e.cursor < 0 || e.cursor >= len(e.fields) {
+		return nil
+	}
+	return e.fields[e.cursor].editor
+}
+
+// objectFieldHasCellInput reports whether the field's editor owns a
+// cellInput (i.e. is a scalar string/number editor). Used to decide
+// whether Home/End should belong to the cell or to the field list.
+func objectFieldHasCellInput(ed Editor) bool {
+	switch ed.(type) {
+	case *stringEditor, *numberEditor:
+		return true
+	}
+	return false
 }
 
 func (e *objectEditor) View() string {
@@ -1039,21 +1207,20 @@ func compactMapCount(ed Editor) int {
 
 // typeSpecificHint returns a one-line hint matching the focused field's
 // editor surface. Keeps the help text honest about what's actually wired.
+// Detailed readline bindings live in the help modal (ADR-0020 §5).
 func typeSpecificHint(t *tftypes.Type) string {
 	if t == nil {
-		return ""
+		return "[?] keys"
 	}
 	switch t.Kind {
 	case tftypes.KindBool:
-		return "[space] toggle"
-	case tftypes.KindString:
-		return "type to edit"
-	case tftypes.KindNumber:
-		return "type digits, '.', '-', 'e'"
+		return "[space] toggle   [?] keys"
+	case tftypes.KindString, tftypes.KindNumber:
+		return "type to edit   [?] keys"
 	case tftypes.KindObject, tftypes.KindMap, tftypes.KindList, tftypes.KindSet:
-		return "[Enter] drill in"
+		return "[Enter] drill in   [?] keys"
 	}
-	return ""
+	return "[?] keys"
 }
 
 func (e *objectEditor) CurrentValue() cty.Value {

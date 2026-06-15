@@ -27,6 +27,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0017 | [Inter-module wiring in the TUI](0017-inter-module-wiring.md)                               | Accepted |
 | 0018 | [Additive `atelier module` command](0018-additive-module-command.md)                       | Accepted |
 | 0019 | [Unified module version display](0019-unified-module-version-display.md)                    | Proposed |
+| 0020 | [Readline-style text editing in variable editors](0020-readline-style-text-editing.md)      | Proposed |
 
 ## Conventions
 

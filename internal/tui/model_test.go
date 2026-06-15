@@ -42,6 +42,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyMsg{Type: tea.KeyShiftTab}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
 	case "up":
@@ -52,12 +54,44 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyLeft}
 	case "right":
 		return tea.KeyMsg{Type: tea.KeyRight}
+	case "home":
+		return tea.KeyMsg{Type: tea.KeyHome}
+	case "end":
+		return tea.KeyMsg{Type: tea.KeyEnd}
+	case "delete", "del":
+		return tea.KeyMsg{Type: tea.KeyDelete}
+	case "alt+delete", "alt+del":
+		return tea.KeyMsg{Type: tea.KeyDelete, Alt: true}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case "alt+backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace, Alt: true}
 	case "ctrl+u":
 		return tea.KeyMsg{Type: tea.KeyCtrlU}
+	case "ctrl+k":
+		return tea.KeyMsg{Type: tea.KeyCtrlK}
+	case "ctrl+w":
+		return tea.KeyMsg{Type: tea.KeyCtrlW}
 	case "ctrl+r":
 		return tea.KeyMsg{Type: tea.KeyCtrlR}
+	case "ctrl+a":
+		return tea.KeyMsg{Type: tea.KeyCtrlA}
+	case "ctrl+e":
+		return tea.KeyMsg{Type: tea.KeyCtrlE}
+	case "ctrl+left":
+		return tea.KeyMsg{Type: tea.KeyCtrlLeft}
+	case "ctrl+right":
+		return tea.KeyMsg{Type: tea.KeyCtrlRight}
+	case "ctrl+home":
+		return tea.KeyMsg{Type: tea.KeyCtrlHome}
+	case "ctrl+end":
+		return tea.KeyMsg{Type: tea.KeyCtrlEnd}
+	case "alt+b":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}, Alt: true}
+	case "alt+f":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}, Alt: true}
+	case "alt+d":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}, Alt: true}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }

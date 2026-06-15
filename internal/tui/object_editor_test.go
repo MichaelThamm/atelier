@@ -254,3 +254,79 @@ func TestObjectEditor_endToEnd_throughTopLevelModel(t *testing.T) {
 		t.Errorf("units after edit = %v; want 3", units.GoString())
 	}
 }
+
+// TestObjectEditor_HomeForwardedToScalarField verifies that Home on a
+// scalar (string) field moves the caret to the start of the cell rather
+// than jumping the field cursor. With caret at 0, typing inserts at the
+// beginning, demonstrating Home reached the cell. See ADR-0020 §3.
+func TestObjectEditor_HomeForwardedToScalarField(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	if oe.fields[oe.cursor].Name != "app_name" {
+		t.Fatalf("setup: first field = %q", oe.fields[oe.cursor].Name)
+	}
+
+	// Home should park caret at 0; typing prepends.
+	oe = drive(t, oe, "home", "X")
+	val := oe.CurrentValue().AsValueMap()["app_name"]
+	if got := val.AsString(); got != "Xalertmanager" {
+		t.Errorf("after home+X, app_name = %q; want %q", got, "Xalertmanager")
+	}
+	// Field cursor should not have moved.
+	if oe.fields[oe.cursor].Name != "app_name" {
+		t.Errorf("field cursor moved unexpectedly: now on %q", oe.fields[oe.cursor].Name)
+	}
+}
+
+// TestObjectEditor_EndForwardedToScalarField confirms End restores the
+// caret to the end of the cell after a Home.
+func TestObjectEditor_EndForwardedToScalarField(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+
+	oe = drive(t, oe, "home", "end", "Z")
+	val := oe.CurrentValue().AsValueMap()["app_name"]
+	if got := val.AsString(); got != "alertmanagerZ" {
+		t.Errorf("after home+end+Z, app_name = %q; want %q", got, "alertmanagerZ")
+	}
+}
+
+// TestObjectEditor_CtrlHomeJumpsToFirstField confirms Ctrl+Home jumps
+// the field cursor regardless of which scalar is focused.
+func TestObjectEditor_CtrlHomeJumpsToFirstField(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	// Move to "units" (3rd field).
+	oe = drive(t, oe, "down", "down")
+	if oe.fields[oe.cursor].Name != "units" {
+		t.Fatalf("setup: focused = %q", oe.fields[oe.cursor].Name)
+	}
+	oe = drive(t, oe, "ctrl+home")
+	if oe.fields[oe.cursor].Name != "app_name" {
+		t.Errorf("after ctrl+home, focused = %q; want app_name", oe.fields[oe.cursor].Name)
+	}
+}
+
+// TestObjectEditor_CtrlEndJumpsToLastField confirms Ctrl+End jumps the
+// field cursor to the last field.
+func TestObjectEditor_CtrlEndJumpsToLastField(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	last := oe.fields[len(oe.fields)-1].Name
+	oe = drive(t, oe, "ctrl+end")
+	if oe.fields[oe.cursor].Name != last {
+		t.Errorf("after ctrl+end, focused = %q; want %q", oe.fields[oe.cursor].Name, last)
+	}
+}
+
+// TestObjectEditor_CollectionField_HomeStillJumpsFieldList confirms that
+// when the focused field is a collection (no cell), plain Home/End still
+// move the field cursor (the pre-ADR behaviour for collection fields).
+func TestObjectEditor_CollectionField_HomeStillJumpsFieldList(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	// Navigate to storage_directives (map).
+	for oe.fields[oe.cursor].Name != "storage_directives" {
+		oe = drive(t, oe, "down")
+	}
+	// Home should jump field cursor to first field (no cell to forward to).
+	oe = drive(t, oe, "home")
+	if oe.fields[oe.cursor].Name != "app_name" {
+		t.Errorf("after home on collection field, focused = %q; want app_name", oe.fields[oe.cursor].Name)
+	}
+}
