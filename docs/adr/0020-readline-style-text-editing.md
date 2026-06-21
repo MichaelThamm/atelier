@@ -84,6 +84,17 @@ key/value text cells of map editors; structural keys (row navigation,
 drill-in/out, modal triggers) are unaffected except where they currently
 collide.
 
+**North star: terminal/readline convention, not GTK text-field
+convention.** Atelier is launched from and lives in a shell, so a user's
+dominant reflexes are bash/zsh/`bubbles/textinput`, not Firefox or GNOME
+Text Editor. Where the two conventions genuinely conflict we pick readline.
+The one visible casualty is `Ctrl+A`: it is caret-to-start here, not GTK's
+select-all (Atelier has no in-cell selection model — see Out of scope).
+This is a deliberate trade-off, called out again in Consequences. Where
+readline leaves a key *unbound*, we are free to add GTK aliases (see
+`Ctrl+Backspace` in §2) — additive aliases cost nothing and rescue desktop
+muscle memory.
+
 ### 1. Caret-aware scalar cell
 
 Every place that currently holds a `string` text buffer with no caret is
@@ -137,9 +148,27 @@ no cell adds bindings outside this list, no cell omits one.
 This is exactly the readline default set that ships with bash, zsh (in
 emacs mode, which is the default), `bubbles/textinput`, and VS Code's
 terminal. **`Ctrl+U` changes meaning** from "clear whole cell" to
-"kill-to-start-of-line"; the prior behaviour is now reachable as
-`Ctrl+A` then `Ctrl+K` (or `End` then `Ctrl+U`), and the more useful
-"reset to default" remains a single chord (`Ctrl+R`, see ADR-0006).
+"kill-to-start-of-line." Clearing a cell to empty is now the two-chord
+sequence `Ctrl+A` `Ctrl+K` (or `End` `Ctrl+U`). Note that `Ctrl+R`
+(reset-to-default, see ADR-0006) is **not** a replacement: it restores the
+variable's *default*, which is a different operation from clearing to empty
+and is empty only when the default is. Standardising on the readline kill
+commands costs us the one-keystroke clear; this is accepted for v1. If
+feedback shows clear-to-empty is high-frequency, that is the trigger for a
+dedicated binding — we do not pre-solve it here.
+
+**`Ctrl+Backspace` is bound as a third alias for delete-word-left**, on top
+of `Ctrl+W` / `Alt+Backspace`, because it is the GTK/GNOME desktop reflex
+and readline leaves it free. This is **gated on the terminal actually
+emitting a distinct key event**: many terminals send `Ctrl+Backspace` as
+`Ctrl+H` (`0x08`), indistinguishable from plain `Backspace`. Bind it only
+where `bubbles/textinput` surfaces it as its own key; where it collapses to
+`Backspace`, drop the alias rather than fake it.
+
+**`Ctrl+Y` (yank) is intentionally unbound** — see Out of scope. The kill
+commands above (`Ctrl+W`, `Ctrl+K`, `Ctrl+U`) delete in place; there is no
+kill-ring in v1, so the readline reflex of `Ctrl+K` then `Ctrl+Y` to
+re-paste does nothing by design.
 
 ### 3. Resolving cross-scope collisions
 
@@ -150,26 +179,38 @@ focused. We pick a single rule and stick to it:
   and the value column. After this ADR they move the caret inside the
   focused cell. Cell-to-cell movement uses `Tab` (key → value → next-row
   key) and `Shift+Tab` (reverse), which is the universal form-navigation
-  convention and is unbound today. `Tab` is currently the global pane-toggle;
-  it remains the pane-toggle **only when the focused editor does not
-  contain a multi-cell form**. Inside `mapEditor` and `mapObjectEditor`
-  drilled-out, `Tab` belongs to the form. Pane toggle from inside such a
-  form falls back to `Esc Tab` (Esc lifts focus to the row-level, Tab
-  toggles panes).
+  convention and is unbound today. `Tab` is governed by a single
+  **scope-based** rule, not a per-widget one: when a cell is focused, `Tab`
+  moves to the next cell; when no cell is focused (row-cursor scope), `Tab`
+  is the global pane-toggle. There is no `Esc Tab` chord — to toggle panes
+  from inside a form you `Esc` to row scope (which you do anyway to leave the
+  cell) and then a single `Tab` toggles. One key, one rule per scope, mirror-
+  ing the `Ctrl+D` resolution below; the old "depends which widget I'm in"
+  overload is not reintroduced.
 
 - **`Home` / `End` in `objectEditor`.** Today they jump the field-cursor
   to the first/last field. After this ADR, when the focused field is a
   scalar with a textinput, `Home`/`End` belong to the textinput
-  (caret-to-edge). Field-list jumps move to `g` / `G` (already the vim
-  convention used in the output view per the README), with `Ctrl+Home` /
-  `Ctrl+End` as a discoverable alternative. `PgUp`/`PgDn` continue to do
+  (caret-to-edge). Field-list jumps move to `Ctrl+Home` / `Ctrl+End`. We do
+  **not** use `g` / `G` here: the editor surface is emacs/readline-flavoured
+  throughout (this ADR's own Alternatives section rejects vim bindings in a
+  cell for exactly this reason), and `Ctrl+Home`/`Ctrl+End` is the natural
+  `Ctrl`-escalation of `Home`/`End` — the same char-vs-whole pattern as
+  `←` vs `Ctrl+←`. `g`/`G` stay confined to the output view, where no text
+  cell is focused and they are unambiguous. `PgUp`/`PgDn` continue to do
   half-page field navigation as today.
 
-- **`Ctrl+D` in `mapEditor` / `mapObjectEditor`.** Row-delete moves to
-  `Alt+Delete` (mnemonic: "delete this whole row"). `Ctrl+D` is freed for
-  the readline char-forward delete only when a cell is focused; with the
-  row-cursor focused (no cell active) `Ctrl+D` is unbound and `Alt+Delete`
-  is the sole row-delete chord, so there is no scope-dependent meaning.
+- **`Ctrl+D` and row-delete in `mapEditor` / `mapObjectEditor`.** Row-delete
+  is a **structural** operation and lives only at the row-cursor scope (no
+  cell focused), bound to `Alt+Delete` (mnemonic: "delete this whole row").
+  Inside a focused cell **no** structural delete is bound — to remove a row
+  you `Esc` to row scope first. `Ctrl+D` is therefore freed unconditionally
+  for the readline char-forward delete inside a cell, and is unbound at row
+  scope. This keeps `Alt+D` (delete-word-forward, in-cell) and `Alt+Delete`
+  (row-delete, row scope) in **separate scopes** so the one-keystroke-apart
+  pair never coexists, and avoids a destructive whole-row delete firing while
+  the user is mid-edit. (Row-delete is destructive and unconfirmed today;
+  whether it earns a confirm or undo is left to a future ADR.)
 
 ### 4. Visual treatment
 
@@ -192,6 +233,13 @@ table gains the same section. The per-editor inline hint
 `type to edit · Home/End · Ctrl+←/→ word · Ctrl+W del word` — pointing at
 the help modal for the rest. The hint must not duplicate the full table;
 the help modal is the source of truth.
+
+Because the keymap roughly triples in size while the inline hint stays one
+line, discovery is made **active** rather than relying on users
+spontaneously opening `?`: the first time a cell is focused in a session,
+and whenever an unrecognised chord is pressed inside a cell, a brief
+transient nudge (`press ? for editing keys`) is shown. This teaches the
+expanded keymap without duplicating the table inline.
 
 ## Alternatives considered
 
@@ -251,9 +299,14 @@ unambiguous because no text cell is focused there.
   the rules for which scope owns a key are documented in §3 — no more
   "depends which widget I'm in" surprises.
 - **`Ctrl+U` semantics shift** from "clear whole cell" to standard
-  readline kill-to-start. Documented in §2 and the help modal. The user
-  retains a one-keystroke clear via `Ctrl+R` ("reset to default"), which
-  in practice is what they want anyway.
+  readline kill-to-start. Documented in §2 and the help modal. There is no
+  longer a one-keystroke clear-to-empty: it becomes `Ctrl+A` `Ctrl+K`.
+  `Ctrl+R` is reset-*to-default*, a different operation (empty only when the
+  default is). This is an accepted v1 cost; a dedicated clear binding is a
+  watch item gated on usage feedback, not pre-solved here.
+- **`Ctrl+A` is caret-to-start, not GTK select-all.** Forced by the
+  readline north star (see Decision). `Home` covers the same action; there
+  is no in-cell selection model in v1 to fall back to.
 - **Existing tests that simulate `Backspace` to clear a value will need
   updates** where they assert behaviour that depended on the old
   byte-trim contract. The textinput exposes `SetValue("")` for tests that
@@ -271,8 +324,9 @@ unambiguous because no text cell is focused there.
 ## Out of scope
 
 - **Multi-line cells.** Deferred (see "Adopt a full editor" alternative).
-- **Selection / kill-ring across cells.** Deferred. `Ctrl+K` and `Ctrl+U`
-  delete in place, no yank buffer.
+- **Selection / kill-ring across cells.** Deferred. `Ctrl+K`, `Ctrl+U` and
+  `Ctrl+W` delete in place, no yank buffer; `Ctrl+Y` is intentionally
+  unbound (§2).
 - **List(T) inline element editing.** ADR-0006 already defers richer list
   editing; this ADR specifies the cell shape that list will adopt when
   that work lands, but does not implement it.

@@ -336,3 +336,26 @@ type stubRefSwitcher struct{}
 func (s *stubRefSwitcher) SwitchRef(_ context.Context, _ string) (*RefSwitchResult, error) {
 	return &RefSwitchResult{}, nil
 }
+
+// TestCaret_OnlyInEditorPane guards that the editor's caret appears only
+// while the editor pane is the active context: off in the list pane, on once
+// focused, off again on leave.
+func TestCaret_OnlyInEditorPane(t *testing.T) {
+	state := &wrapper.State{Vars: []tfvars.Variable{
+		{Name: "s", Type: mustParseType(t, "string")},
+	}}
+	m := New(state, "m")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	if cellFocused(m.editor) {
+		t.Fatal("caret should be off while the list pane is focused")
+	}
+	m = feed(m, key("tab")) // enter editor pane
+	if !cellFocused(m.editor) {
+		t.Fatal("caret should be on after focusing the editor pane")
+	}
+	m = feed(m, key("tab")) // leave editor pane
+	if cellFocused(m.editor) {
+		t.Fatal("caret should be off after leaving the editor pane")
+	}
+}

@@ -156,3 +156,20 @@ func TestCellInput_View_WrapsInBrackets(t *testing.T) {
 		t.Errorf("expected bracket wrap; got %q", view)
 	}
 }
+
+// TestCellInput_Blurred_NoCaretPlaceholder guards that a blurred cell renders
+// just its value — not textinput's end-of-line cursor placeholder, which
+// otherwise made every unfocused cell read as `[3 ]` (trailing space).
+func TestCellInput_Blurred_NoCaretPlaceholder(t *testing.T) {
+	c := newCellInput("3", false, "")
+	c.Blur()
+	if got := stripANSI(c.View()); got != "[3]" {
+		t.Errorf("blurred cell = %q; want \"[3]\" (no trailing caret space)", got)
+	}
+
+	s := newCellInput("ab", true, "")
+	s.Blur()
+	if got := stripANSI(s.View()); got != "[••]" {
+		t.Errorf("blurred sensitive cell = %q; want \"[••]\"", got)
+	}
+}

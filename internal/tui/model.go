@@ -51,7 +51,7 @@ type Model struct {
 
 	// editor is the active right-pane editor, type-specific per the
 	// currently selected variable.
-	editor Editor
+	editor       Editor
 	editorScroll int // scroll offset for the right pane content
 
 	// status text shown at the bottom. Cleared when a new edit lands.
@@ -373,6 +373,28 @@ func (m *Model) refreshEditor() {
 	current, _ := st.VariableValue(v.Name)
 	m.editor = newEditor(v, current)
 	m.editorScroll = 0 // reset scroll when switching variables
+	// The caret belongs only to the editor pane: when the list pane is
+	// active, blur the freshly built editor so it shows no cursor.
+	if m.focus != focusRight {
+		if f, ok := m.editor.(focusable); ok {
+			f.Blur()
+		}
+	}
+}
+
+// setFocus moves pane focus and reconciles the editor's caret: the cursor
+// shows only while the editor pane is the active context.
+func (m *Model) setFocus(pane focusPane) {
+	m.focus = pane
+	f, ok := m.editor.(focusable)
+	if !ok {
+		return
+	}
+	if pane == focusRight {
+		f.Focus()
+	} else {
+		f.Blur()
+	}
 }
 
 // planResultMsg carries a successful plan back to the UI thread.
@@ -725,13 +747,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "tab":
 		if m.focus == focusLeft {
-			m.focus = focusRight
+			m.setFocus(focusRight)
 		} else {
-			m.focus = focusLeft
+			m.setFocus(focusLeft)
 		}
 		return m, nil
 	case "esc":
-		m.focus = focusLeft
+		m.setFocus(focusLeft)
 		return m, nil
 	case "p", "P":
 		// Trigger plan only from the left pane. In the right pane the key
@@ -1229,7 +1251,7 @@ func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "end", "G":
 		m.moveCursor(len(m.rows))
 	case "enter", "right", "l":
-		m.focus = focusRight
+		m.setFocus(focusRight)
 		return m, nil
 	}
 	return m, nil

@@ -330,3 +330,45 @@ func TestObjectEditor_CollectionField_HomeStillJumpsFieldList(t *testing.T) {
 		t.Errorf("after home on collection field, focused = %q; want app_name", oe.fields[oe.cursor].Name)
 	}
 }
+
+// cellFocused reports whether a scalar sub-editor's caret is active.
+func cellFocused(ed Editor) bool {
+	switch e := ed.(type) {
+	case *stringEditor:
+		return e.cell.ti.Focused()
+	case *numberEditor:
+		return e.cell.ti.Focused()
+	}
+	return false
+}
+
+// TestObjectEditor_SingleCaret guards that only the field under the cursor
+// ever shows a caret. Every field's cellInput is focused at construction, so
+// without applyFieldFocus the object view rendered a cursor on every scalar
+// field at once.
+func TestObjectEditor_SingleCaret(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+
+	// Visit every field; at each step at most one scalar caret is active,
+	// and it belongs to the field under the cursor.
+	for i := 0; i < len(oe.fields); i++ {
+		var focused []string
+		for j := range oe.fields {
+			if cellFocused(oe.fields[j].editor) {
+				focused = append(focused, oe.fields[j].Name)
+			}
+		}
+		if len(focused) > 1 {
+			t.Fatalf("cursor on %q: %d carets active (%v); want at most 1",
+				oe.fields[oe.cursor].Name, len(focused), focused)
+		}
+		// When the cursor field is scalar, it must be the one focused.
+		cur := oe.fields[oe.cursor]
+		if cellFocused(cur.editor) == false && len(focused) == 0 {
+			// collection field under cursor: no caret expected — fine.
+		} else if len(focused) != 1 || focused[0] != cur.Name {
+			t.Errorf("cursor on scalar %q but focused carets = %v", cur.Name, focused)
+		}
+		oe = drive(t, oe, "down")
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
@@ -37,6 +38,7 @@ type cellInput struct {
 // the cell to password-echo mode.
 func newCellInput(value string, sensitive bool, allowedRunes string) cellInput {
 	ti := textinput.New()
+	ti.Cursor.SetMode(cursor.CursorStatic) // solid caret, never blinks
 	ti.Prompt = ""
 	ti.CharLimit = 0
 	if sensitive {
@@ -84,7 +86,23 @@ func (c *cellInput) Update(msg tea.Msg) (textChanged bool, cmd tea.Cmd) {
 func (c *cellInput) View() string {
 	// Render without textinput's own bracket/prompt: we wrap in `[…]` for
 	// visual consistency with the rest of the editor surface.
+	if !c.ti.Focused() {
+		// textinput.View always appends an end-of-line cursor placeholder
+		// (a trailing space). A blurred cell shows no caret, so render the
+		// value ourselves — otherwise every unfocused cell reads as `[3 ]`.
+		return "[" + c.echoedValue() + "]"
+	}
 	return "[" + c.ti.View() + "]"
+}
+
+// echoedValue is the cell's value as displayed: the raw value, or a run of
+// `•` for sensitive cells. Used to render blurred cells without a caret.
+func (c *cellInput) echoedValue() string {
+	v := c.ti.Value()
+	if c.sensitive {
+		return strings.Repeat("•", len([]rune(v)))
+	}
+	return v
 }
 
 // Value reports the current buffer (decoded, not echoed).
@@ -239,8 +257,7 @@ func newStringEditor(v *tfvars.Variable, current cty.Value) *stringEditor {
 }
 
 func (e *stringEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
-	_, ok := msg.(tea.KeyMsg)
-	if !ok {
+	if _, ok := msg.(tea.KeyMsg); !ok {
 		return e, nil
 	}
 	prev := e.cell.Value()
@@ -268,6 +285,11 @@ func (e *stringEditor) CurrentValue() cty.Value {
 	return cty.StringVal(e.cell.Value())
 }
 func (e *stringEditor) Touched() bool { return e.touched }
+
+// Focus/Blur toggle this editor's caret. An owning objectEditor uses them
+// to keep a cursor only on the field under its cursor (see focusable).
+func (e *stringEditor) Focus() { e.cell.Focus() }
+func (e *stringEditor) Blur()  { e.cell.Blur() }
 
 // --- number ---
 
@@ -302,8 +324,7 @@ func newNumberEditor(v *tfvars.Variable, current cty.Value) *numberEditor {
 }
 
 func (e *numberEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
-	_, ok := msg.(tea.KeyMsg)
-	if !ok {
+	if _, ok := msg.(tea.KeyMsg); !ok {
 		return e, nil
 	}
 	changed, cmd := e.cell.Update(msg)
@@ -334,6 +355,9 @@ func (e *numberEditor) CurrentValue() cty.Value {
 	return cty.NilVal
 }
 func (e *numberEditor) Touched() bool { return e.touched }
+
+func (e *numberEditor) Focus() { e.cell.Focus() }
+func (e *numberEditor) Blur()  { e.cell.Blur() }
 
 // --- map(string) ---
 
@@ -436,6 +460,16 @@ func (e *mapEditor) applyFocus() {
 	}
 	if c := e.focusedCell(); c != nil {
 		c.Focus()
+	}
+}
+
+// Focus/Blur let the model gate the caret on pane focus, so the cursor only
+// appears while the editor pane is the active context.
+func (e *mapEditor) Focus() { e.applyFocus() }
+func (e *mapEditor) Blur() {
+	for i := range e.rows {
+		e.rows[i].Key.Blur()
+		e.rows[i].Val.Blur()
 	}
 }
 
@@ -686,6 +720,26 @@ func (e *mapObjectEditor) applyFocus() {
 	}
 	if !e.onAddRow() && e.rowCursor >= 0 && e.rowCursor < len(e.rows) {
 		e.rows[e.rowCursor].Key.Focus()
+	}
+}
+
+// Focus/Blur gate the caret on pane focus (see mapEditor.Focus). When
+// drilled into an entry, the active editor is that sub-editor.
+func (e *mapObjectEditor) Focus() {
+	if e.drilledIn != nil {
+		if f, ok := e.drilledIn.(focusable); ok {
+			f.Focus()
+		}
+		return
+	}
+	e.applyFocus()
+}
+func (e *mapObjectEditor) Blur() {
+	if f, ok := e.drilledIn.(focusable); ok {
+		f.Blur()
+	}
+	for i := range e.rows {
+		e.rows[i].Key.Blur()
 	}
 }
 
@@ -959,6 +1013,7 @@ func newObjectEditor(v *tfvars.Variable, current cty.Value) *objectEditor {
 		row.editor = newEditor(fakeVar, fv)
 		oe.fields = append(oe.fields, row)
 	}
+	oe.applyFieldFocus() // only the field under the cursor shows a caret
 	return oe
 }
 
@@ -986,6 +1041,9 @@ func (e *objectEditor) ResetFocused() {
 // field cursor; Enter on a collection field drills in; everything else is
 // forwarded to the focused scalar field's sub-editor.
 func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
+	// Reconcile caret visibility to the field cursor on every update, so
+	// only the field the user is on ever shows a cursor (see applyFieldFocus).
+	defer e.applyFieldFocus()
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return e, nil
@@ -1087,6 +1145,54 @@ func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		return e, cmd
 	}
 	return e, nil
+}
+
+// focusable is implemented by scalar sub-editors whose caret visibility
+// must track the owning objectEditor's field cursor, so a cursor is only
+// ever shown on the field the user is actually on.
+type focusable interface {
+	Focus()
+	Blur()
+}
+
+// applyFieldFocus blurs every scalar field's caret except the one under the
+// cursor. Without this, every scalar field renders its own caret (each
+// cellInput is focused at construction), littering the object view with
+// cursors. Collection fields hold no caret and are left untouched.
+func (e *objectEditor) applyFieldFocus() {
+	for i := range e.fields {
+		f, ok := e.fields[i].editor.(focusable)
+		if !ok {
+			continue
+		}
+		if i == e.cursor {
+			f.Focus()
+		} else {
+			f.Blur()
+		}
+	}
+}
+
+// Focus/Blur gate the caret on pane focus (see mapEditor.Focus). When
+// drilled into a collection field, the active editor is that sub-editor.
+func (e *objectEditor) Focus() {
+	if e.drilledIn != nil {
+		if f, ok := e.drilledIn.(focusable); ok {
+			f.Focus()
+		}
+		return
+	}
+	e.applyFieldFocus()
+}
+func (e *objectEditor) Blur() {
+	if f, ok := e.drilledIn.(focusable); ok {
+		f.Blur()
+	}
+	for i := range e.fields {
+		if f, ok := e.fields[i].editor.(focusable); ok {
+			f.Blur()
+		}
+	}
 }
 
 // focusedField returns the editor for the field under the cursor, or nil
