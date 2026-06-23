@@ -148,6 +148,22 @@ output "offers" {
 }
 ```
 
+## Troubleshooting
+
+Atelier persists terraform's diagnostics under the wrapper's
+`.atelier/logs/` directory (gitignored, regenerable):
+
+- `tf-stderr.log` — terraform's stderr, appended across runs. Always on. It
+  stays small because successful commands write little to stderr, so it
+  mostly captures the warnings and errors worth keeping. This is the first
+  place to look after an intermittent `plan`/`apply` failure.
+- `tf-trace.log` — terraform's full `TRACE` log, written only when the
+  `ATELIER_DEBUG` environment variable is set to a truthy value
+  (`ATELIER_DEBUG=1 atelier`). It is verbose, so it is off by default; leave
+  it enabled to capture the exact `git` commands terraform's module
+  installer runs — useful for diagnosing flaky `terraform init` module
+  fetches.
+
 ## Documentation
 
 | Document | Description |

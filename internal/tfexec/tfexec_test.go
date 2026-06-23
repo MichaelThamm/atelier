@@ -2,7 +2,9 @@ package tfexec
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -43,5 +45,47 @@ func TestNewAndVersion_integration(t *testing.T) {
 	}
 	if ver == "" {
 		t.Error("empty version string")
+	}
+}
+
+func TestDebugEnabled(t *testing.T) {
+	cases := map[string]bool{
+		"":      false,
+		"0":     false,
+		"false": false,
+		"NO":    false,
+		"Off":   false,
+		"1":     true,
+		"true":  true,
+		"trace": true,
+		" yes ": true,
+	}
+	for val, want := range cases {
+		t.Setenv(DebugEnvVar, val)
+		if got := debugEnabled(); got != want {
+			t.Errorf("debugEnabled() with %s=%q = %v; want %v", DebugEnvVar, val, got, want)
+		}
+	}
+}
+
+// TestConfigureLogging_integration checks that New wires a stderr log file
+// into the wrapper's .atelier/logs/ directory. Requires terraform on PATH
+// because New locates a binary before configuring logging.
+func TestConfigureLogging_integration(t *testing.T) {
+	if _, err := exec.LookPath("terraform"); err != nil {
+		t.Skip("terraform not on PATH")
+	}
+	wd := t.TempDir()
+	if _, err := New(wd, ""); err != nil {
+		t.Fatal(err)
+	}
+	stderrLog := filepath.Join(wd, LogDir, stderrLogName)
+	if _, err := os.Stat(stderrLog); err != nil {
+		t.Errorf("expected stderr log at %s: %v", stderrLog, err)
+	}
+	// Without ATELIER_DEBUG the trace log must not be created.
+	traceLog := filepath.Join(wd, LogDir, traceLogName)
+	if _, err := os.Stat(traceLog); err == nil {
+		t.Errorf("trace log %s created without %s set", traceLog, DebugEnvVar)
 	}
 }
