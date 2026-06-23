@@ -42,6 +42,28 @@ func (s *State) Write() error {
 }
 
 func (s *State) writeMain() error {
+	out, err := s.RenderMain()
+	if err != nil {
+		return err
+	}
+	// Write to a temporary file and rename for atomicity — important because
+	// the file watcher (`terraform validate` in the TUI) may race the write.
+	return writeAtomic(filepath.Join(s.Dir, MainTF), out, 0o644)
+}
+
+// WriteMain atomically writes pre-rendered main.tf bytes into dir. It is the
+// persist half of RenderMain, exposed so callers that preview before writing
+// (e.g. `atelier tidy`) apply exactly the bytes they showed.
+func WriteMain(dir string, data []byte) error {
+	return writeAtomic(filepath.Join(dir, MainTF), data, 0o644)
+}
+
+// RenderMain produces the bytes Atelier would write to the wrapper's main.tf,
+// applying the sparse-plus-required rule (ADR-0007) to the module block in the
+// existing file. It does not touch disk: writeMain uses it to persist, and
+// `atelier tidy` uses it to preview the prune without writing. Because both go
+// through this one path, the diff `tidy` shows is exactly what it applies.
+func (s *State) RenderMain() ([]byte, error) {
 	mainPath := filepath.Join(s.Dir, MainTF)
 
 	var file *hclwrite.File
@@ -49,10 +71,10 @@ func (s *State) writeMain() error {
 		var diags hcl.Diagnostics
 		file, diags = hclwrite.ParseConfig(existing, mainPath, hcl.Pos{Line: 1, Column: 1})
 		if diags.HasErrors() {
-			return fmt.Errorf("parse existing main.tf: %s", diags.Error())
+			return nil, fmt.Errorf("parse existing main.tf: %s", diags.Error())
 		}
 	} else if !os.IsNotExist(err) {
-		return err
+		return nil, err
 	} else {
 		file = hclwrite.NewEmptyFile()
 	}
@@ -150,9 +172,7 @@ func (s *State) writeMain() error {
 		}
 	}
 
-	// Write to a temporary file and rename for atomicity — important because
-	// the file watcher (`terraform validate` in the TUI) may race the write.
-	return writeAtomic(mainPath, hclwrite.Format(file.Bytes()), 0o644)
+	return hclwrite.Format(file.Bytes()), nil
 }
 
 // findOrCreateModuleBlock locates the `module "<name>"` block (creating it if

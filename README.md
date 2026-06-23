@@ -125,6 +125,42 @@ variables.
 2. Press `R`, type `v2.0`, confirm.
 3. Plan again — the diff shows what the version bump changes.
 
+## Tidying a wrapper
+
+Atelier writes sparse `main.tf` files — only values that differ from the
+module's defaults appear (see [ADR-0007](docs/adr/0007-sparse-wrapper-write-rule.md)).
+But a wrapper that was hand-authored, adopted with `atelier init`, or
+seeded from an upstream example often carries arguments set to their default
+value, which is just noise:
+
+```hcl
+module "cos_lite" {
+  source  = "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main"
+  model   = { name = "cos-lite-two" }
+  grafana = { units = 1 }          # 1 is already the default
+  catalogue = { app_name = "catalogue" }  # also the default
+}
+```
+
+`atelier tidy` prunes those redundant arguments back to sparse form:
+
+```bash
+atelier tidy            # dry run: print the diff, change nothing
+atelier tidy --write    # apply it (backs up main.tf first)
+```
+
+It is **dry-run by default**. With `--write` it copies the current `main.tf`
+to `.atelier/backups/main.tf.<timestamp>.bak` before rewriting. Tidy reuses
+the same writer the TUI uses, so the change is apply-neutral: `terraform plan`
+is identical before and after (a value equal to the default and an unset value
+mean the same thing to Terraform). It refuses to run when it can't fetch the
+module schema (it won't guess defaults) or when `main.tf` has more than one
+module block, and it warns when the module ref isn't pinned to a commit
+(defaults can move under an unpinned branch). Arguments whose value is an
+expression (`var.x`, `module.y.z`) are never pruned.
+
+See [ADR-0021](docs/adr/0021-tidy-command.md) for the design.
+
 ## Validate on save
 
 Every time you edit a variable, Atelier debounces a background
