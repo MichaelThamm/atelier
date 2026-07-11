@@ -18,19 +18,24 @@ rather than a wall of options. Defaults handle the rest, and plan diffs show exa
 
 ### Prebuilt binary (recommended)
 
-Download the archive for your platform from the
+Open the
 [latest release](https://github.com/MichaelThamm/atelier/releases/latest),
-extract it, and put the `atelier` binary on your `PATH`:
+download the archive matching your OS and CPU, extract it, and move the
+`atelier` binary onto your `PATH`:
 
 ```bash
-# Example: Linux amd64. Replace VERSION and the platform suffix as needed.
+VERSION=0.1.0
+OS=linux    # linux | darwin | windows
+ARCH=amd64  # amd64 | arm64
+
 curl -sSfL \
-  https://github.com/MichaelThamm/atelier/releases/latest/download/atelier_VERSION_linux_amd64.tar.gz \
+  "https://github.com/MichaelThamm/atelier/releases/download/v${VERSION}/atelier_${VERSION}_${OS}_${ARCH}.tar.gz" \
   | tar -xz atelier
 sudo install atelier /usr/local/bin/atelier
 ```
 
-Builds are published for Linux, macOS, and Windows on amd64 and arm64.
+Builds are published for Linux, macOS, and Windows on amd64 and arm64;
+`checksums.txt` accompanies each release.
 
 ### With Go
 
