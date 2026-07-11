@@ -223,7 +223,3 @@ func (m *Manifest) validate() error {
 	}
 	return nil
 }
-
-
-
-

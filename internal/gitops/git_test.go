@@ -36,10 +36,10 @@ func TestParseLsRemote_ignoresBlankAndMalformed(t *testing.T) {
 
 func TestResolveRef_directHit(t *testing.T) {
 	refs := map[string]string{
-		"refs/heads/main":  "aaa",
-		"refs/tags/v1":     "bbb",
-		"refs/tags/v1^{}":  "ccc",
-		"refs/heads/feat":  "ddd",
+		"refs/heads/main":   "aaa",
+		"refs/tags/v1":      "bbb",
+		"refs/tags/v1^{}":   "ccc",
+		"refs/heads/feat":   "ddd",
 		"refs/pull/42/head": "eee",
 	}
 	cases := []struct {
@@ -76,9 +76,9 @@ func TestResolveRef_shaPassthrough(t *testing.T) {
 
 func TestResolveRef_notFound(t *testing.T) {
 	_, err := ResolveRef("nope", map[string]string{
-		"refs/heads/x":    "y",
-		"refs/tags/v1.0":  "z",
-		"HEAD":            "y",
+		"refs/heads/x":      "y",
+		"refs/tags/v1.0":    "z",
+		"HEAD":              "y",
 		"refs/tags/v1.0^{}": "z",
 	})
 	if err == nil {
@@ -109,8 +109,8 @@ func TestAvailableRefNames(t *testing.T) {
 		"refs/heads/main":   "a",
 		"refs/heads/dev":    "b",
 		"refs/tags/v2.0":    "c",
-		"refs/tags/v2.0^{}": "c",     // peeled — must be dropped
-		"refs/pull/42/head": "d",     // non branch/tag — must be dropped
+		"refs/tags/v2.0^{}": "c", // peeled — must be dropped
+		"refs/pull/42/head": "d", // non branch/tag — must be dropped
 	}
 	got := AvailableRefNames(refs)
 	want := []string{"dev", "main", "v2.0"} // sorted
@@ -144,11 +144,11 @@ func TestIsHexSHA(t *testing.T) {
 
 // fakeRunner records calls and serves canned responses.
 type fakeRunner struct {
-	calls    [][]string
-	stdouts  [][]byte
-	stderrs  [][]byte
-	errs     []error
-	callIdx  int
+	calls   [][]string
+	stdouts [][]byte
+	stderrs [][]byte
+	errs    []error
+	callIdx int
 }
 
 func (f *fakeRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, []byte, error) {
@@ -281,4 +281,3 @@ func containsArg(args []string, want string) bool {
 	}
 	return false
 }
-

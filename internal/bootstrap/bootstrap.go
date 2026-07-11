@@ -28,12 +28,12 @@ import (
 
 // InitOptions captures the inputs to `atelier init <source>`.
 type InitOptions struct {
-	WrapperDir string // user's CWD
-	Source     string // git URL or local path (LocalSource && Source = path)
+	WrapperDir  string // user's CWD
+	Source      string // git URL or local path (LocalSource && Source = path)
 	LocalSource bool
-	Ref          string // user-supplied ref; empty → HEAD
-	ModulePath   string // candidate path within the cloned repo; empty → pick interactively / auto-pick if one
-	GitRunner    gitops.Runner
+	Ref         string // user-supplied ref; empty → HEAD
+	ModulePath  string // candidate path within the cloned repo; empty → pick interactively / auto-pick if one
+	GitRunner   gitops.Runner
 }
 
 // Result is the output of either InitNew or LoadExisting.

@@ -44,11 +44,11 @@ type Model struct {
 	// Used for reloading state after apply.
 	WrapperDir string
 
-	rows   []rowEntry
+	rows []rowEntry
 
-	cursor       int
-	leftScroll   int // scroll offset (first visible row) in the left pane
-	focus        focusPane
+	cursor        int
+	leftScroll    int // scroll offset (first visible row) in the left pane
+	focus         focusPane
 	width, height int
 
 	// editor is the active right-pane editor, type-specific per the
@@ -77,18 +77,18 @@ type Model struct {
 	Validator Validator
 
 	// plan tree + cursor when planState == planReady.
-	planState    planState
-	plan         *tfjson.Plan
-	planTree     *planNode
-	stateTree    *planNode // state resources as a tree (for browsing when no changes)
-	planCursor   int
-	planScroll   int // scroll offset for the plan tree pane
-	planDiffScroll int // scroll offset for the plan diff pane
-	planDiffFocus  bool // true when the diff pane is focused (Tab toggle)
-	planShowState  bool // true when left+right panes show state instead of diff
-	planErr      string
+	planState        planState
+	plan             *tfjson.Plan
+	planTree         *planNode
+	stateTree        *planNode // state resources as a tree (for browsing when no changes)
+	planCursor       int
+	planScroll       int  // scroll offset for the plan tree pane
+	planDiffScroll   int  // scroll offset for the plan diff pane
+	planDiffFocus    bool // true when the diff pane is focused (Tab toggle)
+	planShowState    bool // true when left+right panes show state instead of diff
+	planErr          string
 	planSpinnerFrame int
-	progress     *ProgressTracker // live progress from terraform subprocess
+	progress         *ProgressTracker // live progress from terraform subprocess
 
 	// applyState tracks the apply flow (idle → loading → done/error).
 	applyState applyState
@@ -118,10 +118,10 @@ type Model struct {
 	RefSwitcher RefSwitcher
 
 	// refModal state: tracks the ref-switch prompt and in-flight switch.
-	refModal     bool   // true when the ref input prompt is visible
-	refInput     string // current text in the ref input field
-	refSwitching bool   // true when a ref switch is in flight (spinner)
-	refErr       string // error from last ref switch attempt
+	refModal     bool     // true when the ref input prompt is visible
+	refInput     string   // current text in the ref input field
+	refSwitching bool     // true when a ref switch is in flight (spinner)
+	refErr       string   // error from last ref switch attempt
 	refOrphaned  []string // vars that no longer exist after a ref switch
 	refModuleIdx int      // index of the module being ref-switched
 

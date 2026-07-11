@@ -34,8 +34,8 @@ func TestWrite_freshWrapper_sparseOutput(t *testing.T) {
 		ModuleBlockName: "cos_lite",
 		Source:          "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main",
 		Vars: []tfvars.Variable{
-			mustVar(t, "model_uuid", "string", cty.NilVal, false),                // required
-			mustVar(t, "internal_tls", "bool", cty.True, true),                   // optional with default true
+			mustVar(t, "model_uuid", "string", cty.NilVal, false),                                         // required
+			mustVar(t, "internal_tls", "bool", cty.True, true),                                            // optional with default true
 			mustVar(t, "alertmanager", "object({units = optional(number, 1)})", cty.EmptyObjectVal, true), // optional object
 		},
 		Values: map[string]cty.Value{
@@ -461,12 +461,12 @@ func TestIsExpressionRef(t *testing.T) {
 		{"local.tags", true},
 		{"data.juju_model.m.uuid", true},
 		{`data.vault_generic_secret.s3.data["endpoint_url"]`, true}, // index expression
-		{"module.net.subnets[0]", true},                            // numeric index
-		{"stable", false},                                          // plain string literal
-		{"hello.world", false},                                     // dotted but not a known scope
-		{"", false},                                                // empty
-		{"variable.x", false},                                      // not a real scope prefix
-		{"datadog.thing", false},                                   // 'data' prefix but not 'data.'
+		{"module.net.subnets[0]", true},                             // numeric index
+		{"stable", false},                                           // plain string literal
+		{"hello.world", false},                                      // dotted but not a known scope
+		{"", false},                                                 // empty
+		{"variable.x", false},                                       // not a real scope prefix
+		{"datadog.thing", false},                                    // 'data' prefix but not 'data.'
 	}
 	for _, c := range cases {
 		if got := isExpressionRef(c.in); got != c.want {
@@ -525,4 +525,3 @@ func TestClearUnknownAttr(t *testing.T) {
 		t.Errorf("clearing a missing name should be a no-op; got %+v", s.UnknownAttrs)
 	}
 }
-

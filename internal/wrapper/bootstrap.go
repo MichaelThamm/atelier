@@ -49,13 +49,13 @@ this directory is a normal Terraform project that runs without Atelier.
 // BootstrapOptions captures the inputs to a fresh wrapper. The caller is the
 // init flow (CLI / TUI launcher).
 type BootstrapOptions struct {
-	Dir             string
-	ModuleBlockName string
-	Source          string
-	ModuleDir       string // candidate path within the cloned repo (for the README only)
+	Dir               string
+	ModuleBlockName   string
+	Source            string
+	ModuleDir         string // candidate path within the cloned repo (for the README only)
 	RequiredProviders map[string]RequiredProvider
-	Providers       []ProviderBlock
-	Variables       []TFVar // tfvars.Variable satisfies this interface.
+	Providers         []ProviderBlock
+	Variables         []TFVar // tfvars.Variable satisfies this interface.
 }
 
 // TFVar is the small interface bootstrap consumes from a tfvars.Variable —
@@ -244,4 +244,3 @@ func providerVarName(provider, attr string) string {
 	prov := strings.ReplaceAll(provider, "-", "_")
 	return prov + "_" + attr
 }
-

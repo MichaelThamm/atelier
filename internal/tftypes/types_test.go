@@ -113,9 +113,9 @@ func TestParseTypeExpr_nestedObject(t *testing.T) {
 
 func TestParseTypeExpr_errors(t *testing.T) {
 	bad := []string{
-		"banana",                  // unknown keyword
-		"list(string, number)",    // wrong arity
-		"optional(string)",        // optional outside object
+		"banana",                   // unknown keyword
+		"list(string, number)",     // wrong arity
+		"optional(string)",         // optional outside object
 		"object({a = optional()})", // optional with 0 args
 	}
 	for _, s := range bad {

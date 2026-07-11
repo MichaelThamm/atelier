@@ -16,14 +16,14 @@ import (
 
 // Files we manage in the wrapper.
 const (
-	MainTF       = "main.tf"
-	VersionsTF   = "versions.tf"
-	ProvidersTF  = "providers.tf"
-	VariablesTF  = "variables.tf"
-	SecretsAuto  = "secrets.auto.tfvars"
+	MainTF        = "main.tf"
+	VersionsTF    = "versions.tf"
+	ProvidersTF   = "providers.tf"
+	VariablesTF   = "variables.tf"
+	SecretsAuto   = "secrets.auto.tfvars"
 	GitignoreFile = ".gitignore"
-	ReadmeFile   = "README.md"
-	AtelierDir   = ".atelier"
+	ReadmeFile    = "README.md"
+	AtelierDir    = ".atelier"
 )
 
 // Write reflects the State to disk. It writes main.tf using the

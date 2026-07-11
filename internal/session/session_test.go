@@ -45,10 +45,10 @@ func TestLoad_missing_returnsNil(t *testing.T) {
 
 func TestRefBumpedSince(t *testing.T) {
 	cases := []struct {
-		name     string
-		s        *Session
-		current  string
-		want     bool
+		name    string
+		s       *Session
+		current string
+		want    bool
 	}{
 		{"nil session", nil, "abc", false},
 		{"empty current", &Session{ResolvedSHA: "abc"}, "", false},
