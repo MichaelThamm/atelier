@@ -39,7 +39,7 @@ Scope explicitly bounded:
 - Selecting a leaf row populates a side pane with full attribute-level
   diffs.
 - **Per-attribute diffs are *not* rendered inline within tree rows.** That
-  is genuinely v2 work — collapsible per-attribute rows, syntax
+  is genuinely future work — collapsible per-attribute rows, syntax
   highlighting, before/after value rendering with appropriate type-aware
   formatting. v1 keeps the tree clean and puts diffs in a clearly delimited
   side pane.
@@ -56,7 +56,7 @@ less`.
 ### Flat parsed summary (b)
 
 This was the initially recommended v1 option, on the grounds that "tree is
-nice but optional, defer to v2." Reversed on reflection because:
+nice but optional, defer." Reversed on reflection because:
 
 - Terraform plan output is **inherently hierarchical**. Every resource
   address is a module path. A wrapper that wraps COS Lite has every resource
@@ -71,7 +71,7 @@ nice but optional, defer to v2." Reversed on reflection because:
 - Atelier's pitch is "nicer than CLI plan output." Shipping a flat-list
   plan view undermines the pitch.
 
-What was deferred to v2 is *inline per-attribute diffs inside tree nodes*,
+What was deferred is *inline per-attribute diffs inside tree nodes*,
 which is the genuinely fiddly part (diff rendering, syntax highlighting,
 animated reveal). v1 puts diffs in a side pane on selection.
 
@@ -90,4 +90,4 @@ animated reveal). v1 puts diffs in a side pane on selection.
   explicitly by pressing `P`. Plan failures surface in the status pane
   (see SPEC §13.4); the previous successful plan remains accessible.
 - Autoplan-on-edit is not part of v1 (see [ADR-0002](0002-author-and-plan-scope.md)).
-  When/if added in v2, the plan rendering does not need to change.
+  When/if added later, the plan rendering does not need to change.

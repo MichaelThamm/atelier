@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 )
 
@@ -82,11 +83,50 @@ func parseLsRemote(out []byte) map[string]string {
 	return refs
 }
 
+// RefNotFoundError is returned by ResolveRef when a user-supplied ref cannot
+// be matched against any of the remote's refs (e.g. the branch/tag was
+// deleted). It carries the human-friendly names of the refs that DO exist so
+// callers can offer them as recovery options instead of leaving the user
+// guessing. This is a distinct, recoverable condition — the remote was
+// reachable and answered; the ref simply no longer exists.
+type RefNotFoundError struct {
+	Ref       string   // the ref the user asked for
+	Available []string // human-friendly available ref names (branches + tags)
+}
+
+func (e *RefNotFoundError) Error() string {
+	return fmt.Sprintf("ref %q not found among %d remote refs", e.Ref, len(e.Available))
+}
+
+// AvailableRefNames extracts the human-friendly ref names (branches and tags)
+// from an ls-remote map, stripping the refs/heads/ and refs/tags/ prefixes and
+// dropping symbolic/peeled entries (HEAD, ^{}). The result is sorted for
+// stable presentation.
+func AvailableRefNames(refs map[string]string) []string {
+	var names []string
+	for ref := range refs {
+		switch {
+		case strings.HasSuffix(ref, "^{}"):
+			// Peeled annotated tag; the un-peeled entry already covers it.
+			continue
+		case ref == "HEAD":
+			continue
+		case strings.HasPrefix(ref, "refs/heads/"):
+			names = append(names, strings.TrimPrefix(ref, "refs/heads/"))
+		case strings.HasPrefix(ref, "refs/tags/"):
+			names = append(names, strings.TrimPrefix(ref, "refs/tags/"))
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // ResolveRef takes a user-supplied ref (e.g. "main", "v1.2.0", a SHA) and a
 // map from `LsRemote` and returns the corresponding full SHA. If the input
 // looks like a SHA already (40 lowercase hex chars), it's returned as-is.
 // Resolution order matches git's own: exact ref → refs/heads/<ref> →
-// refs/tags/<ref>.
+// refs/tags/<ref>. When the ref can't be found, a *RefNotFoundError carrying
+// the available ref names is returned so callers can recover.
 func ResolveRef(input string, refs map[string]string) (string, error) {
 	if isHexSHA(input) {
 		return input, nil
@@ -104,7 +144,7 @@ func ResolveRef(input string, refs map[string]string) (string, error) {
 			return sha, nil
 		}
 	}
-	return "", fmt.Errorf("ref %q not found among %d remote refs", input, len(refs))
+	return "", &RefNotFoundError{Ref: input, Available: AvailableRefNames(refs)}
 }
 
 func isHexSHA(s string) bool {
@@ -131,11 +171,17 @@ type CloneOptions struct {
 	Ref    string // tag, branch, or SHA. Empty means HEAD.
 	Target string // destination directory. Must not exist.
 	Depth  int    // 0 → shallow with depth 1
+	// Subdir, when non-empty, restricts the working tree to this path (plus
+	// repository-root files) via a partial (--filter=blob:none) sparse
+	// checkout. Use when only a single module subdirectory is needed so we
+	// don't download blobs for the entire repository.
+	Subdir string
 }
 
 // Clone runs git clone --depth <D> [--branch <ref>] <url> <target>. For SHA
 // refs we follow with `git fetch && git checkout <sha>` since `--branch`
-// doesn't accept SHAs.
+// doesn't accept SHAs. When opts.Subdir is set, the clone is a partial,
+// sparse checkout limited to that subdirectory.
 func Clone(ctx context.Context, r Runner, opts CloneOptions) error {
 	if opts.URL == "" || opts.Target == "" {
 		return errors.New("clone: URL and Target are required")
@@ -147,7 +193,14 @@ func Clone(ctx context.Context, r Runner, opts CloneOptions) error {
 	if depth <= 0 {
 		depth = 1
 	}
+	sparse := opts.Subdir != ""
 	args := []string{"clone", fmt.Sprintf("--depth=%d", depth)}
+	if sparse {
+		// Partial clone: fetch trees but no blobs until checkout, and
+		// initialize sparse-checkout (cone mode) so only root files are
+		// materialized until we narrow to the subdir below.
+		args = append(args, "--filter=blob:none", "--sparse")
+	}
 	if opts.Ref != "" && !isHexSHA(opts.Ref) {
 		args = append(args, "--branch", opts.Ref)
 	}
@@ -155,6 +208,13 @@ func Clone(ctx context.Context, r Runner, opts CloneOptions) error {
 	_, stderr, err := r.Run(ctx, "", args...)
 	if err != nil {
 		return fmt.Errorf("git clone: %w (%s)", err, strings.TrimSpace(string(stderr)))
+	}
+	if sparse {
+		// Narrow the working tree (and on-demand blob fetch) to just the
+		// module subdirectory.
+		if _, stderr, err := r.Run(ctx, opts.Target, "sparse-checkout", "set", opts.Subdir); err != nil {
+			return fmt.Errorf("git sparse-checkout set %s: %w (%s)", opts.Subdir, err, strings.TrimSpace(string(stderr)))
+		}
 	}
 	if opts.Ref != "" && isHexSHA(opts.Ref) {
 		// Fetch the specific SHA and check it out. Shallow clones don't

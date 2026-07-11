@@ -11,16 +11,23 @@ the current directory: a `main.tf` calling the module via its git source, the
 user's variable overrides, and a `.gitignore` and `README.md` to round out the
 artifact.
 
-Atelier does **not** run `terraform apply`. The wrapper it produces is a normal
-Terraform project that the user (or their CI) applies through whatever
-workflow they already use.
+Atelier does **not** run `terraform apply` from the command line. The wrapper
+it produces is a normal Terraform project that the user (or their CI) applies
+through whatever workflow they already use. However, Atelier's TUI includes a
+built-in plan view (press `P`) with an optional apply action (`A`), and an
+output viewer (`O`) that shows planned or live output values with syntax
+highlighting.
 
 ## Design intent
 
 - **Generic.** Works with any Terraform module that declares variables, not
-  just COS Lite or any other Canonical product. Module-specific knowledge —
-  variable groupings, friendly names, descriptions — comes from an optional
-  `atelier.yaml` manifest the maintainer can commit alongside the module.
+  just COS Lite or any other Canonical product. Candidate discovery is purely
+  heuristic; Atelier never requires or reads any file in the upstream module
+  repository.
+- **User-owned presets.** Reusable variable bundles live in a wrapper-local
+  `atelier.local.yaml`, discovered by walking up from the wrapper directory, so
+  one file can be shared across sibling wrappers. See
+  [SPEC §11](SPEC.md#11-local-presets-atelierlocalyaml).
 - **Wrapper-as-artifact.** The wrapper directory is the durable output. It is
   version-controllable, shareable, runnable without Atelier installed, and
   CI-compatible. Atelier's internal state lives in a `.atelier/` subdirectory
@@ -34,9 +41,10 @@ workflow they already use.
 - [`SPEC.md`](SPEC.md) — comprehensive v1 specification.
 - [`ROADMAP.md`](ROADMAP.md) — v1 scope, deferred items, parked threads.
 - [`adr/`](adr/) — architecture decision records.
-- [`examples/`](examples/) — sample manifests and wrappers.
+- [`examples/`](examples/) — sample `atelier.local.yaml` presets and wrappers.
 
 ## Status
 
-Pre-implementation. This directory captures the design agreed during the
-initial grilling session. No code yet.
+Implemented. Atelier is a single Go binary built with Bubble Tea and lipgloss.
+The TUI uses a Catppuccin Mocha/Latte colour palette with rounded-border
+panels throughout.

@@ -33,8 +33,8 @@ Atelier produces a **wrapper Terraform project** — a directory containing a
 `module {}` block that calls the target module via its git source, plus
 supporting files (`versions.tf`, `providers.tf`, `.gitignore`, `README.md`).
 
-The wrapper lives at the user's current working directory (Shape A; see
-[ADR-0004](0004-wrapper-layout-shape-a.md)) and is independently runnable:
+The wrapper lives at the user's current working directory (see
+[ADR-0004](0004-wrapper-layout.md)) and is independently runnable:
 `terraform init && terraform plan && terraform apply` works without Atelier
 installed.
 

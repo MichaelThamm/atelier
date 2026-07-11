@@ -1,16 +1,16 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/manifest"
-	"github.com/canonical/atelier/internal/tftypes"
-	"github.com/canonical/atelier/internal/tfvars"
-	"github.com/canonical/atelier/internal/wrapper"
+	"github.com/MichaelThamm/atelier/internal/tftypes"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 func mustParseType(t *testing.T, src string) *tftypes.Type {
@@ -42,6 +42,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyMsg{Type: tea.KeyShiftTab}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
 	case "up":
@@ -52,12 +54,44 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyLeft}
 	case "right":
 		return tea.KeyMsg{Type: tea.KeyRight}
+	case "home":
+		return tea.KeyMsg{Type: tea.KeyHome}
+	case "end":
+		return tea.KeyMsg{Type: tea.KeyEnd}
+	case "delete", "del":
+		return tea.KeyMsg{Type: tea.KeyDelete}
+	case "alt+delete", "alt+del":
+		return tea.KeyMsg{Type: tea.KeyDelete, Alt: true}
 	case "backspace":
 		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case "alt+backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace, Alt: true}
 	case "ctrl+u":
 		return tea.KeyMsg{Type: tea.KeyCtrlU}
+	case "ctrl+k":
+		return tea.KeyMsg{Type: tea.KeyCtrlK}
+	case "ctrl+w":
+		return tea.KeyMsg{Type: tea.KeyCtrlW}
 	case "ctrl+r":
 		return tea.KeyMsg{Type: tea.KeyCtrlR}
+	case "ctrl+a":
+		return tea.KeyMsg{Type: tea.KeyCtrlA}
+	case "ctrl+e":
+		return tea.KeyMsg{Type: tea.KeyCtrlE}
+	case "ctrl+left":
+		return tea.KeyMsg{Type: tea.KeyCtrlLeft}
+	case "ctrl+right":
+		return tea.KeyMsg{Type: tea.KeyCtrlRight}
+	case "ctrl+home":
+		return tea.KeyMsg{Type: tea.KeyCtrlHome}
+	case "ctrl+end":
+		return tea.KeyMsg{Type: tea.KeyCtrlEnd}
+	case "alt+b":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}, Alt: true}
+	case "alt+f":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}, Alt: true}
+	case "alt+d":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}, Alt: true}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -96,25 +130,6 @@ func TestArrowKeys_moveBetweenVariables(t *testing.T) {
 	m = feed(m, key("up"))
 	if v := m.SelectedVariable(); v == nil || v.Name != "internal_tls" {
 		t.Errorf("after up, got %v", v)
-	}
-}
-
-func TestGroups_skipsHeadersOnNavigation(t *testing.T) {
-	m := New(sampleState(t), "cos_lite")
-	m.SetGroups([]manifest.ResolvedGroup{
-		{Name: "Identity", Variables: []string{"model_uuid"}},
-		{Name: "TLS", Variables: []string{"internal_tls"}},
-		{Name: "Other", Variables: []string{"count"}},
-	})
-	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// First variable should be model_uuid.
-	if v := m.SelectedVariable(); v == nil || v.Name != "model_uuid" {
-		t.Fatalf("first selection: %v", v)
-	}
-	m = feed(m, key("down"))
-	if v := m.SelectedVariable(); v == nil || v.Name != "internal_tls" {
-		t.Errorf("after one down (skipping group header): %v", v)
 	}
 }
 
@@ -217,6 +232,58 @@ func TestTab_switchesFocus(t *testing.T) {
 	}
 }
 
+// TestEsc_depthAwareDelegation verifies ADR-0023 §3: while the editor is
+// drilled into a nested structure, the model delegates Esc to it (popping one
+// level) instead of jumping straight back to the left pane. Only at the
+// editor's top level does Esc return focus to the variable list.
+func TestEsc_depthAwareDelegation(t *testing.T) {
+	state := &wrapper.State{
+		Vars: []tfvars.Variable{
+			{
+				Name:       "apps",
+				Type:       mustParseType(t, `map(object({ app_name = optional(string, "x"), units = optional(number, 1) }))`),
+				HasDefault: true,
+				Default: cty.ObjectVal(map[string]cty.Value{
+					"a": cty.ObjectVal(map[string]cty.Value{"app_name": cty.StringVal("x"), "units": cty.NumberIntVal(1)}),
+				}),
+			},
+		},
+		Values: map[string]cty.Value{},
+	}
+	m := New(state, "")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Focus the editor and drill into the "a" row's object.
+	m = feed(m, key("tab"))
+	if m.focus != focusRight {
+		t.Fatalf("expected right-pane focus, got %v", m.focus)
+	}
+	m = feed(m, key("enter")) // drill into the named row
+	moe, ok := m.editor.(*mapObjectEditor)
+	if !ok {
+		t.Fatalf("expected *mapObjectEditor, got %T", m.editor)
+	}
+	if moe.AtTopLevel() {
+		t.Fatalf("editor should be drilled in after enter")
+	}
+
+	// Esc pops one level; focus must stay in the editor pane.
+	m = feed(m, key("esc"))
+	if m.focus != focusRight {
+		t.Errorf("Esc while drilled in should stay in the editor pane; focus=%v", m.focus)
+	}
+	moe = m.editor.(*mapObjectEditor)
+	if !moe.AtTopLevel() {
+		t.Errorf("Esc should have popped back to the row list")
+	}
+
+	// A second Esc at top level returns to the variable list.
+	m = feed(m, key("esc"))
+	if m.focus != focusLeft {
+		t.Errorf("Esc at top level should return to the left pane; focus=%v", m.focus)
+	}
+}
+
 func TestQ_quitsFromLeftPane(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -260,5 +327,94 @@ func TestView_doesNotPanic(t *testing.T) {
 	out := m.View()
 	if !strings.Contains(out, "model_uuid") {
 		t.Errorf("view should list model_uuid; got:\n%s", out)
+	}
+}
+
+// TestRefModal_pasteSupport verifies that pasting text into the ref input
+// field appends all pasted runes, not just the first character.
+func TestRefModal_pasteSupport(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.RefSwitcher = &stubRefSwitcher{}
+
+	// Open the ref modal.
+	m = feed(m, key("R"))
+	if !m.refModal {
+		t.Fatal("expected refModal to be open after pressing R")
+	}
+
+	// Simulate a paste event: KeyRunes with Paste flag and multiple runes.
+	pasteMsg := tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune("feature/my-branch"),
+		Paste: true,
+	}
+	m = feed(m, pasteMsg)
+
+	if m.refInput != "feature/my-branch" {
+		t.Errorf("after paste, refInput = %q; want %q", m.refInput, "feature/my-branch")
+	}
+}
+
+// TestRefModal_typingSingleChars verifies basic character-by-character input.
+func TestRefModal_typingSingleChars(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.RefSwitcher = &stubRefSwitcher{}
+
+	m = feed(m, key("R"))
+	m = feed(m, key("m"), key("a"), key("i"), key("n"))
+
+	if m.refInput != "main" {
+		t.Errorf("refInput = %q; want %q", m.refInput, "main")
+	}
+
+	// Backspace removes one char.
+	m = feed(m, key("backspace"))
+	if m.refInput != "mai" {
+		t.Errorf("after backspace, refInput = %q; want %q", m.refInput, "mai")
+	}
+
+	// Ctrl+U clears all.
+	m = feed(m, key("ctrl+u"))
+	if m.refInput != "" {
+		t.Errorf("after ctrl+u, refInput = %q; want empty", m.refInput)
+	}
+}
+
+// stubRefSwitcher satisfies the RefSwitcher interface for tests.
+type stubRefSwitcher struct {
+	refs    []string // returned by ListRefs
+	refsErr error    // returned by ListRefs
+}
+
+func (s *stubRefSwitcher) SwitchRef(_ context.Context, _ string) (*RefSwitchResult, error) {
+	return &RefSwitchResult{}, nil
+}
+
+func (s *stubRefSwitcher) ListRefs(_ context.Context) ([]string, error) {
+	return s.refs, s.refsErr
+}
+
+// TestCaret_OnlyInEditorPane guards that the editor's caret appears only
+// while the editor pane is the active context: off in the list pane, on once
+// focused, off again on leave.
+func TestCaret_OnlyInEditorPane(t *testing.T) {
+	state := &wrapper.State{Vars: []tfvars.Variable{
+		{Name: "s", Type: mustParseType(t, "string")},
+	}}
+	m := New(state, "m")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	if cellFocused(m.editor) {
+		t.Fatal("caret should be off while the list pane is focused")
+	}
+	m = feed(m, key("tab")) // enter editor pane
+	if !cellFocused(m.editor) {
+		t.Fatal("caret should be on after focusing the editor pane")
+	}
+	m = feed(m, key("tab")) // leave editor pane
+	if cellFocused(m.editor) {
+		t.Fatal("caret should be off after leaving the editor pane")
 	}
 }

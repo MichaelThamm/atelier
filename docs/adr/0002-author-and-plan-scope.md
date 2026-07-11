@@ -1,8 +1,8 @@
-# ADR-0002: Author + plan scope; no in-TUI apply for v1
+# ADR-0002: Author + plan + apply scope
 
 ## Status
 
-Accepted
+Accepted (updated: in-TUI apply added after the initial design)
 
 ## Context
 
@@ -28,9 +28,10 @@ presses a key) or automatically (debounced on edit)?
 
 ## Decision
 
-Atelier v1 implements **scope B with manual plan invocation**. The user
-presses a key (`P`) to run `terraform plan`; Atelier does not auto-replan on
-edit.
+Atelier implements **scope B+C with manual plan and apply invocation**.
+The user presses `P` to run `terraform plan`; once a plan is ready, pressing
+`A` runs `terraform apply` using the cached plan file. Atelier does not
+auto-replan on edit.
 
 ## Alternatives considered
 
@@ -56,7 +57,7 @@ streaming and cancellation, dry-run vs. real-run UX. All of this is real
 implementation work that does not contribute to the "configure visually"
 value proposition.
 
-May be revisited in v2; the wrapper format does not need to change to
+May be revisited later; the wrapper format does not need to change to
 accommodate it.
 
 ### Automatic plan-on-edit
@@ -73,19 +74,20 @@ Considered seriously. Rejected for v1 because:
 - Manual plan is honest about cost. "Press P to plan" sets a clear mental
   model and gives the user control over when expensive operations happen.
 
-Adaptive autoplan is deferred to v2; see [ROADMAP](../ROADMAP.md).
+Adaptive autoplan is not yet implemented; see [ROADMAP](../ROADMAP.md).
 
 ## Consequences
 
-- The TUI has a `P` key binding for plan. It does not have an `A` or `D`
-  binding.
+- The TUI has a `P` key binding for plan and an `A` key binding for apply
+  (available only from the plan view after a successful plan).
 - Plan results are rendered inline in the TUI (see [ADR-0011](0011-plan-output-tree.md)).
-- The user runs `terraform apply` themselves from the wrapper directory,
-  using their normal workflow (local, CI, OpenTofu Cloud, etc.).
+- Apply uses the cached plan file (`.atelier/cache/plan.tfplan`), ensuring
+  the user applies exactly what they reviewed. After a successful apply the
+  plan is invalidated.
 - Atelier must invoke `terraform` as a subprocess. It uses the
   [`terraform-exec`](https://github.com/hashicorp/terraform-exec) library;
   see [ADR-0005](0005-implementation-language-go.md).
 - Pre-launch failures (missing `terraform` binary, version too old, network
   failure during git clone) error out at the CLI before the TUI launches.
-  In-session failures (plan or validate errors) are surfaced in the status
-  pane and do not block the user.
+  In-session failures (plan, apply, or validate errors) are surfaced in the
+  status pane and do not block the user.

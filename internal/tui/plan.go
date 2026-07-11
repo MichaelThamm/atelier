@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/MichaelThamm/atelier/internal/state"
 )
 
 // planNodeKind is what a node in the plan tree represents: a module
@@ -89,6 +91,83 @@ func BuildPlanTree(plan *tfjson.Plan) *planNode {
 					Label:  resourceLabel(rc),
 					Action: actionMarker(rc.Change.Actions),
 					Change: rc,
+				})
+			}
+			modNode.Children = append(modNode.Children, typNode)
+		}
+		root.Children = append(root.Children, modNode)
+	}
+	return root
+}
+
+// BuildStateTree builds a plan-tree-compatible structure from the terraform
+// state, grouped by module → type → resource. This allows navigating state
+// resources using the same tree UI when the plan has no changes.
+func BuildStateTree(s *state.State) *planNode {
+	root := &planNode{Kind: nodeModule, Label: "<root>"}
+	if s == nil || len(s.Resources) == 0 {
+		return root
+	}
+
+	type resInfo struct {
+		Label   string
+		Address string
+	}
+
+	// Group: module → type → resources
+	type typeGroup struct {
+		resources []resInfo
+	}
+	type modGroup struct {
+		types     map[string]*typeGroup
+		typeOrder []string
+	}
+
+	modules := map[string]*modGroup{}
+	var moduleOrder []string
+
+	for _, r := range s.Resources {
+		mod := r.Module
+		if mod == "" {
+			mod = "(root)"
+		}
+		mg, ok := modules[mod]
+		if !ok {
+			mg = &modGroup{types: map[string]*typeGroup{}}
+			modules[mod] = mg
+			moduleOrder = append(moduleOrder, mod)
+		}
+		tg, ok := mg.types[r.Type]
+		if !ok {
+			tg = &typeGroup{}
+			mg.types[r.Type] = tg
+			mg.typeOrder = append(mg.typeOrder, r.Type)
+		}
+		// Build label from address, stripping module prefix for brevity.
+		label := r.Address
+		if r.Module != "" {
+			label = strings.TrimPrefix(r.Address, r.Module+".")
+		}
+		tg.resources = append(tg.resources, resInfo{Label: label, Address: r.Address})
+	}
+
+	sort.Strings(moduleOrder)
+
+	for _, mod := range moduleOrder {
+		mg := modules[mod]
+		modNode := &planNode{Kind: nodeModule, Label: mod}
+
+		sort.Strings(mg.typeOrder)
+		for _, typ := range mg.typeOrder {
+			tg := mg.types[typ]
+			typNode := &planNode{Kind: nodeType, Label: typ, Collapsed: true}
+			for _, r := range tg.resources {
+				typNode.Children = append(typNode.Children, &planNode{
+					Kind:   nodeResource,
+					Label:  r.Label,
+					Action: " ", // no action marker for state
+					// Store the address in a ResourceChange-like way for lookups.
+					Change: &tfjson.ResourceChange{Address: r.Address},
 				})
 			}
 			modNode.Children = append(modNode.Children, typNode)
@@ -265,22 +344,23 @@ func AttributeDiff(rc *tfjson.ResourceChange) []AttributeDiffLine {
 	after := asMap(change.After)
 	beforeSens := asMap(change.BeforeSensitive)
 	afterSens := asMap(change.AfterSensitive)
+	afterUnknown := asMap(change.AfterUnknown)
 
 	if len(change.Actions) == 1 {
 		switch change.Actions[0] {
 		case tfjson.ActionCreate:
-			return diffCreate(after, afterSens)
+			return diffCreate(after, afterSens, afterUnknown)
 		case tfjson.ActionDelete:
 			return diffDelete(before, beforeSens)
 		case tfjson.ActionUpdate:
-			return diffUpdate(before, after, beforeSens, afterSens)
+			return diffUpdate(before, after, beforeSens, afterSens, afterUnknown)
 		case tfjson.ActionRead, tfjson.ActionNoop:
 			return nil
 		}
 	}
 	if len(change.Actions) == 2 {
 		// Replace: render before/after side-by-side with `~`.
-		return diffUpdate(before, after, beforeSens, afterSens)
+		return diffUpdate(before, after, beforeSens, afterSens, afterUnknown)
 	}
 	return nil
 }
@@ -295,11 +375,17 @@ func asMap(v any) map[string]any {
 	return nil
 }
 
-func diffCreate(after map[string]any, sens map[string]any) []AttributeDiffLine {
+func diffCreate(after, sens, unknowns map[string]any) []AttributeDiffLine {
 	out := make([]AttributeDiffLine, 0, len(after))
 	for _, k := range sortedKeys(after) {
-		val := renderValue(after[k], isSensitive(sens, k))
+		val := renderValue(after[k], isSensitive(sens, k), isUnknown(unknowns, k))
 		out = append(out, AttributeDiffLine{Marker: "+", Key: k, After: val})
+	}
+	// Also include keys that are unknown but not in after (after is nil for unknowns).
+	for _, k := range sortedKeys(unknowns) {
+		if _, has := after[k]; !has && isUnknown(unknowns, k) {
+			out = append(out, AttributeDiffLine{Marker: "+", Key: k, After: "(known after apply)"})
+		}
 	}
 	return out
 }
@@ -307,19 +393,25 @@ func diffCreate(after map[string]any, sens map[string]any) []AttributeDiffLine {
 func diffDelete(before, sens map[string]any) []AttributeDiffLine {
 	out := make([]AttributeDiffLine, 0, len(before))
 	for _, k := range sortedKeys(before) {
-		val := renderValue(before[k], isSensitive(sens, k))
+		val := renderValue(before[k], isSensitive(sens, k), false)
 		out = append(out, AttributeDiffLine{Marker: "-", Key: k, Before: val})
 	}
 	return out
 }
 
-func diffUpdate(before, after, beforeSens, afterSens map[string]any) []AttributeDiffLine {
+func diffUpdate(before, after, beforeSens, afterSens, afterUnknown map[string]any) []AttributeDiffLine {
 	keys := map[string]struct{}{}
 	for k := range before {
 		keys[k] = struct{}{}
 	}
 	for k := range after {
 		keys[k] = struct{}{}
+	}
+	// Include keys that are unknown (they may not appear in after).
+	for k := range afterUnknown {
+		if isUnknown(afterUnknown, k) {
+			keys[k] = struct{}{}
+		}
 	}
 	ordered := make([]string, 0, len(keys))
 	for k := range keys {
@@ -333,17 +425,26 @@ func diffUpdate(before, after, beforeSens, afterSens map[string]any) []Attribute
 		av, hasA := after[k]
 		bSens := isSensitive(beforeSens, k)
 		aSens := isSensitive(afterSens, k)
+		aUnk := isUnknown(afterUnknown, k)
 		switch {
-		case hasB && !hasA:
-			out = append(out, AttributeDiffLine{Marker: "-", Key: k, Before: renderValue(bv, bSens)})
-		case !hasB && hasA:
-			out = append(out, AttributeDiffLine{Marker: "+", Key: k, After: renderValue(av, aSens)})
+		case hasB && !hasA && !aUnk:
+			out = append(out, AttributeDiffLine{Marker: "-", Key: k, Before: renderValue(bv, bSens, false)})
+		case !hasB && (hasA || aUnk):
+			out = append(out, AttributeDiffLine{Marker: "+", Key: k, After: renderValue(av, aSens, aUnk)})
+		case aUnk:
+			// Value existed before, will change to something unknown after apply.
+			out = append(out, AttributeDiffLine{
+				Marker: "~",
+				Key:    k,
+				Before: renderValue(bv, bSens, false),
+				After:  "(known after apply)",
+			})
 		case !valuesEqual(bv, av):
 			out = append(out, AttributeDiffLine{
 				Marker: "~",
 				Key:    k,
-				Before: renderValue(bv, bSens),
-				After:  renderValue(av, aSens),
+				Before: renderValue(bv, bSens, false),
+				After:  renderValue(av, aSens, false),
 			})
 		}
 	}
@@ -359,14 +460,25 @@ func isSensitive(sens map[string]any, key string) bool {
 		return false
 	}
 	// Terraform encodes sensitivity as a boolean (top-level) or as a nested
-	// structure mirroring the value (for nested attributes). For v1 we treat
-	// any truthy presence as sensitive.
-	switch t := v.(type) {
-	case bool:
-		return t
-	default:
-		return true
+	// structure mirroring the value (for nested attributes). A nested
+	// map/list means some sub-fields are sensitive, but the attribute itself
+	// can be shown — only a bare `true` marks the whole value as sensitive.
+	t, ok := v.(bool)
+	return ok && t
+}
+
+// isUnknown checks whether a key is marked as unknown ("known after apply")
+// in the AfterUnknown map from the plan JSON.
+func isUnknown(unknowns map[string]any, key string) bool {
+	if unknowns == nil {
+		return false
 	}
+	v, ok := unknowns[key]
+	if !ok {
+		return false
+	}
+	t, ok := v.(bool)
+	return ok && t
 }
 
 func sortedKeys(m map[string]any) []string {
@@ -380,10 +492,13 @@ func sortedKeys(m map[string]any) []string {
 
 // renderValue produces a compact one-line representation of a JSON-decoded
 // value. Lists/maps are rendered as their Go fmt; sensitive values are
-// masked.
-func renderValue(v any, sensitive bool) string {
+// masked; unknown values are labelled.
+func renderValue(v any, sensitive, unknown bool) string {
 	if sensitive {
 		return "<sensitive>"
+	}
+	if unknown {
+		return "(known after apply)"
 	}
 	if v == nil {
 		return "null"
@@ -402,14 +517,14 @@ func renderValue(v any, sensitive bool) string {
 	case []any:
 		parts := make([]string, len(t))
 		for i, el := range t {
-			parts[i] = renderValue(el, false)
+			parts[i] = renderValue(el, false, false)
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
 	case map[string]any:
 		keys := sortedKeys(t)
 		parts := make([]string, 0, len(keys))
 		for _, k := range keys {
-			parts = append(parts, fmt.Sprintf("%s=%s", k, renderValue(t[k], false)))
+			parts = append(parts, fmt.Sprintf("%s=%s", k, renderValue(t[k], false, false)))
 		}
 		return "{" + strings.Join(parts, ", ") + "}"
 	}

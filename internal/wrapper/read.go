@@ -10,7 +10,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
 
 // ParsedMain is the structured view of an existing main.tf.
@@ -77,24 +77,29 @@ func ReadMain(dir string, vars []tfvars.Variable) (*ParsedMain, error) {
 				if dd.HasErrors() {
 					// Couldn't evaluate (e.g. references to other variables);
 					// treat it as raw and skip materialising as a cty.Value.
-					pm.UnknownAttrs = append(pm.UnknownAttrs, RawAttr{
-						Name: attr.Name,
-						Raw:  rangeBytes(data, attr.SrcRange),
-					})
+					pm.UnknownAttrs = append(pm.UnknownAttrs, rawAttr(data, attr))
 					continue
 				}
 				pm.Values[attr.Name] = val
 				continue
 			}
 			// Unknown attribute — preserve.
-			pm.UnknownAttrs = append(pm.UnknownAttrs, RawAttr{
-				Name: attr.Name,
-				Raw:  rangeBytes(data, attr.SrcRange),
-			})
+			pm.UnknownAttrs = append(pm.UnknownAttrs, rawAttr(data, attr))
 		}
 		return pm, nil
 	}
 	return nil, fmt.Errorf("no module block in main.tf")
+}
+
+// rawAttr captures an attribute Atelier can't model as a cty.Value, storing
+// both the whole `name = expr` bytes and just the expression bytes so the
+// writer can re-emit the value deterministically.
+func rawAttr(src []byte, attr *hclsyntax.Attribute) RawAttr {
+	return RawAttr{
+		Name:    attr.Name,
+		Raw:     rangeBytes(src, attr.SrcRange),
+		RawExpr: rangeBytes(src, attr.Expr.Range()),
+	}
 }
 
 func rangeBytes(src []byte, r hcl.Range) []byte {
@@ -104,6 +109,116 @@ func rangeBytes(src []byte, r hcl.Range) []byte {
 	out := make([]byte, r.End.Byte-r.Start.Byte)
 	copy(out, src[r.Start.Byte:r.End.Byte])
 	return out
+}
+
+// ModuleBlockInfo describes a module block found in main.tf.
+type ModuleBlockInfo struct {
+	Name   string // block label, e.g. "seaweedfs"
+	Source string // the source attribute value
+}
+
+// ReadModuleBlocks returns info about ALL module blocks in main.tf.
+// This is used by the multi-module TUI to discover secondary modules.
+func ReadModuleBlocks(dir string) ([]ModuleBlockInfo, error) {
+	path := filepath.Join(dir, MainTF)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read main.tf: %w", err)
+	}
+
+	parser := hclparse.NewParser()
+	f, diags := parser.ParseHCL(data, path)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("parse main.tf: %s", diags.Error())
+	}
+	body, ok := f.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, fmt.Errorf("parse main.tf: unexpected body type")
+	}
+
+	var blocks []ModuleBlockInfo
+	for _, block := range body.Blocks {
+		if block.Type != "module" || len(block.Labels) != 1 {
+			continue
+		}
+		info := ModuleBlockInfo{Name: block.Labels[0]}
+		for _, attr := range block.Body.Attributes {
+			if attr.Name == "source" {
+				val, dd := attr.Expr.Value(nil)
+				if !dd.HasErrors() && val.Type() == cty.String && !val.IsNull() {
+					info.Source = val.AsString()
+				}
+				break
+			}
+		}
+		blocks = append(blocks, info)
+	}
+	return blocks, nil
+}
+
+// ReadMainForBlock parses main.tf and extracts values for a specific named
+// module block. Similar to ReadMain but targets a specific block by name.
+func ReadMainForBlock(dir string, blockName string, vars []tfvars.Variable) (*ParsedMain, error) {
+	path := filepath.Join(dir, MainTF)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read main.tf: %w", err)
+	}
+
+	parser := hclparse.NewParser()
+	f, diags := parser.ParseHCL(data, path)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("parse main.tf: %s", diags.Error())
+	}
+	body, ok := f.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, fmt.Errorf("parse main.tf: unexpected body type")
+	}
+
+	varSet := map[string]*tfvars.Variable{}
+	for i := range vars {
+		varSet[vars[i].Name] = &vars[i]
+	}
+
+	for _, block := range body.Blocks {
+		if block.Type != "module" || len(block.Labels) != 1 {
+			continue
+		}
+		if block.Labels[0] != blockName {
+			continue
+		}
+		pm := &ParsedMain{
+			ModuleBlockName: block.Labels[0],
+			Values:          map[string]cty.Value{},
+		}
+		for _, attr := range block.Body.Attributes {
+			if attr.Name == "source" {
+				val, dd := attr.Expr.Value(nil)
+				if !dd.HasErrors() && val.Type() == cty.String && !val.IsNull() {
+					pm.Source = val.AsString()
+				}
+				continue
+			}
+			if _, isVar := varSet[attr.Name]; isVar {
+				val, dd := attr.Expr.Value(nil)
+				if dd.HasErrors() {
+					pm.UnknownAttrs = append(pm.UnknownAttrs, rawAttr(data, attr))
+					continue
+				}
+				pm.Values[attr.Name] = val
+				continue
+			}
+			pm.UnknownAttrs = append(pm.UnknownAttrs, rawAttr(data, attr))
+		}
+		return pm, nil
+	}
+	return nil, nil
 }
 
 // ReadSecrets parses secrets.auto.tfvars and returns a map of

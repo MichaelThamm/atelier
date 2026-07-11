@@ -84,6 +84,11 @@ func Save(wrapperDir string, s *Session) error {
 		os.Remove(tmpPath)
 		return err
 	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
 		return err

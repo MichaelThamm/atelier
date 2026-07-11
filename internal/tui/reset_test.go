@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/wrapper"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // Ctrl+R from the left pane should drop the selected variable's entry
@@ -144,6 +144,45 @@ func TestReset_objectFromLeftPane_clearsAllFields(t *testing.T) {
 	}
 }
 
+// Ctrl+R on a variable wired to a reference expression must RESTORE the
+// preserved raw form (the [→] view), not wipe it. The user expects reset to
+// undo their concrete override and bring back the original reference.
+func TestReset_restoresPreservedExpression(t *testing.T) {
+	state := sampleState(t)
+	state.UnknownAttrs = []wrapper.RawAttr{
+		{
+			Name:    "model_uuid",
+			Raw:     []byte("model_uuid = data.juju_model.m.uuid"),
+			RawExpr: []byte("data.juju_model.m.uuid"),
+		},
+	}
+	m := New(state, "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// model_uuid is the first variable. Override it with a concrete value...
+	if m.SelectedVariable().Name != "model_uuid" {
+		t.Fatalf("setup: SelectedVariable = %v", m.SelectedVariable())
+	}
+	m = feed(m, key("tab"), key("a"), key("b"), key("c"))
+	if v := m.State.Values["model_uuid"]; v.AsString() != "abc" {
+		t.Fatalf("setup: override did not land; got %v", v.GoString())
+	}
+
+	// ...then reset. The concrete override should be gone and the original
+	// reference should resurface.
+	m = feed(m, key("ctrl+r"))
+	if _, ok := m.State.Values["model_uuid"]; ok {
+		t.Errorf("after reset, the concrete override should be removed from Values")
+	}
+	expr, wired := m.State.WiredExpression("model_uuid")
+	if !wired || expr != "data.juju_model.m.uuid" {
+		t.Errorf("after reset, the wired expression should be restored; got %q wired=%v", expr, wired)
+	}
+	if got := stripANSI(varMarker(m.State, "model_uuid")); got != "[→]" {
+		t.Errorf("post-reset marker = %q; want [→]", got)
+	}
+}
+
 // Status bar should surface a confirmation when a reset happens so the
 // user isn't left wondering whether anything occurred.
 func TestReset_setsStatusMessage(t *testing.T) {
@@ -160,8 +199,11 @@ func TestReset_setsStatusMessage(t *testing.T) {
 // can discover it.
 func TestReset_appearsInStatusHints(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
-	hints := m.statusHints()
-	if !strings.Contains(hints, "^R") && !strings.Contains(hints, "Ctrl+R") {
-		t.Errorf("status hints should advertise reset; got %q", hints)
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	// Ctrl+R is shown in the help modal, not the compact status hints.
+	m.helpModal = true
+	view := m.View()
+	if !strings.Contains(view, "Ctrl+R") {
+		t.Errorf("help modal should advertise Ctrl+R reset; got %q", view)
 	}
 }

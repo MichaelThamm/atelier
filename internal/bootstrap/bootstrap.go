@@ -7,6 +7,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,12 +19,11 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/candidate"
-	"github.com/canonical/atelier/internal/gitops"
-	"github.com/canonical/atelier/internal/manifest"
-	"github.com/canonical/atelier/internal/session"
-	"github.com/canonical/atelier/internal/tfvars"
-	"github.com/canonical/atelier/internal/wrapper"
+	"github.com/MichaelThamm/atelier/internal/candidate"
+	"github.com/MichaelThamm/atelier/internal/gitops"
+	"github.com/MichaelThamm/atelier/internal/session"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // InitOptions captures the inputs to `atelier init <source>`.
@@ -38,16 +38,40 @@ type InitOptions struct {
 
 // Result is the output of either InitNew or LoadExisting.
 type Result struct {
-	State          *wrapper.State
-	Candidates     []candidate.Candidate
-	ResolvedSHA    string
-	LiteralRef     string
-	ManifestWarnings []string
+	State       *wrapper.State
+	Candidates  []candidate.Candidate
+	ResolvedSHA string
+	LiteralRef  string
+	Warnings    []string
 
 	// RefBump is non-nil when LoadExisting detects the ref resolved to a
 	// different SHA than session.json recorded. Empty when no session existed
 	// or when the SHA hasn't changed.
 	RefBump *RefBump
+
+	// RefUnresolved is set by LoadExisting when the wrapper's pinned ref could
+	// not be resolved on the remote (e.g. the branch/tag was deleted). The
+	// TUI is still launched — in a degraded state whose variable schema is
+	// unknown — so the user can switch to a valid ref. When non-nil, the TUI
+	// auto-opens the ref-switch modal on startup.
+	RefUnresolved *RefUnresolved
+}
+
+// RefUnresolved describes why a wrapper opened without a resolvable ref, and
+// (when known) the refs that DO exist so the ref switcher can present them.
+type RefUnresolved struct {
+	// Ref is the pinned ref that could not be resolved.
+	Ref string
+	// Reason is a short, human-readable explanation for the status banner.
+	Reason string
+	// Available lists the human-friendly ref names the remote does have.
+	// Empty when the remote itself was unreachable (network/repo error), in
+	// which case there is nothing to offer.
+	Available []string
+	// Offline is true when the failure was reaching the remote at all (as
+	// opposed to the remote answering but lacking the ref). Distinguishes a
+	// deleted-ref banner from a connectivity banner.
+	Offline bool
 }
 
 // RefBump records the SHA transition for SPEC §5.4 surfacing.
@@ -69,7 +93,11 @@ func CloneSubdir(wrapperDir string) string {
 // directory.
 func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedSHA string, err error) {
 	if opts.LocalSource {
-		abs, err := filepath.Abs(opts.Source)
+		src := opts.Source
+		if !filepath.IsAbs(src) && opts.WrapperDir != "" {
+			src = filepath.Join(opts.WrapperDir, src)
+		}
+		abs, err := filepath.Abs(src)
 		if err != nil {
 			return "", "", err
 		}
@@ -99,6 +127,31 @@ func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedS
 
 	repoName := repoBasename(opts.Source)
 	cloneDir = filepath.Join(CloneSubdir(opts.WrapperDir), repoName)
+
+	// Warm-start fast path: if a previous clone is already checked out at the
+	// resolved SHA, reuse it instead of deleting and re-cloning. ls-remote has
+	// confirmed the remote hasn't moved, so the on-disk tree is current. This
+	// turns the common case (re-opening a wrapper whose ref hasn't changed)
+	// from a full network clone into a single ls-remote round-trip. A `.git`
+	// check guards against spawning git on a missing/partial directory, and
+	// (for sparse clones) we confirm the needed subdir is actually materialized
+	// before trusting the cache.
+	if resolvedSHA != "" {
+		if _, statErr := os.Stat(filepath.Join(cloneDir, ".git")); statErr == nil {
+			if head, herr := gitops.HeadSHA(ctx, opts.GitRunner, cloneDir); herr == nil && head == resolvedSHA {
+				if opts.ModulePath == "" {
+					return cloneDir, resolvedSHA, nil
+				}
+				if _, e := os.Stat(filepath.Join(cloneDir, opts.ModulePath)); e == nil {
+					return cloneDir, resolvedSHA, nil
+				}
+				// SHA matches but the subdir isn't present (e.g. a prior
+				// sparse clone narrowed to a different module); fall through
+				// to re-clone with the correct sparse set.
+			}
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(cloneDir), 0o755); err != nil {
 		return "", "", err
 	}
@@ -110,6 +163,7 @@ func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedS
 		URL:    opts.Source,
 		Ref:    ref,
 		Target: cloneDir,
+		Subdir: opts.ModulePath,
 	}
 	if err := gitops.Clone(ctx, opts.GitRunner, cloneOpts); err != nil {
 		return "", "", err
@@ -134,17 +188,17 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 	if err != nil {
 		return nil, fmt.Errorf("read variables: %w", err)
 	}
-	req, err := readRequiredProviders(candidateDir)
+	req, err := ReadRequiredProviders(candidateDir)
 	if err != nil {
 		return nil, fmt.Errorf("read required_providers: %w", err)
 	}
 	wrappedSource := composeSource(sourceURL, modulePath, literalRef)
 
-	providers := defaultProviderBlocks(req)
+	providers := DefaultProviderBlocks(req)
 	values := map[string]cty.Value{}
 	state := &wrapper.State{
 		Dir:               wrapperDir,
-		ModuleBlockName:   moduleBlockName(modulePath),
+		ModuleBlockName:   ModuleBlockName(modulePath, repoBasename(sourceURL)),
 		Source:            wrappedSource,
 		Vars:              vars,
 		Values:            values,
@@ -152,6 +206,26 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 		RequiredProviders: req,
 	}
 	return state, nil
+}
+
+// PrepareStateFromMain builds a degraded wrapper.State without a module
+// clone, for the case where the pinned ref no longer resolves on the remote
+// (so we can't read the module's variable declarations). The resulting State
+// preserves the wrapper's Source and existing user values (read from main.tf
+// by the caller) but carries an EMPTY variable schema — the module can't be
+// inspected until the user switches to a resolvable ref.
+//
+// Keeping this separate from PrepareState (which requires a real clone)
+// documents that empty Vars here is intentional, not a read failure, and
+// avoids masking genuine clone problems on the normal path.
+func PrepareStateFromMain(wrapperDir, modulePath, literalRef, sourceURL string) *wrapper.State {
+	return &wrapper.State{
+		Dir:             wrapperDir,
+		ModuleBlockName: ModuleBlockName(modulePath, repoBasename(sourceURL)),
+		Source:          composeSource(sourceURL, modulePath, literalRef),
+		Vars:            nil,
+		Values:          map[string]cty.Value{},
+	}
 }
 
 // InitNew runs the full init flow up to (but not including) launching the
@@ -170,15 +244,10 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		return nil, err
 	}
 
-	man, manWarnings, err := manifest.LoadFromRepo(cloneDir)
+	cands, warnings, err := candidate.Discover(cloneDir)
 	if err != nil {
 		return nil, err
 	}
-	cands, discoverWarnings, err := candidate.Discover(cloneDir, man)
-	if err != nil {
-		return nil, err
-	}
-	warnings := append(manWarnings, discoverWarnings...)
 	if len(cands) == 0 {
 		return nil, fmt.Errorf("no module candidates found in %s", opts.Source)
 	}
@@ -190,10 +259,10 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		} else {
 			// Caller must pick. Return the candidate list; State remains nil.
 			return &Result{
-				Candidates:       cands,
-				ResolvedSHA:      sha,
-				LiteralRef:       opts.Ref,
-				ManifestWarnings: warnings,
+				Candidates:  cands,
+				ResolvedSHA: sha,
+				LiteralRef:  opts.Ref,
+				Warnings:    warnings,
 			}, nil
 		}
 	} else {
@@ -227,7 +296,7 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		ModuleDir:         modulePath,
 		RequiredProviders: state.RequiredProviders,
 		Providers:         state.Providers,
-		Variables:         convertVariables(state.Vars),
+		Variables:         ConvertVariables(state.Vars),
 	}); err != nil {
 		return nil, fmt.Errorf("wrapper bootstrap: %w", err)
 	}
@@ -246,11 +315,11 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 	}
 
 	return &Result{
-		State:            state,
-		Candidates:       cands,
-		ResolvedSHA:      sha,
-		LiteralRef:       opts.Ref,
-		ManifestWarnings: warnings,
+		State:       state,
+		Candidates:  cands,
+		ResolvedSHA: sha,
+		LiteralRef:  opts.Ref,
+		Warnings:    warnings,
 	}, nil
 }
 
@@ -276,9 +345,21 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		}
 		srcURL, refStr := decomposeSource(pm.Source)
 		prev = &session.Session{
-			SourceURL:       srcURL,
-			LiteralRef:      refStr,
-			ModuleBlockName: pm.ModuleBlockName,
+			SourceURL:           srcURL,
+			LiteralRef:          refStr,
+			ModuleBlockName:     pm.ModuleBlockName,
+			ModuleCandidatePath: modulePathFromSource(pm.Source),
+		}
+	}
+
+	// Recover the module sub-path if it's missing. Sessions written by an
+	// earlier auto-rehydrate (or any wrapper whose session.json predates this
+	// fix) may have an empty ModuleCandidatePath, which makes PrepareState read
+	// variables from the repository root instead of the module's subdirectory.
+	// Re-derive it from the primary module block's source in main.tf.
+	if prev.ModuleCandidatePath == "" {
+		if pm, err := wrapper.ReadMain(wrapperDir, nil); err == nil && pm != nil {
+			prev.ModuleCandidatePath = modulePathFromSource(pm.Source)
 		}
 	}
 
@@ -288,16 +369,34 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 
 	// Re-clone the module so we can read variable declarations.
 	cloneDir, currentSHA, err := ResolveAndClone(ctx, InitOptions{
-		WrapperDir: wrapperDir,
-		Source:     prev.SourceURL,
-		Ref:        prev.LiteralRef,
-		GitRunner:  gitRunner,
+		WrapperDir:  wrapperDir,
+		Source:      prev.SourceURL,
+		LocalSource: isLocalSource(prev.SourceURL),
+		Ref:         prev.LiteralRef,
+		ModulePath:  prev.ModuleCandidatePath,
+		GitRunner:   gitRunner,
 	})
 	if err != nil {
-		// Network failure during rehydrate is non-fatal; we can still open
-		// the TUI but variables will be unknown. The caller should surface
-		// this in the status pane.
-		return nil, fmt.Errorf("rehydrate clone: %w", err)
+		// The pinned ref could not be resolved. This is a recoverable
+		// condition: open the TUI in a degraded state (unknown variable
+		// schema, but user values from main.tf preserved) so the user can
+		// switch to a valid ref instead of being stranded at the CLI.
+		var refErr *gitops.RefNotFoundError
+		if errors.As(err, &refErr) {
+			return loadDegraded(wrapperDir, prev, &RefUnresolved{
+				Ref:       prev.LiteralRef,
+				Reason:    fmt.Sprintf("ref %q no longer exists on the remote", prev.LiteralRef),
+				Available: refErr.Available,
+			})
+		}
+		// The remote itself was unreachable (offline, DNS, auth, repo gone).
+		// Also non-fatal — open degraded with a connectivity banner. We have
+		// no ref list to offer in this case.
+		return loadDegraded(wrapperDir, prev, &RefUnresolved{
+			Ref:     prev.LiteralRef,
+			Reason:  "couldn't reach the module remote: " + err.Error(),
+			Offline: true,
+		})
 	}
 
 	state, err := PrepareState(wrapperDir, cloneDir, prev.ModuleCandidatePath, currentSHA, prev.LiteralRef, prev.SourceURL)
@@ -344,9 +443,43 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 	return res, nil
 }
 
-// readRequiredProviders parses the module's terraform { required_providers
+// loadDegraded builds a Result for a wrapper whose pinned ref could not be
+// resolved. It assembles a schema-less State from main.tf alone (no clone),
+// preserving the user's existing values and secrets so nothing is lost, and
+// attaches the RefUnresolved marker so the TUI launches straight into the
+// ref-switch modal. The wrapper's on-disk files are never mutated here — this
+// is a read-only recovery path.
+func loadDegraded(wrapperDir string, prev *session.Session, unresolved *RefUnresolved) (*Result, error) {
+	state := PrepareStateFromMain(wrapperDir, prev.ModuleCandidatePath, prev.LiteralRef, prev.SourceURL)
+
+	// Overlay user values and wired expressions from main.tf. Vars is nil, so
+	// ReadMain can't type-check values against a schema; it recovers them
+	// verbatim, which is exactly what we want to carry through the switch.
+	if pm, err := wrapper.ReadMain(wrapperDir, state.Vars); err == nil && pm != nil {
+		if pm.ModuleBlockName != "" {
+			state.ModuleBlockName = pm.ModuleBlockName
+		}
+		for k, v := range pm.Values {
+			state.Values[k] = v
+		}
+		state.UnknownAttrs = pm.UnknownAttrs
+	}
+	// Overlay secrets (best-effort).
+	if secrets, err := wrapper.ReadSecrets(wrapperDir); err == nil {
+		state.SecretValues = secrets
+	}
+
+	return &Result{
+		State:         state,
+		LiteralRef:    prev.LiteralRef,
+		ResolvedSHA:   prev.ResolvedSHA, // last-known SHA from session, if any
+		RefUnresolved: unresolved,
+	}, nil
+}
+
+// ReadRequiredProviders parses the module's terraform { required_providers
 // { ... } } block (if any) and returns it as a map.
-func readRequiredProviders(dir string) (map[string]wrapper.RequiredProvider, error) {
+func ReadRequiredProviders(dir string) (map[string]wrapper.RequiredProvider, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -412,11 +545,11 @@ func parseRequiredProviderEntry(expr hcl.Expression) wrapper.RequiredProvider {
 	return rp
 }
 
-// defaultProviderBlocks turns a required_providers map into a list of empty
+// DefaultProviderBlocks turns a required_providers map into a list of empty
 // ProviderBlock stubs, ready for the TUI to populate. Sensitive attributes
 // aren't filled in here because the schema is fetched from terraform later;
 // the TUI flow that has access to the schema populates Attributes.
-func defaultProviderBlocks(req map[string]wrapper.RequiredProvider) []wrapper.ProviderBlock {
+func DefaultProviderBlocks(req map[string]wrapper.RequiredProvider) []wrapper.ProviderBlock {
 	var out []wrapper.ProviderBlock
 	for name := range req {
 		out = append(out, wrapper.ProviderBlock{
@@ -443,7 +576,7 @@ func repoBasename(src string) string {
 	if i := strings.LastIndexAny(s, "/:"); i >= 0 {
 		s = s[i+1:]
 	}
-	if s == "" {
+	if s == "" || s == "." || s == ".." {
 		s = "repo"
 	}
 	return s
@@ -466,6 +599,26 @@ func composeSource(remote, modulePath, ref string) string {
 		url += "?ref=" + ref
 	}
 	return url
+}
+
+// modulePathFromSource extracts the "//<subdir>" module path from a
+// Terraform git source string, returning "" when the source points at the
+// repository root. It mirrors decomposeSource's path-stripping logic but
+// returns the discarded subdirectory instead of the base URL.
+func modulePathFromSource(source string) string {
+	s := source
+	if q := strings.Index(s, "?ref="); q >= 0 {
+		s = s[:q]
+	}
+	s = strings.TrimPrefix(s, "git::")
+	searchFrom := 0
+	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
+		searchFrom = schemeEnd + 3
+	}
+	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
+		return s[searchFrom+idx+2:]
+	}
+	return ""
 }
 
 // decomposeSource splits "git::https://...//path?ref=v1" into the base URL
@@ -492,9 +645,13 @@ func decomposeSource(s string) (url, ref string) {
 	return url, ref
 }
 
-// moduleBlockName derives a valid HCL identifier from a directory path.
-func moduleBlockName(modulePath string) string {
+// ModuleBlockName derives a valid HCL identifier from a directory path.
+// When the path is "." (root module), fallbackName is used instead.
+func ModuleBlockName(modulePath, fallbackName string) string {
 	base := filepath.Base(modulePath)
+	if base == "" || base == "." {
+		base = fallbackName
+	}
 	if base == "" || base == "." {
 		base = "this"
 	}
@@ -530,12 +687,20 @@ func candidatePaths(cands []candidate.Candidate) []string {
 	return out
 }
 
-// convertVariables adapts a []tfvars.Variable to the wrapper-package
+// ConvertVariables adapts a []tfvars.Variable to the wrapper-package
 // tfvarsLike interface.
-func convertVariables(vars []tfvars.Variable) []wrapper.TFVar {
+func ConvertVariables(vars []tfvars.Variable) []wrapper.TFVar {
 	out := make([]wrapper.TFVar, len(vars))
 	for i, v := range vars {
 		out[i] = v
 	}
 	return out
+}
+
+// isLocalSource reports whether a source string refers to a local filesystem
+// path rather than a git remote.
+func isLocalSource(src string) bool {
+	return strings.HasPrefix(src, "./") ||
+		strings.HasPrefix(src, "../") ||
+		strings.HasPrefix(src, "/")
 }

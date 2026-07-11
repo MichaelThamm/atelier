@@ -8,7 +8,7 @@ import (
 
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
 
 func TestBootstrap_freshWrapper(t *testing.T) {

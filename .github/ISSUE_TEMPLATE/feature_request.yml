@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest an improvement or new capability for Atelier.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Atelier has a deliberately narrow scope —
+        interactive discovery and type-aware configuration of Terraform module
+        APIs. It is **not** an orchestration, multi-environment, or
+        state-management tool (see [ADR-0016](../blob/main/docs/adr/0016-scope-boundaries-no-orchestration.md)).
+        Requests that fit that scope are much more likely to land.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the pain, not just the solution. What are you doing when it bites?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like Atelier to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other approaches you weighed.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: scope-check
+    attributes:
+      label: Scope check
+      description: A quick sanity check against Atelier's boundaries.
+      options:
+        - label: This is about discovering or configuring a module's variables/API, not orchestrating or deploying infrastructure.
+          required: false
+        - label: I've checked the [ROADMAP](../blob/main/docs/ROADMAP.md) and this isn't already listed as not-yet-implemented or out of scope.
+          required: false

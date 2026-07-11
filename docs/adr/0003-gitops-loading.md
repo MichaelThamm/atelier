@@ -45,11 +45,15 @@ used. This means Terraform itself fetches the module at `terraform init`
 time, independent of Atelier. Atelier's local clone is purely an introspection
 aid.
 
-Module candidate identification is **heuristic with manifest override**: any
-directory containing `.tf` files with `variable` blocks is a candidate,
-excluding `tests/`, `examples/`, and directories referenced by another module
-as a child `source = "./..."`. If `atelier.yaml` exists at the clone root, its
-`modules:` list overrides the heuristic.
+Module candidate identification is **purely heuristic**: any directory
+containing `.tf` files with `variable` blocks is a candidate, excluding
+`tests/`, `examples/`, and directories referenced by another module as a child
+`source = "./..."`.
+
+> **Update:** This ADR originally described a manifest override
+> (`atelier.yaml` at the clone root) of the heuristic. That upstream manifest
+> was removed; discovery is now heuristic-only and presets are wrapper-local.
+> See [ADR-0022](0022-local-presets.md).
 
 ## Alternatives considered
 
@@ -63,7 +67,7 @@ configuring a published module).
 
 Out of scope for v1. Registry loading requires a different fetch mechanism
 (versioned tarballs from the registry API, not git clones) and a different
-URL syntax in the wrapper's `source =`. Deferred to v2.
+URL syntax in the wrapper's `source =`. Not yet implemented.
 
 ### Authenticated git access
 
@@ -93,7 +97,12 @@ Atelier's local state.
   default-change-surfacing behaviour).
 - Wrappers are portable: any machine with `terraform` can apply them. CI
   works.
-- Refs are user-editable in the TUI. Atelier stores the literal user input
-  (e.g., `main`, `v1.2.0`, `abc123`) in the wrapper and displays the resolved
-  SHA alongside, with an explicit "Pin to current commit" action that
-  rewrites the literal to the SHA.
+- Refs are user-editable in the TUI via a modal prompt (`R` key). The modal
+  shows the module name and source URL for context. Atelier stores the
+  literal user input (e.g., `main`, `v1.2.0`, `abc123`) in the wrapper and
+  displays the resolved SHA alongside. Switching refs carries over existing
+  variable values, re-clones the module, and runs `terraform init -upgrade`;
+  orphaned variable names are listed in the status bar. This enables
+  cross-ref upgrade comparisons (e.g., planning at `v1.0` then switching to
+  `v2.0` to see the infrastructure delta). Pinning to a SHA is done by
+  typing the SHA into the ref prompt.

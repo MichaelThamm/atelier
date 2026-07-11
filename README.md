@@ -1,231 +1,283 @@
 # Atelier
 
-A terminal UI for configuring Terraform modules.
+A provider-agnostic terminal UI for configuring Terraform modules.
 
-Atelier sits between you and `terraform`. Point it at a Terraform module
-(typically a public git repo) and it presents the module's variables as a
-visual configuration surface — checkboxes for booleans, text inputs for
-strings, sub-forms for object types, key-value rows for maps. When you're
-done, Atelier writes a small wrapper Terraform project to the current
-directory: a `main.tf` calling the module via its git source, your variable
-overrides, plus `versions.tf`, `providers.tf`, `.gitignore`, and `README.md`.
+Atelier works with **any** Terraform provider — AWS, GCP, Azure, Juju, or
+anything else with a Terraform provider. It treats a module's variables as
+its API surface. The wrapper it generates captures only the values the
+deployer chose to set, so `main.tf` reads as a concise statement of intent
+rather than a wall of options. Defaults handle the rest, and plan diffs show exactly what changes between versions — making large modules approachable for first-time and experienced Terraform users alike.
 
-Atelier does **not** run `terraform apply`. The wrapper is a normal Terraform
-project that you (or your CI) apply through whatever workflow you already
-use.
+## Requirements
 
-Design docs and ADRs live in [`docs/`](docs/) — start with [`docs/README.md`](docs/README.md)
-and [`docs/SPEC.md`](docs/SPEC.md) for the full picture.
-
-## Status
-
-Pre-release. The core data model, HCL read/write, candidate discovery, git
-and terraform integration, manifest parsing, session handling, the plan
-view, and a working TUI are all implemented and tested (116 tests across 11
-packages). Known gaps in this build:
-
-- Provider attributes from `terraform providers schema -json` are fetched
-  via [`internal/tfexec`](internal/tfexec) but the bootstrap doesn't yet
-  populate `providers.tf` from them — you'll fill in provider config
-  manually for now.
-- `terraform validate` debounce on edit (ADR-0012) isn't connected, so the
-  status bar always reads `✓ Valid`.
-
-The wrapper format and on-disk semantics are stable; the gaps above are
-additive and will land without changing what's already on disk.
-
-## Prerequisites
-
-- **Go** ≥ 1.22 (for building from source)
-- **Terraform** ≥ 1.5 (OpenTofu works too) on `$PATH`
-- **git** on `$PATH`
+- [Terraform](https://developer.hashicorp.com/terraform/install) (or OpenTofu)
+  on your `PATH`.
+- `git` on your `PATH` (Atelier shells out to it for cloning).
 
 ## Install
 
-```sh
-go install github.com/canonical/atelier/cmd/atelier@latest
-# Or from a local checkout:
-git clone https://github.com/canonical/atelier && cd atelier
-go build -o /usr/local/bin/atelier ./cmd/atelier
+### Prebuilt binary (recommended)
+
+Download the archive for your platform from the
+[latest release](https://github.com/MichaelThamm/atelier/releases/latest),
+extract it, and put the `atelier` binary on your `PATH`:
+
+```bash
+# Example: Linux amd64. Replace VERSION and the platform suffix as needed.
+curl -sSfL \
+  https://github.com/MichaelThamm/atelier/releases/latest/download/atelier_VERSION_linux_amd64.tar.gz \
+  | tar -xz atelier
+sudo install atelier /usr/local/bin/atelier
 ```
 
-That's the entire install. The binary is statically linked Go with no
-runtime dependencies beyond `terraform` and `git`.
+Builds are published for Linux, macOS, and Windows on amd64 and arm64.
 
-## Quickstart
+### With Go
 
-### Configure COS Lite from the canonical observability-stack repo
-
-```sh
-mkdir -p ~/cos-lite-wrapper && cd ~/cos-lite-wrapper
-
-atelier init https://github.com/canonical/observability-stack.git \
-  --module terraform/cos-lite \
-  --ref main
+```bash
+# Requires Go >= 1.25:
+go install github.com/MichaelThamm/atelier/cmd/atelier@latest
 ```
 
-Atelier will:
+> `go install` does not stamp a version. To embed one, build from a checkout:
+>
+> ```bash
+> git clone https://github.com/MichaelThamm/atelier.git && cd atelier
+> go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" \
+>   -o atelier ./cmd/atelier
+> ```
 
-1. Shallow-clone the repo into `.atelier/clone/observability-stack/`.
-2. Resolve `main` to a commit SHA via `git ls-remote`.
-3. Parse the module's `variables.tf` and `versions.tf`.
-4. Write `main.tf`, `providers.tf`, `versions.tf`, `variables.tf`,
-   `.gitignore`, `README.md` into the current directory.
-5. Save `.atelier/session.json`.
-6. Open the two-pane TUI.
+Check the version with `atelier --version`.
 
-If the repo has only one module candidate, `--module` is optional. The
-observability-stack repo has three (`terraform/cos-lite`, `terraform/cos`,
-`terraform/cos-dev`); without `--module` Atelier prints the list and asks
-you to pick.
+## Quick start
 
-### Bootstrap from a local module (no network)
+```bash
+# Start a new wrapper from any public git repo containing Terraform modules.
+# `module add` bootstraps the wrapper on first use:
+mkdir my-vpc && cd my-vpc
+atelier module add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
+atelier module add https://github.com/canonical/observability-stack.git --module terraform/cos-lite
 
-```sh
-git clone --depth 1 https://github.com/canonical/observability-stack.git ~/obs-stack
+# Already have a Terraform project with a module block? Adopt it in place:
+cd my-existing-terraform-project/
+atelier init
 
-mkdir -p ~/cos-lite-local && cd ~/cos-lite-local
-atelier init --source ~/obs-stack/terraform/cos-lite
-```
+# Or bootstrap from a local module directory:
+atelier init --source ../path/to/module
 
-### Re-open a wrapper
-
-The wrapper directory is durable. Re-open it any time:
-
-```sh
-cd ~/cos-lite-wrapper
+# Re-open an existing wrapper (run with no arguments in the wrapper dir):
 atelier
 ```
 
-If `.atelier/` has been deleted (e.g. a colleague just cloned the wrapper
-from git), Atelier rehydrates automatically: it parses `main.tf`, re-clones
-the module, repopulates `.atelier/`, and opens the TUI normally.
+> **Note:** `atelier init <git-url>` was removed — use `atelier module add
+> <git-url>` to start a wrapper from a remote module. `atelier init` (no
+> source) adopts an existing project, and `atelier init --source PATH`
+> bootstraps from a local directory. Run `atelier --help` for the full command
+> list, including `atelier module rm|list`, `atelier tidy`, and `atelier
+> purge`.
 
-### Apply the wrapper
+## Keyboard shortcuts
 
-The wrapper is a standard Terraform project. Atelier is out of the loop
-once you exit:
+| Key | Context | Action |
+|-----|---------|--------|
+| `Tab` | Anywhere | Switch between left (variable list) and right (editor) pane |
+| `↑` / `↓` | Left pane | Navigate variables |
+| `Enter` | Left pane | Focus the editor for the selected variable |
+| `P` | Left pane | Run `terraform plan` against the wrapper |
+| `A` | Plan view | Apply the current plan |
+| `O` | Plan view | Show terraform outputs (planned values or state) |
+| `R` | Left pane | Switch the module ref (branch, tag, or SHA) |
+| `E` | Left pane | Show full error detail (when an error is present) |
+| `F` | Left pane | Open the preset picker (when presets are available) |
+| `?` | Anywhere | Show the keyboard shortcuts help modal |
+| `^R` | Anywhere | Reset the current variable to its default |
+| `Q` | Left pane | Quit and save |
 
-```sh
-cd ~/cos-lite-wrapper
-terraform init
-terraform plan
-terraform apply
+### Editing a value
+
+The right-pane editors (string, number, and map cells) use a readline-style
+keymap so editing works like `bash`, `zsh`, or any standard text input
+field. See [ADR-0020](docs/adr/0020-readline-style-text-editing.md) for the
+rationale.
+
+| Key | Action |
+|-----|--------|
+| `←` / `→` | Move caret one character |
+| `Ctrl+←` / `Ctrl+→` | Move caret one word |
+| `Alt+B` / `Alt+F` | Move caret one word (Emacs-style alias) |
+| `Home` / `Ctrl+A` | Caret to start of cell |
+| `End` / `Ctrl+E` | Caret to end of cell |
+| `Backspace` | Delete the character before the caret |
+| `Delete` | Delete the character under the caret |
+| `Ctrl+W` / `Alt+Backspace` | Delete the previous word |
+| `Alt+D` | Delete the next word |
+| `Ctrl+U` | Delete from caret to start |
+| `Ctrl+K` | Delete from caret to end |
+
+Sensitive variables (`sensitive = true`) echo `•` characters; the keymap is
+unchanged.
+
+### Map / map(object) editors
+
+Rows are keyed first: `+ Add row` (or `Enter` past the last value) drops you
+on a new row's **key** cell. `Enter` is the single "advance forward" verb —
+it moves key → value, value → next row, and on the last value it commits and
+opens a fresh row. In a `map(object)`, once a row's key is named, `Enter`
+drills into the object; `Esc` backs out one level at a time. A row with an
+empty key is never saved: a freshly-added blank row is dropped when you move
+away, and `Enter` off an empty key is blocked with a `key required` nudge.
+See [ADR-0023](docs/adr/0023-map-row-editing-lifecycle.md).
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move between rows |
+| `Enter` | Advance: key → value → next row; on the last value, add a row; on a `map(object)` key, drill into the object |
+| `→` | In a `map(string)`, at the end of a non-empty key cell, move to the value cell (a caret-level alias of `Enter`); otherwise move the caret |
+| `←` | In a `map(string)`, at the start of the value cell, return to the key cell; otherwise move the caret |
+| `Esc` | Back one level (then out to the variable list) |
+| `Alt+Delete` | Remove the current row (press again to confirm when the row has content) |
+| `Tab` | Switch panes (variable list ⇄ editor) |
+| `Ctrl+Home` / `Ctrl+End` | Jump to the first / last field (inside an object editor) |
+
+### Output view
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Scroll down |
+| `k` / `↑` | Scroll up |
+| `Ctrl+D` / `PgDn` | Half-page down |
+| `Ctrl+U` / `PgUp` | Half-page up |
+| `g` | Jump to top |
+| `G` | Jump to bottom |
+| `Esc` / `q` | Close |
+
+## Presets
+
+**Presets** are user-owned, not maintainer-owned: Atelier never reads any file
+from the upstream module repository. You declare presets — named bundles of
+variable values that you apply in one action, then customise as needed — in a
+wrapper-local `atelier.local.yaml`. Atelier discovers it by **walking up** from
+the wrapper directory, so a single file at a parent directory (e.g.
+`tf-testing/atelier.local.yaml`) is shared by every wrapper beneath it.
+
+```yaml
+modules:
+  # "." matches the wrapper's primary module regardless of its upstream
+  # sub-path — the ergonomic default for a shared local file.
+  - path: "."
+    presets:
+      - name: production
+        description: "Stable channel, TLS, HA replicas."
+        sets:
+          risk: "stable"
+          internal_tls: true
+          alertmanager:
+            units: 3
 ```
 
-Works on any machine with Terraform — Atelier need not be installed.
+When presets are found, `[F] preset` appears in the status bar. Press `F`
+to open the picker, navigate with `↑`/`↓`, apply with `Enter`, or cancel
+with `Esc`.
 
-## TUI keybindings
+See [docs/examples/atelier.local.yaml](docs/examples/atelier.local.yaml)
+for a full example, and [ADR-0022](docs/adr/0022-local-presets.md) for the
+rationale.
 
-### Editor mode
+## Comparing versions
 
-| Key                   | Action                                          |
-|-----------------------|-------------------------------------------------|
-| `↑` / `↓` / `k` / `j` | Move cursor in variable list                    |
-| `→` / `Enter` / `l`   | Focus the editor (right pane)                   |
-| `←` / `Esc`           | Return focus to the variable list (left pane)   |
-| `Tab`                 | Toggle focus between panes                      |
-| `space`               | Toggle boolean widget                           |
-| `+` / `-`             | Step a number widget                            |
-| `a`                   | Add a row to a list/map widget                  |
-| `d`                   | Delete the last row of a list/map widget        |
-| `P`                   | Run `terraform plan` and open the plan view     |
-| `q`                   | Quit (only from the left pane)                  |
-| `Ctrl+C`              | Quit immediately from anywhere                  |
+Press `R` to switch the module ref without leaving the TUI. Atelier
+re-clones the module, carries your values forward, runs
+`terraform init -upgrade`, and flags any orphaned or newly required
+variables.
 
-### Plan view
+1. Configure and plan at `v1.0`.
+2. Press `R`, type `v2.0`, confirm.
+3. Plan again — the diff shows what the version bump changes.
 
-| Key                   | Action                                          |
-|-----------------------|-------------------------------------------------|
-| `↑` / `↓` / `k` / `j` | Move cursor through the resource tree           |
-| `Enter` / `space`     | Collapse / expand the focused module or type    |
-| `P`                   | Re-run plan (refresh)                           |
-| `Esc` / `q`           | Return to editor mode                           |
+## Tidying a wrapper
 
-Pressing `P` runs `terraform init` (idempotent — only on first invocation,
-or after a manual `rm -rf .terraform/`) then `terraform plan`. Plan output
-is parsed via `terraform show -json` and rendered as a tree grouped by
-module path then resource type. Selecting a resource leaf shows its
-attribute-level diff in the right pane, with sensitive values masked as
-`<sensitive>`.
+Atelier writes sparse `main.tf` files — only values that differ from the
+module's defaults appear (see [ADR-0007](docs/adr/0007-sparse-wrapper-write-rule.md)).
+But a wrapper that was hand-authored, adopted with `atelier init`, or
+seeded from an upstream example often carries arguments set to their default
+value, which is just noise:
 
-Edits auto-save to disk on every change. There is no separate "save" step.
-
-## What gets written
-
-After `atelier init` against a public git source, the wrapper directory
-contains:
-
-```
-~/cos-lite-wrapper/
-├── main.tf              # module {} block calling the chosen module via git
-├── versions.tf          # terraform { required_providers {...} }
-├── providers.tf         # provider "X" {...} stubs
-├── variables.tf         # only if a sensitive provider attribute is in play
-├── .gitignore           # auto-generated; includes secrets.auto.tfvars
-├── README.md            # one-time scaffold; safe to edit
-└── .atelier/            # internal state; gitignored, regenerable
-    ├── clone/           # shallow clone of the module repo
-    └── session.json
+```hcl
+module "cos_lite" {
+  source  = "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main"
+  model   = { name = "cos-lite-two" }
+  grafana = { units = 1 }          # 1 is already the default
+  catalogue = { app_name = "catalogue" }  # also the default
+}
 ```
 
-`main.tf` follows the **sparse-plus-required** write rule
-([ADR-0007](docs/adr/0007-sparse-wrapper-write-rule.md)): required variables
-are always emitted (with a `null` placeholder when unset); optional
-variables are emitted only when their value differs from the module's
-declared default. For object variables, the rule recurses field-by-field.
+`atelier tidy` prunes those redundant arguments back to sparse form:
 
-Hand-edits to `main.tf` between sessions are preserved: Atelier parses the
-existing file, preserves comments and unknown arguments (like `count`,
-`for_each`, `providers`, `depends_on`), and only touches the attributes it
-manages.
-
-## CLI surface
-
-```
-atelier                                      Open the wrapper in CWD.
-atelier init <git-url> [--ref REF] [--module SUBDIR]
-                                              Bootstrap from a git URL.
-atelier init --source PATH [--module SUBDIR]
-                                              Bootstrap from a local path.
-atelier --help                                Print help.
+```bash
+atelier tidy            # dry run: print the diff, change nothing
+atelier tidy --write    # apply it (backs up main.tf first)
 ```
 
-That is the complete v1 CLI surface. Notably absent: no `atelier plan` /
-`atelier apply` — use `terraform` directly. See [`docs/SPEC.md`](docs/SPEC.md)
-§6 for the full behaviour matrix.
+It is **dry-run by default**. With `--write` it copies the current `main.tf`
+to `.atelier/backups/main.tf.<timestamp>.bak` before rewriting. Tidy reuses
+the same writer the TUI uses, so the change is apply-neutral: `terraform plan`
+is identical before and after (a value equal to the default and an unset value
+mean the same thing to Terraform). It refuses to run when it can't fetch the
+module schema (it won't guess defaults) or when `main.tf` has more than one
+module block, and it warns when the module ref isn't pinned to a commit
+(defaults can move under an unpinned branch). Arguments whose value is an
+expression (`var.x`, `module.y.z`) are never pruned.
 
-## Development
+See [ADR-0021](docs/adr/0021-tidy-command.md) for the design.
 
-```sh
-go test ./...           # 89 tests; runs in <1s
-go vet ./...
-go build ./...
+## Validate on save
+
+Every time you edit a variable, Atelier debounces a background
+`terraform validate`. Errors appear inline in the status bar; press `E` to
+see full diagnostics. Validation runs `terraform init` automatically if the
+workspace hasn't been initialised yet.
+
+## Outputs
+
+Press `O` in plan view to inspect module outputs. Before apply, Atelier
+shows the planned output values from the plan file. After apply, it fetches
+live values from state. The output view is scrollable — use `j`/`k` or
+`PgUp`/`PgDn` to navigate large outputs.
+
+Atelier generates an `outputs.tf` in the wrapper that forwards all of the
+module's declared outputs:
+
+```hcl
+output "offers" {
+  value = module.cos_lite.offers
+}
 ```
 
-Integration-style tests that require `terraform` on `$PATH` skip cleanly
-when the binary isn't available.
+## Troubleshooting
 
-The packages, in approximate dependency order:
+Atelier persists terraform's diagnostics under the wrapper's
+`.atelier/logs/` directory (gitignored, regenerable):
 
-| Package                              | Role                                                  |
-|--------------------------------------|-------------------------------------------------------|
-| [`internal/tftypes`](internal/tftypes) | Variable types, value equality, sparse semantics     |
-| [`internal/tfvars`](internal/tfvars)   | Parse `variable {}` blocks from a module             |
-| [`internal/manifest`](internal/manifest) | Parse the optional `atelier.yaml` manifest         |
-| [`internal/wrapper`](internal/wrapper) | Read/write the wrapper files; sparse-write rule      |
-| [`internal/candidate`](internal/candidate) | Discover module candidates in a clone             |
-| [`internal/gitops`](internal/gitops)   | Shell out to git; parse ls-remote                    |
-| [`internal/tfexec`](internal/tfexec)   | Wrap terraform-exec for init/validate/plan/schema    |
-| [`internal/session`](internal/session) | `.atelier/session.json` persistence                  |
-| [`internal/bootstrap`](internal/bootstrap) | Orchestrate the init and rehydrate flows         |
-| [`internal/tui`](internal/tui)         | Bubble Tea model, type-specific editors, view        |
-| [`cmd/atelier`](cmd/atelier)           | CLI entrypoint                                       |
+- `tf-stderr.log` — terraform's stderr, appended across runs. Always on. It
+  stays small because successful commands write little to stderr, so it
+  mostly captures the warnings and errors worth keeping. This is the first
+  place to look after an intermittent `plan`/`apply` failure.
+- `tf-trace.log` — terraform's full `TRACE` log, written only when the
+  `ATELIER_DEBUG` environment variable is set to a truthy value
+  (`ATELIER_DEBUG=1 atelier`). It is verbose, so it is off by default; leave
+  it enabled to capture the exact `git` commands terraform's module
+  installer runs — useful for diagnosing flaky `terraform init` module
+  fetches.
 
-## Learn more
+## Documentation
 
-- [`docs/SPEC.md`](docs/SPEC.md) — comprehensive v1 specification.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — v1 scope, deferred items, parked threads.
-- [`docs/adr/`](docs/adr/) — architecture decision records.
-- [`docs/examples/cos-lite.atelier.yaml`](docs/examples/cos-lite.atelier.yaml)
-  — sample manifest for module maintainers.
+| Document | Description |
+| --- | --- |
+| [docs/SPEC.md](docs/SPEC.md) | Specification: surface, contracts, behaviours |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What Atelier does today and what's not yet implemented |
+| [docs/adr/](docs/adr/) | Architecture Decision Records |
+| [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` |
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).

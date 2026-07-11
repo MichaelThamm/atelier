@@ -75,8 +75,52 @@ func TestResolveRef_shaPassthrough(t *testing.T) {
 }
 
 func TestResolveRef_notFound(t *testing.T) {
-	if _, err := ResolveRef("nope", map[string]string{"refs/heads/x": "y"}); err == nil {
-		t.Error("expected error")
+	_, err := ResolveRef("nope", map[string]string{
+		"refs/heads/x":    "y",
+		"refs/tags/v1.0":  "z",
+		"HEAD":            "y",
+		"refs/tags/v1.0^{}": "z",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var rnf *RefNotFoundError
+	if !errors.As(err, &rnf) {
+		t.Fatalf("expected *RefNotFoundError, got %T: %v", err, err)
+	}
+	if rnf.Ref != "nope" {
+		t.Errorf("Ref = %q, want %q", rnf.Ref, "nope")
+	}
+	// Available must list human-friendly names (no HEAD, no peeled tags).
+	want := map[string]bool{"x": true, "v1.0": true}
+	if len(rnf.Available) != len(want) {
+		t.Fatalf("Available = %v, want keys %v", rnf.Available, want)
+	}
+	for _, r := range rnf.Available {
+		if !want[r] {
+			t.Errorf("unexpected available ref %q in %v", r, rnf.Available)
+		}
+	}
+}
+
+func TestAvailableRefNames(t *testing.T) {
+	refs := map[string]string{
+		"HEAD":              "a",
+		"refs/heads/main":   "a",
+		"refs/heads/dev":    "b",
+		"refs/tags/v2.0":    "c",
+		"refs/tags/v2.0^{}": "c",     // peeled — must be dropped
+		"refs/pull/42/head": "d",     // non branch/tag — must be dropped
+	}
+	got := AvailableRefNames(refs)
+	want := []string{"dev", "main", "v2.0"} // sorted
+	if len(got) != len(want) {
+		t.Fatalf("AvailableRefNames = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("AvailableRefNames[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+		}
 	}
 }
 
@@ -200,3 +244,41 @@ func TestClone_shaRef_followsUpFetchAndCheckout(t *testing.T) {
 		t.Errorf("expected checkout, got %v", r.calls[2])
 	}
 }
+
+func TestClone_subdir_partialSparseCheckout(t *testing.T) {
+	r := &fakeRunner{stdouts: [][]byte{nil, nil}}
+	err := Clone(context.Background(), r, CloneOptions{
+		URL:    "https://example.com/m.git",
+		Ref:    "main",
+		Target: "/tmp/atelier-clone-test-sparse-doesnotexist",
+		Subdir: "terraform/cos",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.calls) != 2 {
+		t.Fatalf("expected 2 calls (clone, sparse-checkout set), got %d: %+v", len(r.calls), r.calls)
+	}
+	clone := r.calls[0]
+	if !containsArg(clone, "--filter=blob:none") || !containsArg(clone, "--sparse") {
+		t.Errorf("clone missing partial/sparse flags: %v", clone)
+	}
+	if !containsArg(clone, "--branch") {
+		t.Errorf("clone missing --branch: %v", clone)
+	}
+	sc := r.calls[1]
+	// args: dir, "sparse-checkout", "set", "terraform/cos"
+	if sc[1] != "sparse-checkout" || sc[2] != "set" || sc[len(sc)-1] != "terraform/cos" {
+		t.Errorf("unexpected sparse-checkout call: %v", sc)
+	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+

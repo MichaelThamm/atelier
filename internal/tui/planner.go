@@ -9,7 +9,7 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/canonical/atelier/internal/tfexec"
+	"github.com/MichaelThamm/atelier/internal/tfexec"
 )
 
 // Planner is the narrow interface the TUI needs from a terraform executor.
@@ -24,19 +24,49 @@ type Planner interface {
 	Plan(ctx context.Context) (*tfjson.Plan, error)
 }
 
+// Applier is the narrow interface the TUI needs to apply a saved plan.
+// Separated from Planner so the capability can be independently stubbed or
+// disabled.
+type Applier interface {
+	// Apply runs `terraform apply` using the most recent saved plan file.
+	Apply(ctx context.Context) error
+}
+
+// Validator is the narrow interface the TUI needs to run `terraform validate`.
+// Separated from Planner so the capability can be independently stubbed.
+type Validator interface {
+	// Validate runs `terraform validate -json` and returns diagnostics.
+	Validate(ctx context.Context) (*tfjson.ValidateOutput, error)
+}
+
 // TfexecPlanner is the production Planner: it shells out via terraform-exec
 // against a wrapper directory.
 type TfexecPlanner struct {
 	Tf         *tfexec.Terraform
 	WrapperDir string
 
-	initialised bool
+	// Progress is set by the caller before starting a plan/apply. The planner
+	// writes phase updates to it via terraform's stdout stream.
+	Progress *ProgressTracker
+
+	initialised  bool
+	needsUpgrade bool // set by ResetInit after a ref switch
 }
 
-// EnsureInit runs `terraform init` if `.terraform/` does not yet exist in
-// the wrapper. The check is filesystem-based — cheap and matches Terraform's
-// own first-run convention. We deliberately do not pass -upgrade; the user
-// gets to manage provider upgrades themselves.
+// ResetInit clears the cached init state so the next EnsureInit call will
+// run init -upgrade. Called after a ref switch rewrites the module source.
+func (p *TfexecPlanner) ResetInit() {
+	if p != nil {
+		p.initialised = false
+		p.needsUpgrade = true
+	}
+}
+
+// EnsureInit runs `terraform init` if modules have not been installed in
+// the wrapper. The check looks for .terraform/modules/modules.json which
+// Terraform writes when module sources are fetched. This catches the case
+// where .terraform/ exists (from provider init) but the module block's
+// source was added or changed since the last init.
 func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	if p == nil || p.Tf == nil {
 		return errors.New("planner not configured")
@@ -44,11 +74,27 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	if p.initialised {
 		return nil
 	}
-	dotTerraform := filepath.Join(p.WrapperDir, ".terraform")
-	if _, err := os.Stat(dotTerraform); err == nil {
+
+	// Stream init output to progress tracker if available.
+	if p.Progress != nil {
+		p.Progress.SetPhase("Running terraform init…")
+		p.Tf.SetStdout(&ProgressWriter{Tracker: p.Progress})
+		defer p.Tf.SetStdout(nil)
+	}
+
+	// After a ref switch we must run -upgrade to re-fetch the module even
+	// though the base URL hasn't changed (only the ?ref= query did).
+	if p.needsUpgrade {
+		if err := p.Tf.InitUpgrade(ctx); err != nil {
+			return fmt.Errorf("terraform init -upgrade: %w", err)
+		}
+		p.needsUpgrade = false
 		p.initialised = true
 		return nil
 	}
+	// Always run `terraform init` on the first plan of a session. This is
+	// idempotent and fast when nothing changed, but catches stale
+	// .terraform/modules state from a previous session with a different ref.
 	if err := p.Tf.Init(ctx); err != nil {
 		return fmt.Errorf("terraform init: %w", err)
 	}
@@ -68,9 +114,44 @@ func (p *TfexecPlanner) Plan(ctx context.Context) (*tfjson.Plan, error) {
 		return nil, err
 	}
 	planFile := filepath.Join(cacheDir, "plan.tfplan")
-	plan, _, err := p.Tf.Plan(ctx, planFile)
+
+	var stdout *ProgressWriter
+	if p.Progress != nil {
+		p.Progress.SetPhase("Running terraform plan…")
+		stdout = &ProgressWriter{Tracker: p.Progress}
+	}
+	plan, _, err := p.Tf.Plan(ctx, planFile, stdout)
 	if err != nil {
 		return nil, err
 	}
 	return plan, nil
+}
+
+// Apply applies the most recent saved plan file from the cache directory.
+func (p *TfexecPlanner) Apply(ctx context.Context) error {
+	if p == nil || p.Tf == nil {
+		return errors.New("applier not configured")
+	}
+	planFile := filepath.Join(p.WrapperDir, ".atelier", "cache", "plan.tfplan")
+	if _, err := os.Stat(planFile); err != nil {
+		return fmt.Errorf("no saved plan file: %w", err)
+	}
+
+	var stdout *ProgressWriter
+	if p.Progress != nil {
+		p.Progress.SetPhase("Running terraform apply…")
+		stdout = &ProgressWriter{Tracker: p.Progress}
+	}
+	return p.Tf.Apply(ctx, planFile, stdout)
+}
+
+// Validate runs `terraform validate -json` against the wrapper directory.
+func (p *TfexecPlanner) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
+	if p == nil || p.Tf == nil {
+		return nil, errors.New("validator not configured")
+	}
+	if err := p.EnsureInit(ctx); err != nil {
+		return nil, fmt.Errorf("init before validate: %w", err)
+	}
+	return p.Tf.Validate(ctx)
 }

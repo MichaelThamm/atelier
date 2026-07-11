@@ -11,7 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
 
 // Files we manage in the wrapper.
@@ -42,6 +42,28 @@ func (s *State) Write() error {
 }
 
 func (s *State) writeMain() error {
+	out, err := s.RenderMain()
+	if err != nil {
+		return err
+	}
+	// Write to a temporary file and rename for atomicity — important because
+	// the file watcher (`terraform validate` in the TUI) may race the write.
+	return writeAtomic(filepath.Join(s.Dir, MainTF), out, 0o644)
+}
+
+// WriteMain atomically writes pre-rendered main.tf bytes into dir. It is the
+// persist half of RenderMain, exposed so callers that preview before writing
+// (e.g. `atelier tidy`) apply exactly the bytes they showed.
+func WriteMain(dir string, data []byte) error {
+	return writeAtomic(filepath.Join(dir, MainTF), data, 0o644)
+}
+
+// RenderMain produces the bytes Atelier would write to the wrapper's main.tf,
+// applying the sparse-plus-required rule (ADR-0007) to the module block in the
+// existing file. It does not touch disk: writeMain uses it to persist, and
+// `atelier tidy` uses it to preview the prune without writing. Because both go
+// through this one path, the diff `tidy` shows is exactly what it applies.
+func (s *State) RenderMain() ([]byte, error) {
 	mainPath := filepath.Join(s.Dir, MainTF)
 
 	var file *hclwrite.File
@@ -49,10 +71,10 @@ func (s *State) writeMain() error {
 		var diags hcl.Diagnostics
 		file, diags = hclwrite.ParseConfig(existing, mainPath, hcl.Pos{Line: 1, Column: 1})
 		if diags.HasErrors() {
-			return fmt.Errorf("parse existing main.tf: %s", diags.Error())
+			return nil, fmt.Errorf("parse existing main.tf: %s", diags.Error())
 		}
 	} else if !os.IsNotExist(err) {
-		return err
+		return nil, err
 	} else {
 		file = hclwrite.NewEmptyFile()
 	}
@@ -63,10 +85,39 @@ func (s *State) writeMain() error {
 	// source attribute — always written.
 	body.SetAttributeValue("source", cty.StringVal(s.Source))
 
+	// Index any user-authored attributes Atelier can't represent as a
+	// cty.Value — references (data.x.y, var.z, module.m.o), function calls,
+	// interpolations, etc. The reader stores these verbatim in UnknownAttrs.
+	// They must be preserved across saves rather than clobbered by the
+	// value-based logic below (which would otherwise delete them because
+	// there is no cty value to write). See ADR-0007 §10.2.
+	rawByName := make(map[string][]byte, len(s.UnknownAttrs))
+	for _, ra := range s.UnknownAttrs {
+		rawByName[ra.Name] = ra.RawExpr
+	}
+
 	// Iterate variables in declaration order so the output is stable and
 	// matches the user's mental model of the module.
 	for i := range s.Vars {
 		v := &s.Vars[i]
+
+		// If the user set this variable to an expression Atelier couldn't
+		// evaluate (and has not since overridden it with a concrete value via
+		// the TUI), re-emit the original expression verbatim. We write it
+		// explicitly from the stored expression bytes so the value survives
+		// even on a from-scratch write, rather than depending on hclwrite
+		// passthrough of an existing attribute.
+		if rawExpr, isRaw := rawByName[v.Name]; isRaw {
+			if _, hasConcrete := s.Values[v.Name]; !hasConcrete {
+				if toks := exprTokens(rawExpr); toks != nil {
+					body.SetAttributeRaw(v.Name, toks)
+				}
+				// If the expression couldn't be re-lexed (empty/corrupt
+				// bytes), fall back to leaving any existing attribute in place.
+				continue
+			}
+		}
+
 		current, _ := s.VariableValue(v.Name)
 		if !ShouldEmit(v, current) {
 			body.RemoveAttribute(v.Name)
@@ -83,12 +134,45 @@ func (s *State) writeMain() error {
 			body.SetAttributeRaw(v.Name, todoTokens(v.Type.String()))
 			continue
 		}
+		// If the value is a string that looks like an HCL expression
+		// reference (module.X.Y, var.X, local.X, data.X.Y["k"]), write it as
+		// raw tokens so it's emitted unquoted as an expression.
+		if writeVal.Type() == cty.String && isExpressionRef(writeVal.AsString()) {
+			if toks := exprTokens([]byte(writeVal.AsString())); toks != nil {
+				body.SetAttributeRaw(v.Name, toks)
+				continue
+			}
+		}
 		body.SetAttributeValue(v.Name, writeVal)
 	}
 
-	// Write to a temporary file and rename for atomicity — important because
-	// the file watcher (`terraform validate` in the TUI) may race the write.
-	return writeAtomic(mainPath, hclwrite.Format(file.Bytes()))
+	// Prune attributes orphaned by a schema change. When a ref switch moves the
+	// module to a revision that dropped a variable (e.g. switching
+	// observability-stack from track/2 to main removes `model_uuid`), the old
+	// argument still sits in the parsed main.tf. The loop above only visits
+	// variables in the *new* schema, so it never touches the orphan and the
+	// stale line survives — making `terraform init` fail with "An argument
+	// named X is not expected here." Remove any attribute that isn't the
+	// source, a Terraform meta-argument, a currently-declared variable, or a
+	// preserved user expression (UnknownAttrs).
+	keep := make(map[string]bool, len(s.Vars)+len(s.UnknownAttrs)+8)
+	keep["source"] = true
+	for _, meta := range []string{"version", "count", "for_each", "providers", "depends_on"} {
+		keep[meta] = true
+	}
+	for i := range s.Vars {
+		keep[s.Vars[i].Name] = true
+	}
+	for _, ra := range s.UnknownAttrs {
+		keep[ra.Name] = true
+	}
+	for name := range body.Attributes() {
+		if !keep[name] {
+			body.RemoveAttribute(name)
+		}
+	}
+
+	return hclwrite.Format(file.Bytes()), nil
 }
 
 // findOrCreateModuleBlock locates the `module "<name>"` block (creating it if
@@ -120,9 +204,61 @@ func todoTokens(typeHint string) hclwrite.Tokens {
 	}
 }
 
+// isExpressionRef reports whether a string value should be emitted as an
+// unquoted HCL expression rather than a quoted string literal. To avoid
+// mistaking ordinary string values (e.g. "stable") for references, the value
+// must begin with a known reference prefix (module./var./local./data.) AND
+// parse as a valid HCL expression that references at least one symbol. This
+// correctly handles dotted references, index access (data.x.y["k"]) and
+// nested traversals.
+func isExpressionRef(s string) bool {
+	if !hasRefPrefix(s) {
+		return false
+	}
+	expr, diags := hclsyntax.ParseExpression([]byte(s), "atelier-ref", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return false
+	}
+	return len(expr.Variables()) > 0
+}
+
+// hasRefPrefix reports whether s begins with one of Terraform's reference
+// scopes followed by a dot.
+func hasRefPrefix(s string) bool {
+	for _, p := range []string{"module.", "var.", "local.", "data."} {
+		if len(s) > len(p) && s[:len(p)] == p {
+			return true
+		}
+	}
+	return false
+}
+
+// exprTokens lexes raw HCL expression source (e.g. a reference such as
+// `data.vault_generic_secret.s3.data["endpoint_url"]`, an index expression, or
+// a function call) into hclwrite tokens suitable for SetAttributeRaw. It reuses
+// hclwrite's own lexer by parsing a synthetic `_ = <expr>` assignment and
+// extracting the expression tokens, so arbitrary expressions round-trip
+// faithfully. Returns nil if the source is empty or can't be parsed.
+func exprTokens(src []byte) hclwrite.Tokens {
+	if len(src) == 0 {
+		return nil
+	}
+	synthetic := append([]byte("_ = "), src...)
+	f, diags := hclwrite.ParseConfig(synthetic, "atelier-rawexpr", hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return nil
+	}
+	attr := f.Body().GetAttribute("_")
+	if attr == nil {
+		return nil
+	}
+	return attr.Expr().BuildTokens(nil)
+}
+
 // writeAtomic writes data to path via a sibling temp file and rename, which
-// is atomic on POSIX filesystems.
-func writeAtomic(path string, data []byte) error {
+// is atomic on POSIX filesystems. The perm argument sets the file mode on
+// the temp file before rename so the target inherits the intended permissions.
+func writeAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, ".atelier-write-*")
 	if err != nil {
@@ -130,6 +266,11 @@ func writeAtomic(path string, data []byte) error {
 	}
 	tmp := f.Name()
 	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
 		f.Close()
 		os.Remove(tmp)
 		return err
@@ -169,7 +310,7 @@ func (s *State) writeSecrets() error {
 		}
 		body.SetAttributeValue(n, v)
 	}
-	return writeAtomic(filepath.Join(s.Dir, SecretsAuto), file.Bytes())
+	return writeAtomic(filepath.Join(s.Dir, SecretsAuto), file.Bytes(), 0o600)
 }
 
 // VariableDeclByName is a tiny helper exposing State's variable slice as a

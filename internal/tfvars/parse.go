@@ -19,7 +19,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/tftypes"
+	"github.com/MichaelThamm/atelier/internal/tftypes"
 )
 
 // Variable describes a module-declared variable.

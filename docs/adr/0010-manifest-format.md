@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-0022](0022-local-presets.md).
+
+> **Note:** The upstream `atelier.yaml` manifest described here has been
+> removed. Atelier no longer reads any file from the upstream module
+> repository. Candidate discovery is now purely heuristic, and presets are
+> user-owned via a wrapper-local `atelier.local.yaml` (walk-up discovery). See
+> ADR-0022. This document is retained for historical context only.
 
 ## Context
 
@@ -12,11 +18,11 @@ pure heuristics can achieve. Specifically:
 
 - Friendly names and descriptions for module candidates (better than the raw
   directory path).
-- Variable grouping in the TUI's left pane (better than flat declaration
-  order).
+- Presets for bulk-setting variables to common configurations.
 
-The two-pane layout ([ADR-0006](0006-two-pane-ui-layout.md)) supports
-grouping, and the candidate-discovery design ([ADR-0003](0003-gitops-loading.md))
+The two-pane layout ([ADR-0006](0006-two-pane-ui-layout.md)) sorts variables
+automatically (required first, then alphabetically), and the
+candidate-discovery design ([ADR-0003](0003-gitops-loading.md))
 supports manifest override of the heuristic discovery. Both want a file
 format.
 
@@ -38,13 +44,14 @@ modules:
     name: "COS Lite"
     description: |
       Production-ready Charmed Observability Stack.
-    groups:
-      - name: "TLS"
-        variables: [internal_tls, external_certificates_offer_url, external_ca_cert_offer_url]
-      - name: "Ingress"
-        variables: [ingress]
-      - name: "Applications"
-        variables: [alertmanager, catalogue, grafana, loki, prometheus, ssc, traefik]
+    presets:
+      - name: production
+        description: "Stable channel, TLS enabled, HA replicas."
+        sets:
+          risk: "stable"
+          internal_tls: true
+          alertmanager:
+            units: 3
 
   - path: terraform/cos
     name: "COS"
@@ -58,14 +65,10 @@ modules:
 - `name` (string, required) — display name in the candidate picker.
 - `description` (string, optional) — multi-line description. Falls back to
   the candidate's `README.md` first paragraph, then to the path.
-- `groups` (list, optional) — ordered list of variable groups.
-  - `name` (string, required) — group display name.
-  - `variables` (list of strings, required) — variable names belonging to
-    this group, in display order.
-
-Variables not listed in any group appear in an implicit trailing `Other`
-group. If `groups:` is absent entirely, all variables appear flat in
-declaration order.
+- `presets` (list, optional) — named bundles of variable overrides.
+  - `name` (string, required) — display name in the preset picker.
+  - `description` (string, optional) — shown below the name in the picker.
+  - `sets` (map, required) — variable names to values.
 
 ### v1 schema is `modules:` only — no top-level configuration
 
@@ -83,8 +86,8 @@ visible filename invites maintainer attention.
 
 ### Inline annotations in `variables.tf`
 
-Considered. Pattern: a special comment like `## atelier:group=TLS` on each
-variable.
+Considered. Pattern: a special comment like `## atelier:label=TLS Toggle` on
+each variable.
 
 Rejected because:
 
@@ -94,28 +97,11 @@ Rejected because:
 - A separate manifest file is a more honest place for maintainer-curation
   decisions.
 
-### Auto-grouping by file
-
-If a module splits variables across `variables-tls.tf`, `variables-ingress.tf`,
-etc., we could infer groups from file names. Useless for modules like COS
-Lite that keep everything in one file. Conflicts with maintainer freedom.
-Rejected.
-
-### Comment-marker parsing in `variables.tf`
-
-Detect a standardized comment pattern (`## section: TLS`) and treat it as a
-group divider for variables that follow. Considered for v2 as a
-zero-friction alternative to the manifest, but the standard doesn't exist
-yet and we shouldn't invent one without observing what maintainers actually
-write.
-
 ### "Features" / presets in the manifest
 
-Deliberately parked. The concept was under-specified during initial design
-(the user described both "auto-discovered from tests" and "manifest-declared
-decorators" without converging on which). v1 ships without features; the
-v1 manifest schema does not include them. Adding them later does not break
-v1 wrappers.
+Presets (named bundles of variable overrides) are included in v1. The more
+ambitious "features" concept (auto-discovered from tests) was deliberately
+parked because it was under-specified during initial design.
 
 See [ROADMAP](../ROADMAP.md) for the parked-features discussion.
 
@@ -130,14 +116,9 @@ locking in too much.
 
 - Maintainers who care about UX add an `atelier.yaml` to their repository.
   Maintainers who don't are still supported by the heuristic candidate
-  discovery and flat variable listing.
+  discovery and flat variable listing (declaration order).
 - The Atelier binary embeds a JSON Schema for `atelier.yaml` and validates
   the manifest on load, with clear error messages for malformed manifests.
 - Versioning the manifest schema: v1 has no explicit version field. If/when
   v2 introduces a breaking change, we add a `version: 2` top-level key and
   treat missing version as v1.
-- Variables declared in the manifest's `groups[].variables:` but not
-  actually present in the module produce a warning at load time, not an
-  error (the manifest may be slightly out of sync with a moving ref).
-- Variables present in the module but not listed in any group appear in an
-  implicit trailing `Other` group with no maintainer effort required.

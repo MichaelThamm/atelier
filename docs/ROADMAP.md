@@ -1,52 +1,64 @@
 # Roadmap
 
-What Atelier ships in v1, what is intentionally deferred, and what is parked
+What Atelier does today, what is not yet implemented, and what is parked
 pending more thinking. Items in this document are not commitments — they
 capture intent so we don't lose the institutional memory built up during
 design.
 
-## v1 scope (what we are committing to)
+## What Atelier does today
 
-The v1 release is "configure a public Terraform module visually, write a
-runnable wrapper, iterate against `terraform plan` inside the TUI."
+In one line: "configure a public Terraform module visually, write a runnable
+wrapper, iterate against `terraform plan` inside the TUI."
 
-- [`SPEC.md`](SPEC.md) is the source of truth for v1 surface and behaviour.
-- All [ADRs](adr/) marked `Status: Accepted` are v1 decisions.
+- [`SPEC.md`](SPEC.md) is the source of truth for the surface and behaviour.
+- All [ADRs](adr/) marked `Status: Accepted` are current decisions.
 
-Concretely, v1 ships:
+Concretely:
 
-- The `atelier` CLI with `atelier` and `atelier init <source>` subcommands.
+- The `atelier` CLI: open a wrapper (`atelier`), add/remove/list modules
+  (`atelier module …`), adopt or bootstrap (`atelier init`), prune to sparse
+  form (`atelier tidy`), and clean up (`atelier purge`).
 - Public git source loading; `--source <path>` for local development.
 - Two-pane TUI with type-appropriate widgets for `string`, `bool`, `number`,
   `object`, `map(string)`, `map(object)`, `list(string)`, `list(object)`,
   `set(...)`, and nullable scalars.
 - Sparse-plus-required wrapper writes via `hcl/v2`, with hand-edit
   round-tripping.
-- Module candidate discovery (heuristic + `atelier.yaml` manifest override).
+- Module candidate discovery (purely heuristic; no upstream manifest).
+- Local presets: named bundles of variable values declared in a wrapper-local
+  `atelier.local.yaml` (walk-up discovery), applied in bulk via the `F` key,
+  then customised per-variable. The upstream module repo is never read for
+  Atelier files.
 - Provider configuration via `terraform providers schema -json`, including
   sensitive-attribute handling via variable indirection and gitignored
   `secrets.auto.tfvars`.
 - Debounced `terraform validate` for inline validation feedback.
 - `terraform plan -json` rendering as a module-path tree with attribute diffs
   in a side pane.
+- `terraform apply` from the plan view (`A` key): applies the cached plan
+  file; errors surfaced in-TUI via `E`.
 - Default-change surfacing on ref bump.
+- In-TUI ref switching (`R` key): re-clone, `terraform init -upgrade`,
+  preserve user overrides, enabling cross-ref upgrade comparison workflows.
+- In-TUI output viewing (`O` key): shows planned output values before apply,
+  live state values after apply, with syntax-highlighted JSON and scrollable
+  navigation. Auto-generates `outputs.tf` to re-export module outputs.
 - Single static Go binary; snap packaging.
 
-## Deferred to v2 or later
+## Not yet implemented
 
-These have a clear shape but are out of v1's scope to keep the surface small
-and the timeline tight.
+These have a clear shape but are out of the current scope to keep the surface
+small.
 
-### Inline `terraform apply` in the TUI
+### Streaming apply logs and cancellation
 
-v1 stops at plan. Apply happens in the user's shell. v2 may add an in-TUI
-apply with streaming logs, cancellation, state-lock handling, and post-apply
-error inspection. The wrapper format will not change; this is purely
-additive.
+Apply is currently fire-and-forget with a spinner. A future version may add
+streaming log output, cancellation (`Ctrl+C` during apply), partial-apply
+recovery, and post-apply state inspection.
 
 ### Authenticated git access
 
-v1 supports public repos only. v2 adds:
+Only public repos are supported today. Future additions:
 
 - SSH key auth (default if remote uses `git@…` form).
 - `gh auth` integration for GitHub remotes.
@@ -54,8 +66,8 @@ v1 supports public repos only. v2 adds:
 
 ### Terraform Registry module sources
 
-v1 supports git URLs and local paths. v2 adds registry sources
-(`namespace/name/provider` form), which require:
+Only git URLs and local paths are supported today. Registry sources
+(`namespace/name/provider` form) would require:
 
 - Talking to the registry API to resolve versions.
 - Fetching versioned tarballs instead of cloning.
@@ -63,55 +75,59 @@ v1 supports git URLs and local paths. v2 adds registry sources
 
 ### `any` and `tuple([...])` as first-class widgets
 
-v1 renders these as read-only HCL with an "edit in `$EDITOR`" affordance. v2
-adds:
+These render as read-only HCL with an "edit in `$EDITOR`" affordance today.
+Future additions:
 
 - For `any`: a free-text HCL editor with parse validation.
 - For `tuple`: a fixed-position row of widgets, one per declared type.
 
 ### Empty-vs-null collection toggle
 
-v1 hides the distinction; the empty state of the widget follows the variable's
-declared default. v2 may add an explicit `[ Empty ] [ Null ]` toggle on the
-widget header for cases where users need to express the other interpretation.
+The distinction is currently hidden; the empty state of the widget follows the
+variable's declared default. A future version may add an explicit
+`[ Empty ] [ Null ]` toggle on the widget header for cases where users need to
+express the other interpretation.
 
-### Sparse output re-export
+### ~~Sparse output re-export~~ ✓ Implemented
 
-v1 wrappers do not re-export module outputs. v2 may add a per-output checkbox
-in an "Outputs" tab that generates `output "x" { value = module.<m>.x }`
-blocks for selected outputs.
+~~Wrappers do not re-export module outputs.~~ Atelier now generates an
+`outputs.tf` in the wrapper that forwards all of the module's declared
+outputs. The in-TUI output view (`O` key) displays planned values before
+apply and live state values after apply, with syntax-highlighted JSON
+rendering.
 
 ### Conditional autoplan
 
-v1 requires the user to press `P` to plan. v2 may add an adaptive autoplan:
-the first plan is measured; if under a threshold (e.g. 500ms), subsequent
-edits trigger debounced autoplans; otherwise stay manual. The current rationale
-for not doing autoplan in v1 is documented in
+Planning is manual today — the user presses `P`. A future version may add an
+adaptive autoplan: the first plan is measured; if under a threshold (e.g.
+500ms), subsequent edits trigger debounced autoplans; otherwise stay manual.
+The rationale for keeping planning manual for now is documented in
 [ADR-0002](adr/0002-author-and-plan-scope.md).
 
 ### Inline plan attribute diffs
 
-v1 puts plan attribute diffs in a side pane on selection. v2 may render them
-inline within the plan tree, with collapsible per-attribute rows and syntax
-highlighting.
+Plan attribute diffs currently appear in a side pane on selection. A future
+version may render them inline within the plan tree, with collapsible
+per-attribute rows and syntax highlighting.
 
-### Visual design / aesthetics
+### ~~Visual design / aesthetics~~ ✓ Implemented
 
-A deliberate post-spec design pass. Covers colour palette, focus and dimming,
-borders and separators, iconography (Unicode glyphs vs ASCII fallback),
-dark/light theme support, and any motion/animation. Reference: Charm's own
-ecosystem (gum, glow, soft-serve) for design language.
+~~A deliberate post-spec design pass.~~ Atelier uses a Catppuccin Mocha/Latte
+adaptive colour palette with semantic role mappings (primary/accent, info,
+success, warning, danger). All panels, modals, header, and footer use
+consistent rounded borders with focus highlighting. JSON output values have
+syntax highlighting. See SPEC.md §14.3 for details.
 
-### Manifest schema growth
+### Local presets schema growth
 
-v1's `atelier.yaml` schema is intentionally minimal (`modules:` list with
-`path`, `name`, `description`, optional `groups`). v2 candidates:
+The `atelier.local.yaml` schema is intentionally minimal (`modules:` list with
+`path` + `presets`). Candidates for later:
 
-- Variable annotations: friendly labels overriding raw variable names; richer
-  per-variable descriptions; value hints / examples.
-- Required Atelier version constraint.
-- Comment-marker parsing as an alternative to manifest groups (e.g.,
-  `## section: TLS` in `variables.tf` as an implicit group divider).
+- A `preset save` command to snapshot current wrapper values into a preset.
+- A user-global presets store (e.g. `~/.config/atelier/`) keyed by source URL,
+  complementing walk-up local files.
+- A `--presets <path>` override flag.
+- Test-driven preset discovery from `.tftest.hcl` run blocks.
 
 ## Parked
 
@@ -121,49 +137,30 @@ Threads we explored, set aside, and may revisit with more information.
 
 The original vision included module maintainers declaring **features** —
 named higher-level toggles that map to one or more variable settings, with a
-proposed mechanism of auto-discovery from `tftest.hcl` run blocks. We parked
-this during design after concluding the concept was under-specified.
+proposed mechanism of auto-discovery from `tftest.hcl` run blocks.
 
-What we currently believe:
+**Presets are now shipped, but user-owned.** Users declare `presets:` in a
+wrapper-local `atelier.local.yaml` and apply them with `F` in the TUI. Atelier
+does not read presets from the upstream module repo (see
+[ADR-0022](adr/0022-local-presets.md), superseding ADR-0010). See
+[SPEC §11](SPEC.md#11-local-presets-atelierlocalyaml) for schema details and
+[examples/atelier.local.yaml](examples/atelier.local.yaml) for a worked
+example.
 
-- Features map most naturally to manifest-declared **presets**: named bundles
-  of variable values the user can apply with one action and then tweak.
-- Test-driven discovery works well for *enumerable scenarios* (a test file
-  whose `run` blocks enumerate alternative configurations, e.g.
-  `conditional_ingress.tftest.hcl` with `ingress_all_disabled`,
-  `ingress_only_grafana`, etc.). Each `run` block's `variables {}` overrides
-  become a candidate preset.
-- Test-driven discovery works *poorly* for *contract-style tests*
-  (`revision_pin.tftest.hcl` tests an invariant, not a preset). We'd need to
-  either ignore those or distinguish them somehow.
-- The v1 manifest does not include features; the v1 TUI does not surface
-  them. Adding them later does not break the v1 wrapper format.
+What remains parked:
 
-When we revisit, the v2 manifest extension might look like:
+- Test-driven discovery: automatically deriving presets from `.tftest.hcl`
+  run blocks. Works well for *enumerable scenarios* (a test file whose `run`
+  blocks enumerate alternative configurations) but poorly for
+  *contract-style tests*. Parked until we have more field experience with
+  presets.
 
-```yaml
-modules:
-  - path: terraform/cos-lite
-    name: "COS Lite"
-    features:
-      - name: "Ingress all disabled"
-        description: "Turns off all ingress integrations."
-        derived_from: tests/conditional_ingress.tftest.hcl#ingress_all_disabled
-        sets:
-          ingress:
-            alertmanager: false
-            catalogue: false
-            grafana: false
-            loki: false
-            prometheus: false
-```
-
-This is speculative; the actual design will be informed by what users do with
-v1.
+This is speculative; the actual design will be informed by what users do in
+practice.
 
 ### Multi-instance wrappers
 
-v1 supports one module instance per wrapper directory. A user who wants two
+A wrapper directory holds one module instance today. A user who wants two
 COS Lite deployments uses two directories. Multi-instance (multiple `module
 {}` blocks in one wrapper, distinguished by name or by `for_each`) is
 plausible but the UX is unsettled and there are no concrete users asking for
@@ -171,7 +168,7 @@ it.
 
 ### Telemetry / opt-in usage reporting
 
-Not present in v1. If added later, must be opt-in and clearly disclosed.
+Not present. If added later, must be opt-in and clearly disclosed.
 
 ## Out of scope (likely never)
 

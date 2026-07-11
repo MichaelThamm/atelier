@@ -17,7 +17,7 @@ read-modify-write the wrapper's `main.tf` while preserving user-added
 comments and formatting. This requires an AST-preserving HCL parser and
 emitter — not just a "parse to JSON, lose everything" parser. Without
 AST-preserving round-trip, hand-edits between Atelier sessions get clobbered,
-which breaks [ADR-0004](0004-wrapper-layout-shape-a.md)'s round-tripping
+which breaks [ADR-0004](0004-wrapper-layout.md)'s round-tripping
 property.
 
 ## Decision
@@ -83,7 +83,7 @@ as Python (`@cdktf/hcl2json` is lossy). Distribution similarly heavy.
   Bubbles where they fit, custom widgets for type-specific editors (object
   sub-forms, map editors, etc.).
 - Distribution: GoReleaser produces `linux/amd64` and `linux/arm64` binaries
-  and a snap. `go install github.com/canonical/atelier@latest` works for
+  and a snap. `go install github.com/MichaelThamm/atelier@latest` works for
   development users.
 - Logging and telemetry: Go's `slog` for structured logs (debug mode behind a
   flag). No telemetry in v1.

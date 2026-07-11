@@ -3,8 +3,8 @@ package wrapper
 import (
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/tftypes"
-	"github.com/canonical/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/tftypes"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
 
 // ShouldEmit reports whether the variable `v` should appear in the wrapper's

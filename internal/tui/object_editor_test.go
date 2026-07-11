@@ -7,8 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/canonical/atelier/internal/tftypes"
-	"github.com/canonical/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/tftypes"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
 
 // alertmanagerLikeVar builds a variable that mirrors the COS Lite
@@ -213,7 +213,7 @@ func TestObjectEditor_view_collectionFieldsRenderCompact(t *testing.T) {
 	plain := stripANSI(oe.View())
 	// storage_directives (map) and config (object) should appear with
 	// compact placeholders, not multi-line nested editor output.
-	if !strings.Contains(plain, "(map)") {
+	if !strings.Contains(plain, "(map:") {
 		t.Errorf("map field should render compact; got:\n%s", plain)
 	}
 	if !strings.Contains(plain, "(object:") {
@@ -252,5 +252,123 @@ func TestObjectEditor_endToEnd_throughTopLevelModel(t *testing.T) {
 	units := val.AsValueMap()["units"]
 	if !units.Equals(cty.NumberFloatVal(3)).True() {
 		t.Errorf("units after edit = %v; want 3", units.GoString())
+	}
+}
+
+// TestObjectEditor_HomeForwardedToScalarField verifies that Home on a
+// scalar (string) field moves the caret to the start of the cell rather
+// than jumping the field cursor. With caret at 0, typing inserts at the
+// beginning, demonstrating Home reached the cell. See ADR-0020 §3.
+func TestObjectEditor_HomeForwardedToScalarField(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	if oe.fields[oe.cursor].Name != "app_name" {
+		t.Fatalf("setup: first field = %q", oe.fields[oe.cursor].Name)
+	}
+
+	// Home should park caret at 0; typing prepends.
+	oe = drive(t, oe, "home", "X")
+	val := oe.CurrentValue().AsValueMap()["app_name"]
+	if got := val.AsString(); got != "Xalertmanager" {
+		t.Errorf("after home+X, app_name = %q; want %q", got, "Xalertmanager")
+	}
+	// Field cursor should not have moved.
+	if oe.fields[oe.cursor].Name != "app_name" {
+		t.Errorf("field cursor moved unexpectedly: now on %q", oe.fields[oe.cursor].Name)
+	}
+}
+
+// TestObjectEditor_EndForwardedToScalarField confirms End restores the
+// caret to the end of the cell after a Home.
+func TestObjectEditor_EndForwardedToScalarField(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+
+	oe = drive(t, oe, "home", "end", "Z")
+	val := oe.CurrentValue().AsValueMap()["app_name"]
+	if got := val.AsString(); got != "alertmanagerZ" {
+		t.Errorf("after home+end+Z, app_name = %q; want %q", got, "alertmanagerZ")
+	}
+}
+
+// TestObjectEditor_CtrlHomeJumpsToFirstField confirms Ctrl+Home jumps
+// the field cursor regardless of which scalar is focused.
+func TestObjectEditor_CtrlHomeJumpsToFirstField(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	// Move to "units" (3rd field).
+	oe = drive(t, oe, "down", "down")
+	if oe.fields[oe.cursor].Name != "units" {
+		t.Fatalf("setup: focused = %q", oe.fields[oe.cursor].Name)
+	}
+	oe = drive(t, oe, "ctrl+home")
+	if oe.fields[oe.cursor].Name != "app_name" {
+		t.Errorf("after ctrl+home, focused = %q; want app_name", oe.fields[oe.cursor].Name)
+	}
+}
+
+// TestObjectEditor_CtrlEndJumpsToLastField confirms Ctrl+End jumps the
+// field cursor to the last field.
+func TestObjectEditor_CtrlEndJumpsToLastField(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	last := oe.fields[len(oe.fields)-1].Name
+	oe = drive(t, oe, "ctrl+end")
+	if oe.fields[oe.cursor].Name != last {
+		t.Errorf("after ctrl+end, focused = %q; want %q", oe.fields[oe.cursor].Name, last)
+	}
+}
+
+// TestObjectEditor_CollectionField_HomeStillJumpsFieldList confirms that
+// when the focused field is a collection (no cell), plain Home/End still
+// move the field cursor (the pre-ADR behaviour for collection fields).
+func TestObjectEditor_CollectionField_HomeStillJumpsFieldList(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	// Navigate to storage_directives (map).
+	for oe.fields[oe.cursor].Name != "storage_directives" {
+		oe = drive(t, oe, "down")
+	}
+	// Home should jump field cursor to first field (no cell to forward to).
+	oe = drive(t, oe, "home")
+	if oe.fields[oe.cursor].Name != "app_name" {
+		t.Errorf("after home on collection field, focused = %q; want app_name", oe.fields[oe.cursor].Name)
+	}
+}
+
+// cellFocused reports whether a scalar sub-editor's caret is active.
+func cellFocused(ed Editor) bool {
+	switch e := ed.(type) {
+	case *stringEditor:
+		return e.cell.ti.Focused()
+	case *numberEditor:
+		return e.cell.ti.Focused()
+	}
+	return false
+}
+
+// TestObjectEditor_SingleCaret guards that only the field under the cursor
+// ever shows a caret. Every field's cellInput is focused at construction, so
+// without applyFieldFocus the object view rendered a cursor on every scalar
+// field at once.
+func TestObjectEditor_SingleCaret(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+
+	// Visit every field; at each step at most one scalar caret is active,
+	// and it belongs to the field under the cursor.
+	for i := 0; i < len(oe.fields); i++ {
+		var focused []string
+		for j := range oe.fields {
+			if cellFocused(oe.fields[j].editor) {
+				focused = append(focused, oe.fields[j].Name)
+			}
+		}
+		if len(focused) > 1 {
+			t.Fatalf("cursor on %q: %d carets active (%v); want at most 1",
+				oe.fields[oe.cursor].Name, len(focused), focused)
+		}
+		// When the cursor field is scalar, it must be the one focused.
+		cur := oe.fields[oe.cursor]
+		if cellFocused(cur.editor) == false && len(focused) == 0 {
+			// collection field under cursor: no caret expected — fine.
+		} else if len(focused) != 1 || focused[0] != cur.Name {
+			t.Errorf("cursor on scalar %q but focused carets = %v", cur.Name, focused)
+		}
+		oe = drive(t, oe, "down")
 	}
 }

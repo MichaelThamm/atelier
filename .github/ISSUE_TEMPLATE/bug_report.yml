@@ -1,0 +1,127 @@
+name: Bug report
+description: Report something in Atelier that doesn't work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! A small, complete reproducer
+        and the Atelier logs are by far the most useful things to include.
+
+        Before filing, please:
+        - Search existing issues to avoid duplicates.
+        - Redact any secrets from logs and config (Atelier stores sensitive
+          values in a gitignored `secrets.auto.tfvars`, but paste carefully).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: When I press … in the … editor, Atelier …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The exact steps, ideally starting from a fresh wrapper. Include the
+        `atelier` command(s) you ran and the keys you pressed in the TUI.
+      value: |
+        1. `atelier module add <git-url> [--module <subdir>] [--ref <ref>]`
+        2. Open the TUI: `atelier`
+        3. Select variable `…`, press `…`
+        4. …
+    validations:
+      required: true
+
+  - type: input
+    id: module-source
+    attributes:
+      label: Module source and ref
+      description: >
+        The git URL (and `--module` subdir / `--ref` if any) you pointed
+        Atelier at. A public, cloneable repo is ideal.
+      placeholder: https://github.com/canonical/observability-stack.git //terraform/cos-lite @ main
+    validations:
+      required: false
+
+  - type: textarea
+    id: stderr-log
+    attributes:
+      label: Atelier error log (`.atelier/logs/tf-stderr.log`)
+      description: >
+        Atelier appends terraform's stderr to `.atelier/logs/tf-stderr.log`
+        (always on). Paste the relevant tail — it usually contains the error.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: trace-log
+    attributes:
+      label: Verbose trace log (`ATELIER_DEBUG=1`)
+      description: >
+        For flaky `terraform init`/`plan`/`apply` or clone failures, re-run
+        with `ATELIER_DEBUG=1 atelier` and attach the relevant part of
+        `.atelier/logs/tf-trace.log`. Optional, but very helpful for
+        intermittent issues. This log is verbose — trim it to the failure.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: main-tf
+    attributes:
+      label: Relevant `main.tf` (or a minimal snippet)
+      description: >
+        If the bug involves how the wrapper is written or read back, paste the
+        relevant `module {}` block. Redact secrets.
+      render: hcl
+    validations:
+      required: false
+
+  - type: input
+    id: atelier-version
+    attributes:
+      label: Atelier version / commit
+      description: >
+        The release tag if you installed one, or the git commit SHA you built
+        from (`git -C <atelier repo> rev-parse --short HEAD`).
+      placeholder: v0.0.0+dev (abc1234)
+    validations:
+      required: true
+
+  - type: input
+    id: terraform-version
+    attributes:
+      label: Terraform / OpenTofu version
+      description: Output of `terraform version` (or `tofu version`).
+      placeholder: Terraform v1.9.5 on linux_amd64
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and terminal
+      placeholder: Ubuntu 24.04, kitty 0.35
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots of the TUI, related issues, workarounds you found.
+    validations:
+      required: false

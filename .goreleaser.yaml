@@ -1,0 +1,66 @@
+# GoReleaser configuration. Docs: https://goreleaser.com
+#
+# Release flow: push a tag like `v0.0.0` and the release workflow
+# (.github/workflows/release.yml) runs `goreleaser release`, which
+# cross-compiles the binary, injects the version, builds archives +
+# checksums, and publishes a GitHub Release with all artifacts attached.
+#
+# Try it locally without publishing:  goreleaser release --snapshot --clean
+version: 2
+
+project_name: atelier
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: atelier
+    main: ./cmd/atelier
+    binary: atelier
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # Inject the tag into `atelier --version` (see cmd/atelier/main.go).
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: atelier
+    ids:
+      - atelier
+    # e.g. atelier_0.0.0_linux_amd64.tar.gz ; zip on Windows.
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-dev"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  draft: false
+  prerelease: auto

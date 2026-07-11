@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -308,4 +309,296 @@ func runBatchUntil(t *testing.T, cmd tea.Cmd, want func(tea.Msg) bool) tea.Msg {
 	}
 	t.Fatalf("expected matching message; queue drained without match")
 	return nil
+}
+
+// --- apply tests ---
+
+// stubApplier is an Applier implementation for tests.
+type stubApplier struct {
+	err    error
+	called bool
+}
+
+func (s *stubApplier) Apply(ctx context.Context) error {
+	s.called = true
+	return s.err
+}
+
+func TestPlanMode_pressA_triggersApply(t *testing.T) {
+	m := plannedReady(t)
+	stub := &stubApplier{}
+	m.Applier = stub
+
+	_, cmd := m.Update(key("A"))
+	if m.applyState != applyLoading {
+		t.Fatalf("after A press, applyState = %v; want applyLoading", m.applyState)
+	}
+	if cmd == nil {
+		t.Fatal("expected a tea.Cmd from A press")
+	}
+	msg := runBatchUntil(t, cmd, func(msg tea.Msg) bool {
+		_, ok := msg.(applyResultMsg)
+		return ok
+	})
+	out, _ := m.Update(msg)
+	mm := out.(*Model)
+	if mm.applyState != applyDone {
+		t.Errorf("after applyResultMsg, applyState = %v; want applyDone", mm.applyState)
+	}
+	if !strings.Contains(mm.status, "apply succeeded") {
+		t.Errorf("status = %q; expected success message", mm.status)
+	}
+	// Plan should be invalidated after apply.
+	if mm.planState != planIdle {
+		t.Errorf("planState should be idle after apply; got %v", mm.planState)
+	}
+	if !stub.called {
+		t.Errorf("Apply should have been called")
+	}
+}
+
+func TestPlanMode_pressA_applyError(t *testing.T) {
+	m := plannedReady(t)
+	m.Applier = &stubApplier{err: errors.New("kaboom")}
+
+	_, cmd := m.Update(key("a"))
+	msg := runBatchUntil(t, cmd, func(msg tea.Msg) bool {
+		_, ok := msg.(applyErrorMsg)
+		return ok
+	})
+	out, _ := m.Update(msg)
+	mm := out.(*Model)
+	if mm.applyState != applyIdle {
+		t.Errorf("after apply error, applyState = %v; want applyIdle", mm.applyState)
+	}
+	if !strings.Contains(mm.status, "kaboom") {
+		t.Errorf("status = %q; expected error text", mm.status)
+	}
+	if mm.statusLvl != statusError {
+		t.Errorf("statusLvl should be error after apply failure")
+	}
+}
+
+func TestPlanMode_pressA_withoutApplier_noop(t *testing.T) {
+	m := plannedReady(t)
+	// Applier is nil.
+	_, cmd := m.Update(key("A"))
+	if cmd != nil {
+		t.Errorf("expected nil cmd when Applier is nil; got %v", cmd)
+	}
+	if m.applyState != applyIdle {
+		t.Errorf("applyState should remain idle; got %v", m.applyState)
+	}
+}
+
+// --- validate tests ---
+
+// stubValidator is a Validator implementation for tests.
+type stubValidator struct {
+	output *tfjson.ValidateOutput
+	err    error
+	called bool
+}
+
+func (s *stubValidator) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
+	s.called = true
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.output, nil
+}
+
+func TestValidate_debounceFires(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	stub := &stubValidator{output: &tfjson.ValidateOutput{Valid: true}}
+	m.Validator = stub
+
+	// Simulate an edit that triggers scheduleValidate.
+	cmd := m.scheduleValidate()
+	if cmd == nil {
+		t.Fatal("expected a debounce cmd")
+	}
+	if m.validateGen != 1 {
+		t.Errorf("validateGen = %d; want 1", m.validateGen)
+	}
+
+	// Fire the debounce tick.
+	msg := cmd() // produces validateDebounceMsg{gen: 1}
+	out, cmd2 := m.Update(msg)
+	mm := out.(*Model)
+	if cmd2 == nil {
+		t.Fatal("expected startValidate cmd after debounce tick")
+	}
+
+	// Run the validate command.
+	msg2 := cmd2()
+	out2, _ := mm.Update(msg2)
+	mm2 := out2.(*Model)
+	if !stub.called {
+		t.Error("Validate should have been called")
+	}
+	if mm2.validateOutput == nil || !mm2.validateOutput.Valid {
+		t.Error("expected valid validateOutput")
+	}
+}
+
+func TestValidate_staleDebounceIgnored(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.Validator = &stubValidator{output: &tfjson.ValidateOutput{Valid: true}}
+
+	// Schedule a debounce, then schedule another (simulating a second edit).
+	cmd1 := m.scheduleValidate() // gen=1
+	_ = m.scheduleValidate()     // gen=2
+
+	// Fire the first (stale) debounce.
+	msg := cmd1()
+	_, cmd := m.Update(msg)
+	if cmd != nil {
+		t.Error("stale debounce tick should produce nil cmd")
+	}
+}
+
+func TestValidate_withoutValidator_noop(t *testing.T) {
+	m := New(sampleState(t), "test")
+	// Validator is nil.
+	cmd := m.scheduleValidate()
+	if cmd != nil {
+		t.Error("expected nil cmd when Validator is nil")
+	}
+}
+
+func TestValidate_errorClearsOutput(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.validateOutput = &tfjson.ValidateOutput{Valid: true}
+
+	out, _ := m.Update(validateErrorMsg{err: errors.New("boom")})
+	mm := out.(*Model)
+	if mm.validateOutput != nil {
+		t.Error("validateOutput should be nil after error")
+	}
+}
+
+func TestValidate_invalidSetsStatusDetailForEKey(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	vo := &tfjson.ValidateOutput{
+		Valid:      false,
+		ErrorCount: 2,
+		Diagnostics: []tfjson.Diagnostic{
+			{Severity: "error", Summary: "Missing required argument"},
+			{Severity: "error", Summary: "Invalid value", Detail: "must be a string"},
+		},
+	}
+	out, _ := m.Update(validateResultMsg{output: vo})
+	mm := out.(*Model)
+
+	if mm.statusLvl != statusError {
+		t.Errorf("statusLvl = %v; want statusError", mm.statusLvl)
+	}
+	if mm.statusDetail == "" {
+		t.Fatal("statusDetail should be set for E key")
+	}
+	if !strings.Contains(mm.statusDetail, "Missing required argument") {
+		t.Errorf("statusDetail missing diagnostic summary: %q", mm.statusDetail)
+	}
+	if !strings.Contains(mm.statusDetail, "must be a string") {
+		t.Errorf("statusDetail missing diagnostic detail: %q", mm.statusDetail)
+	}
+
+	// Pressing E should now open the error detail modal.
+	out2, _ := mm.Update(key("e"))
+	mm2 := out2.(*Model)
+	if !mm2.errorDetail {
+		t.Error("E key should open errorDetail when validate errors present")
+	}
+}
+
+// TestPlanTree_heightConsistency verifies that the rendered tree and diff
+// panes have the same line count even when module names are long enough to
+// potentially wrap. This catches the bug where long module names caused the
+// left pane to overflow its height budget, making it taller than the right
+// pane and breaking the border alignment.
+func TestPlanTree_heightConsistency(t *testing.T) {
+	// Build a plan with deeply nested modules whose names exceed the 42-char
+	// inner width of the left pane.
+	longModule := "module.cos.module.mimir.module.mimir_coordinator_with_extra_long_suffix"
+	plan := &tfjson.Plan{
+		ResourceChanges: []*tfjson.ResourceChange{
+			rc(longModule+".juju_application.app", longModule, "juju_application", "app",
+				change(tfjson.ActionCreate)),
+			rc(longModule+".juju_application.app2", longModule, "juju_application", "app2",
+				change(tfjson.ActionCreate)),
+		},
+	}
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m.Planner = &stubPlanner{plan: plan}
+	_, cmd := m.Update(key("p"))
+	msg := runBatchUntil(t, cmd, func(msg tea.Msg) bool {
+		_, ok := msg.(planResultMsg)
+		return ok
+	})
+	out, _ := m.Update(msg)
+	mm := out.(*Model)
+
+	tree := mm.renderPlanTree()
+	diff := mm.renderPlanDiff()
+
+	treeLines := strings.Count(tree, "\n")
+	diffLines := strings.Count(diff, "\n")
+
+	if treeLines != diffLines {
+		t.Errorf("tree pane height (%d lines) != diff pane height (%d lines); "+
+			"long module names may be wrapping and overflowing the height budget",
+			treeLines, diffLines)
+	}
+}
+
+// TestPlanTree_scrollIndicatorWithinBudget verifies that when there are more
+// rows than fit in the panel, the scroll indicator is rendered within the
+// height budget rather than overflowing it.
+func TestPlanTree_scrollIndicatorWithinBudget(t *testing.T) {
+	// Create resources in many different modules so that the flattened tree
+	// (modules expanded, types collapsed) has enough visible rows to
+	// trigger scrolling. Each module contributes 2 rows: module + type.
+	var changes []*tfjson.ResourceChange
+	for i := 0; i < 20; i++ {
+		mod := fmt.Sprintf("module.m%d", i)
+		addr := fmt.Sprintf("%s.juju_application.app", mod)
+		changes = append(changes, rc(addr, mod, "juju_application",
+			"app", change(tfjson.ActionCreate)))
+	}
+	plan := &tfjson.Plan{ResourceChanges: changes}
+
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m.Planner = &stubPlanner{plan: plan}
+	_, cmd := m.Update(key("p"))
+	msg := runBatchUntil(t, cmd, func(msg tea.Msg) bool {
+		_, ok := msg.(planResultMsg)
+		return ok
+	})
+	out, _ := m.Update(msg)
+	mm := out.(*Model)
+
+	tree := mm.renderPlanTree()
+	diff := mm.renderPlanDiff()
+
+	treeLines := strings.Count(tree, "\n")
+	diffLines := strings.Count(diff, "\n")
+
+	if treeLines != diffLines {
+		t.Errorf("with scroll indicator: tree pane (%d lines) != diff pane (%d lines)",
+			treeLines, diffLines)
+	}
+
+	// Also verify the scroll indicator is present in the output.
+	stripped := stripANSI(tree)
+	if !strings.Contains(stripped, "(1/") {
+		t.Errorf("scroll indicator not found in tree output:\n%s", stripped)
+	}
 }

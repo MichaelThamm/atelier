@@ -28,7 +28,7 @@ secrets.auto.tfvars
 // is free to overwrite or extend.
 const readmeTemplate = `# %s wrapper
 
-This directory is a Terraform wrapper authored with [Atelier](https://github.com/canonical/atelier).
+This directory is a Terraform wrapper authored with [Atelier](https://github.com/MichaelThamm/atelier).
 
 ## Usage
 

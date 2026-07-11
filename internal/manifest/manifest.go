@@ -1,7 +1,14 @@
-// Package manifest parses Atelier's optional atelier.yaml manifest file
-// (SPEC §11, ADR-0010). The v1 schema is intentionally minimal: a single
-// top-level modules: list, each module declaring path/name/optional
-// description/optional groups.
+// Package manifest parses Atelier's optional local presets file,
+// atelier.local.yaml (SPEC §11). This is a user-owned, wrapper-local file:
+// Atelier never reads presets from the upstream module repository. The file
+// is discovered by walking up from the wrapper directory, so a single file
+// placed at a parent (e.g. tf-testing/atelier.local.yaml) is shared by every
+// wrapper beneath it.
+//
+// The v1 schema is intentionally minimal: a single top-level modules: list,
+// each module declaring a path and a set of presets. A module entry with
+// path "." applies to the wrapper's primary module regardless of its upstream
+// sub-path, which is the ergonomic default for local files.
 //
 // Parsing is strict in the sense that unknown top-level keys produce a
 // warning the caller can surface; structural errors produce a hard error.
@@ -16,29 +23,42 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Manifest is the parsed atelier.yaml.
+// LocalFileName is the wrapper-local presets file Atelier discovers by
+// walking up from the wrapper directory.
+const LocalFileName = "atelier.local.yaml"
+
+// PrimaryModulePath is the special module path that matches the wrapper's
+// primary module regardless of its upstream sub-path. Local files use it so
+// users don't have to track the module's path within the upstream repo.
+const PrimaryModulePath = "."
+
+// Manifest is the parsed atelier.local.yaml.
 type Manifest struct {
 	Modules []Module `yaml:"modules"`
 }
 
-// Module is one declared module candidate.
+// Module is one declared module's presets. Name and Description are optional
+// for local files (they are not used to name candidates); only Path and
+// Presets are consumed.
 type Module struct {
-	Path        string  `yaml:"path"`
-	Name        string  `yaml:"name"`
-	Description string  `yaml:"description,omitempty"`
-	Groups      []Group `yaml:"groups,omitempty"`
+	Path        string   `yaml:"path"`
+	Name        string   `yaml:"name,omitempty"`
+	Description string   `yaml:"description,omitempty"`
+	Presets     []Preset `yaml:"presets,omitempty"`
 }
 
-// Group is a UI grouping of variables in the left pane.
-type Group struct {
-	Name      string   `yaml:"name"`
-	Variables []string `yaml:"variables"`
+// Preset is a named bundle of variable overrides a module maintainer
+// declares. Users can apply a preset to bulk-set variables, then tweak.
+type Preset struct {
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description,omitempty"`
+	Sets        map[string]any `yaml:"sets"`
 }
 
-// Load reads and parses atelier.yaml at the given path. Returns a
+// Load reads and parses an atelier.local.yaml at the given path. Returns a
 // (nil-Manifest, nil-error, nil-warnings) tuple if the file does not exist —
-// the manifest is optional. Returns (manifest, nil, warnings) on parse
-// success, possibly with non-fatal warnings (e.g. unknown fields).
+// the file is optional. Returns (manifest, nil, warnings) on parse success,
+// possibly with non-fatal warnings (e.g. unknown fields).
 func Load(path string) (*Manifest, []string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -51,10 +71,99 @@ func Load(path string) (*Manifest, []string, error) {
 	return Parse(f)
 }
 
-// LoadFromRepo looks for atelier.yaml at the root of a cloned repository.
-// Equivalent to Load(filepath.Join(repoRoot, "atelier.yaml")).
-func LoadFromRepo(repoRoot string) (*Manifest, []string, error) {
-	return Load(filepath.Join(repoRoot, "atelier.yaml"))
+// LoadLocalPresets discovers atelier.local.yaml files by walking up from
+// wrapperDir and returns the presets that apply to the wrapper's primary
+// module, identified by primaryModulePath (the module's sub-path within its
+// upstream repo, e.g. "terraform/cos").
+//
+// Discovery walks from wrapperDir up to the filesystem root (or $HOME,
+// whichever comes first), collecting every atelier.local.yaml found. Presets
+// from files nearer the wrapper take precedence: when two files declare a
+// preset with the same name, the nearer file wins. Within a single file,
+// presets from a module entry whose path matches primaryModulePath take
+// precedence over those from a "." (primary) entry.
+//
+// Non-fatal parse issues are returned as warnings; a malformed file is
+// skipped with a warning rather than aborting discovery.
+func LoadLocalPresets(wrapperDir, primaryModulePath string) ([]Preset, []string) {
+	dirs := ancestorDirs(wrapperDir)
+
+	var warnings []string
+	seen := map[string]bool{}
+	var out []Preset
+
+	// dirs is ordered nearest-first, which is the precedence we want: the
+	// first file to define a given preset name wins.
+	for _, dir := range dirs {
+		path := filepath.Join(dir, LocalFileName)
+		m, warns, err := Load(path)
+		for _, w := range warns {
+			warnings = append(warnings, fmt.Sprintf("%s: %s", path, w))
+		}
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("%s: %v (skipped)", path, err))
+			continue
+		}
+		if m == nil {
+			continue // file absent
+		}
+		for _, p := range m.presetsForModule(primaryModulePath) {
+			if seen[p.Name] {
+				continue // nearer file already defined this preset
+			}
+			seen[p.Name] = true
+			out = append(out, p)
+		}
+	}
+	return out, warnings
+}
+
+// presetsForModule returns the presets that apply to primaryModulePath. An
+// exact path match takes precedence over a PrimaryModulePath (".") entry when
+// both are present.
+func (m *Manifest) presetsForModule(primaryModulePath string) []Preset {
+	if m == nil {
+		return nil
+	}
+	var exact, primary []Preset
+	for i := range m.Modules {
+		switch m.Modules[i].Path {
+		case primaryModulePath:
+			exact = append(exact, m.Modules[i].Presets...)
+		case PrimaryModulePath:
+			primary = append(primary, m.Modules[i].Presets...)
+		}
+	}
+	if len(exact) > 0 {
+		return exact
+	}
+	return primary
+}
+
+// ancestorDirs returns dir and each of its parents, nearest-first, stopping
+// at the filesystem root or the user's home directory (whichever is
+// encountered first). $HOME itself is included; directories above it are not.
+func ancestorDirs(dir string) []string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	home, _ := os.UserHomeDir()
+
+	var dirs []string
+	cur := abs
+	for {
+		dirs = append(dirs, cur)
+		if home != "" && cur == home {
+			break
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break // reached filesystem root
+		}
+		cur = parent
+	}
+	return dirs
 }
 
 // Parse parses a manifest from any io.Reader. Exported for testing and for
@@ -76,7 +185,7 @@ func Parse(r io.Reader) (*Manifest, []string, error) {
 	var warnings []string
 	for k := range raw {
 		if k != "modules" {
-			warnings = append(warnings, fmt.Sprintf("unknown top-level key %q in atelier.yaml (ignored)", k))
+			warnings = append(warnings, fmt.Sprintf("unknown top-level key %q in atelier.local.yaml (ignored)", k))
 		}
 	}
 
@@ -99,84 +208,22 @@ func (m *Manifest) validate() error {
 		if mod.Path == "" {
 			return fmt.Errorf("manifest: modules[%d].path is required", i)
 		}
-		if mod.Name == "" {
-			return fmt.Errorf("manifest: modules[%d].name is required (path=%q)", i, mod.Path)
-		}
 		if seenPaths[mod.Path] {
 			return fmt.Errorf("manifest: duplicate module path %q", mod.Path)
 		}
 		seenPaths[mod.Path] = true
-		for j, g := range mod.Groups {
-			if g.Name == "" {
-				return fmt.Errorf("manifest: modules[%d].groups[%d].name is required", i, j)
+		for j, p := range mod.Presets {
+			if p.Name == "" {
+				return fmt.Errorf("manifest: modules[%d].presets[%d].name is required", i, j)
 			}
-			if len(g.Variables) == 0 {
-				return fmt.Errorf("manifest: modules[%d].groups[%d] (%q) needs at least one variable", i, j, g.Name)
+			if len(p.Sets) == 0 {
+				return fmt.Errorf("manifest: modules[%d].presets[%d] (%q) needs at least one entry in sets", i, j, p.Name)
 			}
 		}
 	}
 	return nil
 }
 
-// FindModule returns the Module entry for the given path, or nil if not
-// declared in the manifest.
-func (m *Manifest) FindModule(path string) *Module {
-	if m == nil {
-		return nil
-	}
-	for i := range m.Modules {
-		if m.Modules[i].Path == path {
-			return &m.Modules[i]
-		}
-	}
-	return nil
-}
 
-// ApplyGroups returns the ordered grouping of the variable names supplied,
-// based on the module's manifest. Variables declared in the manifest but not
-// present in `vars` are dropped (with a warning logged by the caller);
-// variables present in `vars` but unmentioned in the manifest land in an
-// implicit "Other" trailing group.
-//
-// If the module declares no groups (or no manifest is present), all
-// variables appear in a single unnamed group in declaration order.
-func ApplyGroups(mod *Module, vars []string) []ResolvedGroup {
-	if mod == nil || len(mod.Groups) == 0 {
-		return []ResolvedGroup{{Name: "", Variables: append([]string(nil), vars...)}}
-	}
-	present := map[string]bool{}
-	for _, v := range vars {
-		present[v] = true
-	}
-	var out []ResolvedGroup
-	seen := map[string]bool{}
-	for _, g := range mod.Groups {
-		rg := ResolvedGroup{Name: g.Name}
-		for _, v := range g.Variables {
-			if present[v] {
-				rg.Variables = append(rg.Variables, v)
-				seen[v] = true
-			}
-		}
-		if len(rg.Variables) > 0 {
-			out = append(out, rg)
-		}
-	}
-	var other []string
-	for _, v := range vars {
-		if !seen[v] {
-			other = append(other, v)
-		}
-	}
-	if len(other) > 0 {
-		out = append(out, ResolvedGroup{Name: "Other", Variables: other})
-	}
-	return out
-}
 
-// ResolvedGroup is the result of ApplyGroups: a UI-ready grouping of
-// variables for a specific module candidate.
-type ResolvedGroup struct {
-	Name      string
-	Variables []string
-}
+

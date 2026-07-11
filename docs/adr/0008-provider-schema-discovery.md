@@ -79,7 +79,7 @@ because:
   change (which requires `terraform init -upgrade` anyway).
 - Sensitive provider attributes (flagged `sensitive: true` in the schema)
   are rendered with masking in the TUI and handled by the secrets-handling
-  rules; see [ADR-0009](0009-secrets-handling-v1.md).
+  rules; see [ADR-0009](0009-secrets-handling.md).
 - The TUI surfaces the provider as a top-level pseudo-group `Provider:
   <name>` in the left pane. Its fields are edited identically to module
   variables; the wrapper-write rule from [ADR-0007](0007-sparse-wrapper-write-rule.md)
