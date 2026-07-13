@@ -1529,7 +1529,15 @@ func renderObjectFieldRow(f objectFieldRow, focused bool) string {
 	const nameWidth = 22
 
 	caret := "  "
-	name := fmt.Sprintf("%-*s", nameWidth, f.Name)
+	// Pad short names to the column width; truncate long ones to it so the
+	// value column stays aligned and the row can't blow past the pane width
+	// (e.g. "backend_storage_directives" is wider than nameWidth). %-*s only
+	// pads, never truncates, so clamp explicitly.
+	displayName := f.Name
+	if len(displayName) > nameWidth {
+		displayName = displayName[:nameWidth-1] + "…"
+	}
+	name := fmt.Sprintf("%-*s", nameWidth, displayName)
 	if focused {
 		caret = styleCursorInactive.Render("▸ ")
 		name = styleVarHeader.Render(name)

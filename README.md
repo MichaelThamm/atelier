@@ -18,15 +18,14 @@ rather than a wall of options. Defaults handle the rest, and plan diffs show exa
 
 ### Prebuilt binary (recommended)
 
-Open the
-[latest release](https://github.com/MichaelThamm/atelier/releases/latest),
+Open the [latest release](https://github.com/MichaelThamm/atelier/releases/latest),
 download the archive matching your OS and CPU, extract it, and move the
 `atelier` binary onto your `PATH`:
 
 ```bash
-VERSION=0.1.0
-OS=linux
-ARCH=amd64
+VERSION=0.0.0
+OS=linux       # linux|windows|darwin
+ARCH=amd64     # amd64|arm64
 
 curl -sSfL \
   "https://github.com/MichaelThamm/atelier/releases/download/v${VERSION}/atelier_${VERSION}_${OS}_${ARCH}.tar.gz" \
@@ -43,16 +42,6 @@ Builds are published for Linux, macOS, and Windows on amd64 and arm64;
 # Requires Go >= 1.25:
 go install github.com/MichaelThamm/atelier/cmd/atelier@latest
 ```
-
-> `go install` does not stamp a version. To embed one, build from a checkout:
->
-> ```bash
-> git clone https://github.com/MichaelThamm/atelier.git && cd atelier
-> go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" \
->   -o atelier ./cmd/atelier
-> ```
-
-Check the version with `atelier --version`.
 
 ## Quick start
 

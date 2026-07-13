@@ -22,6 +22,17 @@ func wrapContent(s string, limit int) string {
 	return ansi.Wordwrap(s, limit, " ")
 }
 
+// arrowUpDown is the up/down navigation glyph used in the single-line status
+// bar hints. The bare arrows U+2191/U+2193 are East-Asian *ambiguous* width:
+// lipgloss (and the layout math) count them as one column each, but many
+// terminals render them with emoji (width-2) presentation. That two-column
+// undercount is enough to push the footer past its box and drop the right
+// border. Appending VARIATION SELECTOR-15 (U+FE0E) requests text (narrow)
+// presentation, so a compliant terminal draws them at the width lipgloss
+// assumes. The renderers additionally hard-clamp their content as a
+// belt-and-suspenders guard for terminals that ignore the selector.
+const arrowUpDown = "\u2191\ufe0e\u2193\ufe0e"
+
 // styleModalFrame is the bordered box used by all overlay modals.
 var styleModalFrame = lipgloss.NewStyle().
 	Border(lipgloss.RoundedBorder()).
@@ -179,13 +190,32 @@ func (m *Model) renderLeftPane() string {
 	if content == "" {
 		content = styleDescription.Render("(no variables)")
 	}
-	// Pad content to exactly panelHeight lines so both panels align.
-	lines := strings.Count(content, "\n")
-	if lines < m.panelHeight() {
-		content += strings.Repeat("\n", m.panelHeight()-lines)
-	}
+	// Force exactly panelHeight lines so both panels' bottom borders align.
+	// lipgloss's .Height() only pads short content, never trims tall content,
+	// so a pane whose content exceeds the height would render a row taller
+	// than its neighbour — hence the explicit clamp here.
+	content = clampToLines(strings.TrimSuffix(content, "\n"), m.panelHeight())
 	panel := m.panelStyle(focusLeft)
 	return panel.Width(leftWidth).Height(m.panelHeight()).Render(content)
+}
+
+// clampToLines forces s to exactly n physical lines: it pads with blank lines
+// when short and drops trailing lines when tall. Used by the two body panes so
+// their heights (and therefore bottom borders) always match, independent of
+// how lipgloss's .Height() pads.
+func clampToLines(s string, n int) string {
+	if n < 1 {
+		n = 1
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	} else {
+		for len(lines) < n {
+			lines = append(lines, "")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderRightPane shows the editor inside a bordered panel.
@@ -270,6 +300,16 @@ func (m *Model) renderRightPane() string {
 			end = len(lines)
 		}
 		visible := lines[m.editorScroll:end]
+		// Hard-truncate each visible line to the panel's inner width. word-wrap
+		// (above) breaks on spaces only, so an over-long unbreakable token
+		// (e.g. a long object field name + value) can still exceed innerW;
+		// left un-truncated, lipgloss re-wraps it at Render time, adding a
+		// physical row that overflows the fixed Height and shoves the bottom
+		// border down — the pane then renders one row shorter than the left
+		// pane. Truncating guarantees exactly ph rows.
+		for i, ln := range visible {
+			visible[i] = ansi.Truncate(ln, innerW, "…")
+		}
 		// Append scroll indicator.
 		if ph > 1 && len(visible) > 0 {
 			pct := 0
@@ -280,12 +320,16 @@ func (m *Model) renderRightPane() string {
 		}
 		content = strings.Join(visible, "\n")
 	} else {
-		// Pad content to exactly panelHeight lines so both panels align.
-		lineCount := strings.Count(content, "\n")
-		if lineCount < ph {
-			content += strings.Repeat("\n", ph-lineCount)
+		// Guard against the same over-long-token wrap in the unscrolled path.
+		lines = strings.Split(content, "\n")
+		for i, ln := range lines {
+			lines[i] = ansi.Truncate(ln, innerW, "…")
 		}
+		content = strings.Join(lines, "\n")
 	}
+	// Force exactly panelHeight lines so this pane's bottom border always
+	// lines up with the left pane's (see clampToLines).
+	content = clampToLines(content, ph)
 	panel := m.panelStyle(focusRight)
 	return panel.Width(rightWidth).Height(m.panelHeight()).Render(content)
 }
@@ -344,6 +388,9 @@ func (m *Model) renderHeader() string {
 		gap = 1
 	}
 	bar := left + strings.Repeat(" ", gap)
+	// Belt-and-suspenders: never let the content exceed the box width, even if
+	// a terminal disagrees with lipgloss on a glyph's width (see arrowUpDown).
+	bar = ansi.Truncate(bar, contentW, "…")
 	return styleHeaderBar.Width(m.width - 2).Render(bar)
 }
 
@@ -401,6 +448,9 @@ func (m *Model) renderFooter() string {
 		gap = 1
 	}
 	bar := left + strings.Repeat(" ", gap) + hints
+	// Belt-and-suspenders: never let the content exceed the box width, even if
+	// a terminal disagrees with lipgloss on a glyph's width (see arrowUpDown).
+	bar = ansi.Truncate(bar, contentW, "…")
 	return styleStatusBar.Width(m.width - 2).Render(bar)
 }
 
@@ -445,9 +495,9 @@ func (m *Model) statusHints() string {
 		return "[Esc] cancel  [?] help"
 	case planReady:
 		if m.planDiffFocus {
-			return "[↑↓] scroll diff  [Tab/Esc] back to tree  [?] help"
+			return "[" + arrowUpDown + "] scroll diff  [Tab/Esc] back to tree  [?] help"
 		}
-		hints := "[↑↓] navigate  [Enter] toggle  [Tab] focus diff  [P] re-plan"
+		hints := "[" + arrowUpDown + "] navigate  [Enter] toggle  [Tab] focus diff  [P] re-plan"
 		if m.tfState != nil {
 			if m.planShowState {
 				hints += "  [S] show diff"
@@ -467,7 +517,7 @@ func (m *Model) statusHints() string {
 		hints += "  [Esc] back  [?] help"
 		return hints
 	}
-	hints := "[Tab] pane  [↑↓] navigate  [P] plan"
+	hints := "[Tab] pane  [" + arrowUpDown + "] navigate  [P] plan"
 	if len(m.presets) > 0 {
 		hints += "  [F] preset"
 	}
