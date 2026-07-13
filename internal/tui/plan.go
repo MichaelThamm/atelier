@@ -228,6 +228,66 @@ func actionMarker(actions []tfjson.Action) string {
 	return "?"
 }
 
+// CheckWarning is one failed `check` block assertion, distilled from the
+// plan's Checks section into just the two things the UI needs: a display
+// address (e.g. "check.grafana_storage_directives") and the author's
+// error_message.
+//
+// Only `check` blocks are surfaced here. Resource/output pre- and
+// post-conditions (the other CheckKinds) fail the plan itself and are
+// therefore already carried by the plan-error path; check blocks are unique
+// in that they degrade to advisory warnings that never block plan or apply,
+// so they need a dedicated, non-error surface.
+type CheckWarning struct {
+	// Address is the display address of the check block, e.g.
+	// "check.grafana_storage_directives".
+	Address string
+	// Message is the error_message the check author wrote.
+	Message string
+}
+
+// FailedChecks extracts the failed `check` block assertions from a parsed
+// plan. It reads the machine-readable Checks section that `terraform show
+// -json` emits, so it never scrapes human-readable stdout and never drifts
+// from Terraform's own semantics.
+//
+// Only checks with Kind == "check" and Status == "fail" are returned; passing
+// checks, resource/output conditions, and unknown/errored checks are skipped.
+// The result is deterministic (input order preserved) and nil when the plan
+// has no failed check blocks.
+func FailedChecks(plan *tfjson.Plan) []CheckWarning {
+	if plan == nil {
+		return nil
+	}
+	var out []CheckWarning
+	for _, cr := range plan.Checks {
+		if cr.Address.Kind != tfjson.CheckKindCheckBlock {
+			continue
+		}
+		if cr.Status != tfjson.CheckStatusFail {
+			continue
+		}
+		addr := cr.Address.ToDisplay
+		if addr == "" {
+			addr = "check." + cr.Address.Name
+		}
+		// A check block has a single instance; collect every problem message
+		// it reported. If Terraform reported a failure with no message text,
+		// still surface the address so the warning isn't silently dropped.
+		emitted := false
+		for _, inst := range cr.Instances {
+			for _, p := range inst.Problems {
+				out = append(out, CheckWarning{Address: addr, Message: p.Message})
+				emitted = true
+			}
+		}
+		if !emitted {
+			out = append(out, CheckWarning{Address: addr})
+		}
+	}
+	return out
+}
+
 // PlanSummary returns the standard one-line counts header.
 func PlanSummary(plan *tfjson.Plan) string {
 	if plan == nil {

@@ -1,0 +1,108 @@
+name: Tag
+
+# On every merge to main, compute the next semantic version from the
+# Conventional Commit messages since the last tag and push it. Pushing the
+# tag is what triggers the Release workflow (.github/workflows/release.yml),
+# which runs GoReleaser. This keeps releasing fully automated: land a PR on
+# main and — if it carries a fix:/feat:/breaking change — a tagged release
+# follows without any manual step.
+#
+# Version bump rules (Conventional Commits):
+#   - a commit with `feat:`                       → minor bump (0.1.0 → 0.2.0)
+#   - a commit with `fix:` / `perf:`              → patch bump (0.1.0 → 0.1.1)
+#   - a commit body/footer with `BREAKING CHANGE` → major bump (0.1.0 → 1.0.0)
+#   - only docs:/chore:/test:/etc.                → no tag, no release
+#
+# IMPORTANT: the tag must be pushed with a token that can trigger *other*
+# workflows. A tag pushed with the default GITHUB_TOKEN will NOT start the
+# Release workflow (GitHub suppresses workflow-triggering-workflow recursion).
+# Provide a repo secret named RELEASE_TOKEN (a fine-grained PAT or classic PAT
+# with `contents: write`) so the resulting tag push is seen by release.yml.
+# If RELEASE_TOKEN is absent the job falls back to GITHUB_TOKEN and logs a
+# warning; the tag is still created but you must run the release manually.
+
+on:
+  push:
+    branches: [main]
+
+# Never race two tagging runs against each other; a later push supersedes.
+concurrency:
+  group: tag-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push tags
+
+jobs:
+  tag:
+    name: compute + push version tag
+    runs-on: ubuntu-latest
+    steps:
+      # Prefer RELEASE_TOKEN; fall back to GITHUB_TOKEN. The secret is read via
+      # an env var (never spliced into the script body) so its value can't leak
+      # through the shell and an empty secret is handled cleanly.
+      - name: Select push token
+        id: token
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -n "${RELEASE_TOKEN}" ]; then
+            echo "RELEASE_TOKEN present — the pushed tag will trigger the Release workflow."
+            echo "has_release_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=RELEASE_TOKEN missing::Falling back to GITHUB_TOKEN. The pushed tag will NOT trigger the Release workflow — add a RELEASE_TOKEN secret (contents:write PAT) or run the Release workflow manually for the new tag."
+            echo "has_release_token=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          # Full history + tags so the version bump can see every commit since
+          # the last tag. Check out with the release token so the subsequent
+          # tag push is authenticated as that identity.
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Compute and push tag
+        id: bump
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          # Match the existing tag scheme (v0.0.0) that release.yml listens for.
+          tag_prefix: v
+          # Conventional Commits drive the bump; default_bump: false means a
+          # batch of commits with no releasable type (only docs/chore/test)
+          # produces no tag and therefore no release.
+          default_bump: false
+          release_branches: main
+          # Annotated tags carry author + date, reading better in the Releases
+          # UI and in `git describe`.
+          create_annotated_tag: true
+
+      - name: Summary
+        if: always()
+        env:
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+          PREV_TAG: ${{ steps.bump.outputs.previous_tag }}
+          RELEASE_TYPE: ${{ steps.bump.outputs.release_type }}
+          HAS_TOKEN: ${{ steps.token.outputs.has_release_token }}
+        run: |
+          if [ -n "${NEW_TAG}" ]; then
+            {
+              echo "### Tagged \`${NEW_TAG}\` :label:"
+              echo ""
+              echo "- Previous: \`${PREV_TAG}\`"
+              echo "- Bump: **${RELEASE_TYPE}**"
+              echo ""
+              if [ "${HAS_TOKEN}" = "true" ]; then
+                echo "The **Release** workflow will run GoReleaser for this tag."
+              else
+                echo ":warning: Pushed with \`GITHUB_TOKEN\`, so the Release workflow was **not** triggered. Run it manually for \`${NEW_TAG}\` or add a \`RELEASE_TOKEN\` secret."
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### No release :leftwards_arrow_with_hook:"
+              echo ""
+              echo "No Conventional Commit since \`${PREV_TAG}\` warranted a version bump (only docs/chore/test-type changes), so no tag was pushed."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

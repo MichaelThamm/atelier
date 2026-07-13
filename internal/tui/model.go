@@ -63,6 +63,13 @@ type Model struct {
 	statusDetail string // full multi-line error for [E] detail view
 	errorDetail  bool   // true when the error detail modal is visible
 
+	// checkWarnings holds failed `check` block assertions from the most
+	// recent plan. Populated on planResultMsg, cleared on the next plan/apply.
+	// These are advisory (they never block plan/apply), so they are surfaced
+	// separately from the error path via the [W] warnings detail modal.
+	checkWarnings []CheckWarning
+	warnDetail    bool // true when the check-warnings detail modal is visible
+
 	// Planner runs `terraform plan` asynchronously when the user presses P.
 	// May be nil (e.g. in tests or read-only contexts); the P key just
 	// produces a friendly status message in that case.
@@ -643,6 +650,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case planResultMsg:
 		m.plan = msg.plan
 		m.planTree = BuildPlanTree(msg.plan)
+		m.checkWarnings = FailedChecks(msg.plan)
 		// Build state tree for the [S] toggle (always available if state exists).
 		if m.tfState != nil && m.tfState.Summary.Total > 0 {
 			m.stateTree = BuildStateTree(m.tfState)
@@ -683,6 +691,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.planState = planIdle
 		m.plan = nil
 		m.planTree = nil
+		m.checkWarnings = nil
 		// Reload state after successful apply.
 		if m.WrapperDir != "" {
 			if s, _ := state.Read(m.WrapperDir); s != nil {
@@ -796,6 +805,15 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.errorDetail {
 		if msg.String() == "esc" || msg.String() == "q" || msg.String() == "e" || msg.String() == "E" {
 			m.errorDetail = false
+		}
+		return m, nil
+	}
+
+	// Check-warnings detail modal: same dismiss pattern as the error modal,
+	// toggled by W (or Esc/q).
+	if m.warnDetail {
+		if msg.String() == "esc" || msg.String() == "q" || msg.String() == "w" || msg.String() == "W" {
+			m.warnDetail = false
 		}
 		return m, nil
 	}
@@ -982,7 +1000,14 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Re-run plan.
 		m.planState = planLoading
 		m.planErr = ""
+		m.checkWarnings = nil
 		return m, tea.Batch(m.startPlan(), spinnerTick())
+	case "w", "W":
+		// Open the check-warnings detail modal when warnings are present.
+		if len(m.checkWarnings) > 0 {
+			m.warnDetail = true
+			return m, nil
+		}
 	case "a", "A":
 		// Apply the current plan.
 		if m.Applier != nil && m.applyState != applyLoading {
@@ -1508,6 +1533,9 @@ func (m *Model) View() string {
 	if m.errorDetail {
 		return m.renderErrorDetail()
 	}
+	if m.warnDetail {
+		return m.renderWarnDetail()
+	}
 	if m.planState == planReady {
 		return m.renderPlanScreen()
 	}
@@ -1616,6 +1644,26 @@ func formatValidateDiagnostics(vo *tfjson.ValidateOutput) string {
 		fmt.Fprintf(&b, "%s: %s", sev, d.Summary)
 		if d.Detail != "" {
 			fmt.Fprintf(&b, "\n  %s", d.Detail)
+		}
+	}
+	return b.String()
+}
+
+// formatCheckWarnings renders failed `check` block assertions into a
+// multi-line string for the [W] warnings detail modal: each warning shows the
+// check's display address followed by the author's error_message, indented.
+func formatCheckWarnings(warnings []CheckWarning) string {
+	if len(warnings) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, w := range warnings {
+		if i > 0 {
+			fmt.Fprintln(&b)
+		}
+		fmt.Fprintf(&b, "Warning: %s", w.Address)
+		if w.Message != "" {
+			fmt.Fprintf(&b, "\n  %s", w.Message)
 		}
 	}
 	return b.String()

@@ -150,8 +150,9 @@ var (
 			Bold(true).
 			Padding(0, 1)
 
-	styleStatusError = lipgloss.NewStyle().Foreground(colorDanger).Bold(true)
-	styleStatusBusy  = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
+	styleStatusError   = lipgloss.NewStyle().Foreground(colorDanger).Bold(true)
+	styleStatusBusy    = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
+	styleStatusWarning = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 
 	// Left-pane variable markers.
 	styleMarkerAtDefault = lipgloss.NewStyle().Foreground(colorFaint)
@@ -175,7 +176,11 @@ var (
 	styleWiredExpr    = lipgloss.NewStyle().Foreground(colorText)
 
 	// Plan view.
-	stylePlanSummary  = lipgloss.NewStyle().Foreground(colorText).Bold(true).Underline(true)
+	// stylePlanHeaderIndent left-pads the summary and check-warning banner so
+	// their text lines up with the tree/diff panes beneath, whose content
+	// starts at column 2 (1-col border + 1-col padding).
+	stylePlanHeaderIndent = lipgloss.NewStyle().PaddingLeft(2)
+	stylePlanSummary      = lipgloss.NewStyle().Foreground(colorText).Bold(true).Underline(true)
 	stylePlanModule   = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
 	stylePlanType     = lipgloss.NewStyle().Foreground(colorMuted)
 	stylePlanResource = lipgloss.NewStyle().Foreground(colorText)

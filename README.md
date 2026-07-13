@@ -25,8 +25,8 @@ download the archive matching your OS and CPU, extract it, and move the
 
 ```bash
 VERSION=0.1.0
-OS=linux    # linux | darwin | windows
-ARCH=amd64  # amd64 | arm64
+OS=linux
+ARCH=amd64
 
 curl -sSfL \
   "https://github.com/MichaelThamm/atelier/releases/download/v${VERSION}/atelier_${VERSION}_${OS}_${ARCH}.tar.gz" \
@@ -91,6 +91,7 @@ atelier
 | `P` | Left pane | Run `terraform plan` against the wrapper |
 | `A` | Plan view | Apply the current plan |
 | `O` | Plan view | Show terraform outputs (planned values or state) |
+| `W` | Plan view | Show `check` block warnings (when the plan reports any) |
 | `R` | Left pane | Switch the module ref (branch, tag, or SHA) |
 | `E` | Left pane | Show full error detail (when an error is present) |
 | `F` | Left pane | Open the preset picker (when presets are available) |

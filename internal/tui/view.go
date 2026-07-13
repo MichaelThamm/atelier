@@ -322,6 +322,13 @@ func (m *Model) renderHeader() string {
 			left += "  " + styleStatusError.Render(summary)
 		}
 	}
+	// Append a check-warnings chip. These come from the most recent plan's
+	// `check` blocks (advisory, non-blocking), so they sit alongside — not
+	// inside — the validate summary and use the peach warning tint to read as
+	// distinct from red errors.
+	if n := len(m.checkWarnings); n > 0 {
+		left += "  " + styleStatusWarning.Render(fmt.Sprintf("⚠ %d check warning(s)", n))
+	}
 	leftW := lipgloss.Width(left)
 	// Inner width = m.width - 2 (border); padding takes 2 more.
 	contentW := m.width - 4
@@ -451,6 +458,9 @@ func (m *Model) statusHints() string {
 		if m.Applier != nil && m.applyState != applyLoading {
 			hints += "  [A] apply"
 		}
+		if len(m.checkWarnings) > 0 {
+			hints += "  [W] warnings"
+		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			hints += "  [E] error"
 		}
@@ -489,6 +499,9 @@ func (m *Model) renderHelpModal() string {
 		}
 		if m.Applier != nil {
 			fmt.Fprintln(&b, "  A              Apply the current plan")
+		}
+		if len(m.checkWarnings) > 0 {
+			fmt.Fprintln(&b, "  W              Show check warnings")
 		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			fmt.Fprintln(&b, "  E              Show error details")
@@ -564,6 +577,15 @@ func (m *Model) bodyHeight() int {
 // renderErrorDetail renders a centered modal showing the complete error output.
 func (m *Model) renderErrorDetail() string {
 	return m.renderModalFrame("Error details", m.statusDetail, "[Esc] close")
+}
+
+// renderWarnDetail renders a centered modal listing the failed `check` block
+// assertions from the most recent plan. These are advisory warnings that do
+// not block plan or apply (unlike errors), so they get their own peach-tinted
+// surface distinct from the red error modal.
+func (m *Model) renderWarnDetail() string {
+	title := styleStatusWarning.Render(fmt.Sprintf("⚠ %d check warning(s)", len(m.checkWarnings)))
+	return m.renderModalFrame(title, formatCheckWarnings(m.checkWarnings), "[Esc] close")
 }
 
 // renderPresetPicker renders a centered modal for preset selection.

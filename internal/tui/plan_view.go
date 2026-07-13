@@ -19,7 +19,10 @@ func (m *Model) renderPlanScreen() string {
 	if m.tfState != nil {
 		summaryText += "  |  " + m.tfState.SummaryLine()
 	}
-	summary := stylePlanSummary.Render(summaryText)
+	// Indent the summary and warning banner to line up with the panel content
+	// below them: the panes have a 1-col border plus 1-col padding, so their
+	// text starts at column 2.
+	summary := stylePlanHeaderIndent.Render(stylePlanSummary.Render(summaryText))
 
 	tree := m.renderPlanTree()
 	var rightPane string
@@ -32,7 +35,43 @@ func (m *Model) renderPlanScreen() string {
 	header := m.renderHeader()
 	footer := m.renderFooter()
 	body := lipgloss.JoinHorizontal(lipgloss.Top, tree, rightPane)
-	return lipgloss.JoinVertical(lipgloss.Left, header, summary, body, footer)
+
+	sections := []string{header, summary}
+	if line := m.renderCheckWarningLine(); line != "" {
+		sections = append(sections, line)
+	}
+	sections = append(sections, body, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// renderCheckWarningLine renders a single-line advisory banner beneath the
+// plan summary when the plan reported failed `check` blocks. It shows the
+// count and the first warning's message (truncated), nudging the user to
+// press [W] for the full list. Returns "" when there are no warnings so the
+// plan layout is unchanged in the common case.
+func (m *Model) renderCheckWarningLine() string {
+	if len(m.checkWarnings) == 0 {
+		return ""
+	}
+	first := m.checkWarnings[0].Message
+	if first == "" {
+		first = m.checkWarnings[0].Address
+	}
+	label := fmt.Sprintf("⚠ %d check warning(s): %s", len(m.checkWarnings), first)
+	if len(m.checkWarnings) > 1 {
+		label += "  — [W] for all"
+	} else {
+		label += "  — [W] for detail"
+	}
+	// Keep to one line; the layout budgets a fixed height. Reserve the 2-col
+	// indent (border + padding) so the truncation width matches the visible
+	// text area and the banner aligns with the panes below.
+	contentW := m.width - 4 - 2
+	if contentW < 1 {
+		contentW = 1
+	}
+	label = ansi.Truncate(label, contentW, "…")
+	return stylePlanHeaderIndent.Render(styleStatusWarning.Render(label))
 }
 
 // renderPlanTree draws the collapsible module → type → resource tree on
@@ -327,9 +366,14 @@ func (m *Model) findStateResource(address string) *state.Resource {
 
 // planPanelHeight returns the inner height for plan screen panels
 // (tree + diff). The plan screen's content budget is contentHeight(), minus
-// the summary line (1), minus the panel border lines (2).
+// the summary line (1), minus the panel border lines (2), and minus one more
+// line when the check-warning banner is shown so the panes stay within the
+// vertical budget instead of pushing the footer off-screen.
 func (m *Model) planPanelHeight() int {
 	h := m.contentHeight() - 3
+	if len(m.checkWarnings) > 0 {
+		h-- // reserve the check-warning banner line
+	}
 	if h < 1 {
 		return 1
 	}
