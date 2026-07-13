@@ -26,7 +26,8 @@ import (
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
-// InitOptions captures the inputs to `atelier init <source>`.
+// InitOptions captures the inputs to bootstrapping a wrapper (used by
+// `atelier module add <url>`).
 type InitOptions struct {
 	WrapperDir  string // user's CWD
 	Source      string // git URL or local path (LocalSource && Source = path)
@@ -341,7 +342,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 			return nil, err
 		}
 		if pm == nil {
-			return nil, fmt.Errorf("not a wrapper directory: run 'atelier init <source>' to bootstrap")
+			return nil, fmt.Errorf("not a wrapper directory: run 'atelier module add <url>' to bootstrap")
 		}
 		srcURL, refStr := decomposeSource(pm.Source)
 		prev = &session.Session{

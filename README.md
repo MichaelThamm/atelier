@@ -63,23 +63,12 @@ mkdir my-vpc && cd my-vpc
 atelier module add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 atelier module add https://github.com/canonical/observability-stack.git --module terraform/cos-lite
 
-# Already have a Terraform project with a module block? Adopt it in place:
-cd my-existing-terraform-project/
-atelier init
-
-# Or bootstrap from a local module directory:
-atelier init --source ../path/to/module
-
 # Re-open an existing wrapper (run with no arguments in the wrapper dir):
 atelier
 ```
 
-> **Note:** `atelier init <git-url>` was removed — use `atelier module add
-> <git-url>` to start a wrapper from a remote module. `atelier init` (no
-> source) adopts an existing project, and `atelier init --source PATH`
-> bootstraps from a local directory. Run `atelier --help` for the full command
-> list, including `atelier module rm|list`, `atelier tidy`, and `atelier
-> purge`.
+> **Note:** run `atelier --help` for the full command list, including `atelier
+> module add|rm|list`, `atelier tidy`, and `atelier purge`.
 
 ## Keyboard shortcuts
 
@@ -204,9 +193,8 @@ variables.
 
 Atelier writes sparse `main.tf` files — only values that differ from the
 module's defaults appear (see [ADR-0007](docs/adr/0007-sparse-wrapper-write-rule.md)).
-But a wrapper that was hand-authored, adopted with `atelier init`, or
-seeded from an upstream example often carries arguments set to their default
-value, which is just noise:
+But a wrapper that was hand-authored or seeded from an upstream example often
+carries arguments set to their default value, which is just noise:
 
 ```hcl
 module "cos_lite" {

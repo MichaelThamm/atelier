@@ -113,7 +113,7 @@ func runModuleAdd(args []string) error {
 	}
 
 	if !wrapperExists {
-		// Fresh bootstrap — same as old `atelier init <url>`.
+		// Fresh bootstrap of a new wrapper from the given module URL.
 		initOpts := bootstrap.InitOptions{
 			WrapperDir: cwd,
 			Source:     opts.Source,

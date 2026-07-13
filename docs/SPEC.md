@@ -148,7 +148,7 @@ Terraform Registry sources are not yet supported.
 
 ### 5.2 Clone and candidate discovery
 
-`atelier init <git-url>` performs the following sequence:
+`atelier module add <git-url>` performs the following sequence:
 
 1. Resolve the ref (defaults to the remote's HEAD; overridable via `--ref`).
 2. `git clone --depth 1 --branch <ref>` (or `--depth 1` + `git checkout <sha>`
@@ -237,9 +237,6 @@ refs. See [ADR-0007](adr/0007-sparse-wrapper-write-rule.md).
 
 ```
 atelier                                    # open TUI on existing wrapper in CWD
-atelier init                               # adopt an existing Terraform project
-atelier init --source <path>               # bootstrap from a local module
-atelier init --module-dir <name>           # adopt with custom subdir (relocate path)
 atelier module add <git-url>               # add a module to the wrapper (bootstraps if needed)
 atelier module add <git-url> --as <name>   # add with explicit HCL block name
 atelier module add <git-url> --ref <ref>   # add at a specific ref
@@ -253,8 +250,8 @@ atelier --help                             # print usage
 See [ADR-0018](adr/0018-additive-module-command.md) for the `module`
 subcommand design.
 
-`atelier init <git-url>` is **removed**. The only way to add a module from a
-URL is `atelier module add <url>`.
+There is no `atelier init`. A wrapper is created and modules are added through
+`atelier module add <url>`.
 
 That is the complete CLI surface. Notably absent:
 
@@ -269,7 +266,7 @@ Outputs are viewable from within the TUI (see §7.6); a standalone
 
 `atelier module add <git-url>` is the primary entry point for adding modules:
 
-- If no wrapper exists, bootstraps a fresh wrapper (same as legacy `init`).
+- If no wrapper exists, bootstraps a fresh wrapper.
 - If a wrapper exists, appends a `module {}` block to `main.tf`.
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
@@ -308,9 +305,6 @@ re-introspection on next open.
 | Empty                              | `atelier module add <url>` | Bootstrap wrapper + add module.                                                    |
 | Non-empty, no `main.tf`            | `atelier module add <url>` | Bootstrap; preserve existing files (`.gitignore`, `README.md`, etc.).               |
 | Has existing wrapper               | `atelier module add <url>` | Append module block to existing `main.tf`.                                         |
-| Has existing `main.tf` + `.atelier/` | `atelier init`   | Error: `Already initialized. Use 'atelier' to open.`                                       |
-| Has `.tf` with git `module {}`, no `.atelier/` | `atelier init` | **Adopt**: create `.atelier/`, clone upstream, open TUI. No files moved.            |
-| Has `.tf` files, no git module block, no `.atelier/` | `atelier init` | **Relocate**: move files to `./module/`, generate wrapper, migrate state.    |
 | Any (has `.atelier/` or `.clone/`)  | `atelier purge`    | Prompt, then remove `.atelier/` and `.clone/`. Wrapper files untouched.                    |
 | Any (neither exists)               | `atelier purge`    | Print "nothing to purge".                                                                  |
 
@@ -517,9 +511,9 @@ output "offers" {
 }
 ```
 
-This file is generated at bootstrap (`atelier init`) and kept in sync when
-re-opening an existing wrapper (`EnsureOutputs`). It enables `terraform output`
-to work outside Atelier and makes plan-time output values available.
+This file is generated at bootstrap (`atelier module add`) and kept in sync
+when re-opening an existing wrapper (`EnsureOutputs`). It enables `terraform
+output` to work outside Atelier and makes plan-time output values available.
 
 ## 8. Type-to-widget mapping
 
@@ -604,9 +598,9 @@ it as optional with the zero value as default.
 - Hand-editing `main.tf` between sessions is supported. Atelier's next save
   reflects the hand-edits as the new baseline.
 
-### 10.3 Generated files at init
+### 10.3 Generated files at bootstrap
 
-When `atelier init` bootstraps a new wrapper, it writes:
+When `atelier module add` bootstraps a new wrapper, it writes:
 
 - `main.tf` — `module "<name>" { source = "...?ref=..." }` plus required
   variable placeholders (or `# TODO` comments for required values the user

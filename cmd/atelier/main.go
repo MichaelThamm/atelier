@@ -7,17 +7,12 @@
 //	                                            add a module (bootstraps if needed)
 //	atelier module rm <name> [--force]          remove a module from the wrapper
 //	atelier module list                         list modules in the wrapper
-//	atelier init                                adopt existing project in CWD
-//	atelier init --source <path> [--module M]   bootstrap from a local module dir
-//	atelier init --module-dir <name>            adopt with custom subdir name
 //	atelier tidy [PATH] [--write]               prune arguments left at their default
 //	atelier purge [PATH] [--force]              remove .atelier/ and .clone/
 //
-// Note: `atelier init <git-url>` was removed; use `atelier module add <url>`.
-//
 // All operation runs against the current working directory. The CLI defers
 // the heavy lifting (clone, candidate discovery, wrapper write, TUI loop) to
-// the internal/bootstrap, internal/convert, and internal/tui packages.
+// the internal/bootstrap and internal/tui packages.
 package main
 
 import (
@@ -36,7 +31,6 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
-	"github.com/MichaelThamm/atelier/internal/convert"
 	"github.com/MichaelThamm/atelier/internal/gitops"
 	"github.com/MichaelThamm/atelier/internal/manifest"
 	"github.com/MichaelThamm/atelier/internal/session"
@@ -55,9 +49,6 @@ Usage:
                                                Add a module to the wrapper (bootstraps if needed).
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
-  atelier init [--module-dir NAME]             Adopt an existing Terraform project in-place.
-  atelier init --source PATH [--module SUBDIR]
-                                               Bootstrap from a local module directory.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
@@ -101,9 +92,6 @@ func run(args []string) error {
 	if args[0] == "module" {
 		return runModule(args[1:])
 	}
-	if args[0] == "init" {
-		return runInit(args[1:])
-	}
 	if args[0] == "purge" {
 		return runPurge(args[1:])
 	}
@@ -142,161 +130,6 @@ func runOpen() error {
 		return err
 	}
 	return launchTUI(res, cwd)
-}
-
-// runInit implements `atelier init …`.
-func runInit(args []string) error {
-	opts, err := parseInitArgs(args)
-	if err != nil {
-		return err
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-
-	if _, err := tfexec.Locate(); err != nil {
-		return err
-	}
-
-	// No source provided — adopt/convert an existing project in CWD.
-	if opts.Source == "" {
-		return runInitAdopt(cwd, opts.ModuleDir)
-	}
-
-	// If the source is a git URL (not local), redirect to `atelier module add`.
-	if !opts.LocalSource {
-		return fmt.Errorf("'atelier init <url>' is removed. Use 'atelier module add %s' instead", opts.Source)
-	}
-
-	// Local source provided — bootstrap a new wrapper from local path.
-	opts.WrapperDir = cwd
-
-	// Error if .atelier/ already exists (already initialized).
-	if _, err := os.Stat(filepath.Join(cwd, wrapper.AtelierDir)); err == nil {
-		return fmt.Errorf("already initialized. Use 'atelier' to open")
-	}
-	// SPEC §6.1: error if main.tf already exists.
-	if _, err := os.Stat(filepath.Join(cwd, wrapper.MainTF)); err == nil {
-		return fmt.Errorf("wrapper exists. Use 'atelier' to open, or remove main.tf to re-init")
-	}
-
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-
-	stop := startSpinner("Cloning and preparing module…")
-	defer stop()
-	res, err := bootstrap.InitNew(ctx, opts.InitOptions)
-	stop()
-	if err != nil {
-		return err
-	}
-	if res.State == nil {
-		// Multiple candidates and no --module supplied. Print the list.
-		// Clean up the .atelier/ directory created during clone so
-		// the user can re-run with --module without "already initialized".
-		_ = os.RemoveAll(filepath.Join(cwd, wrapper.AtelierDir))
-		fmt.Println("Multiple module candidates found. Re-run with --module <path>:")
-		for _, c := range res.Candidates {
-			label := c.Path
-			if c.Name != "" {
-				label = fmt.Sprintf("%s — %s", c.Path, c.Name)
-			}
-			fmt.Println("  " + label)
-		}
-		return nil
-	}
-	for _, w := range res.Warnings {
-		fmt.Fprintln(os.Stderr, "warning:", w)
-	}
-	return launchTUI(res, cwd)
-}
-
-// runInitAdopt handles `atelier init` with no source: adopt an existing
-// Terraform project in CWD as an Atelier-managed wrapper.
-func runInitAdopt(cwd, moduleDir string) error {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-
-	stop := startSpinner("Initializing from existing project…")
-	defer stop()
-	res, err := convert.Run(ctx, convert.Options{
-		Dir:       cwd,
-		ModuleDir: moduleDir,
-	})
-	stop()
-	if err != nil {
-		return err
-	}
-
-	fmt.Fprintf(os.Stderr, "Initialized successfully.\n")
-	if res.Adopted {
-		fmt.Fprintf(os.Stderr, "  Existing module block adopted as Atelier wrapper.\n")
-	} else {
-		fmt.Fprintf(os.Stderr, "  Module files moved to: ./%s/\n", res.ModuleDir)
-		if res.BackupStatePath != "" {
-			fmt.Fprintf(os.Stderr, "  State backup: %s\n", filepath.Base(res.BackupStatePath))
-		}
-		if res.ResourcesMoved > 0 {
-			fmt.Fprintf(os.Stderr, "  Resources migrated: %d\n", res.ResourcesMoved)
-		}
-	}
-	fmt.Fprintf(os.Stderr, "\nRun 'atelier' to open the TUI.\n")
-	return nil
-}
-
-// initOpts extends bootstrap.InitOptions with convert-specific fields.
-type initOpts struct {
-	bootstrap.InitOptions
-	ModuleDir string // for adopt/relocate path
-}
-
-func parseInitArgs(args []string) (initOpts, error) {
-	opts := initOpts{}
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch a {
-		case "--source":
-			i++
-			if i >= len(args) {
-				return opts, fmt.Errorf("--source requires a path")
-			}
-			opts.LocalSource = true
-			opts.Source = args[i]
-		case "--ref":
-			i++
-			if i >= len(args) {
-				return opts, fmt.Errorf("--ref requires a value")
-			}
-			opts.Ref = args[i]
-		case "--module":
-			i++
-			if i >= len(args) {
-				return opts, fmt.Errorf("--module requires a path")
-			}
-			opts.ModulePath = args[i]
-		case "--module-dir":
-			i++
-			if i >= len(args) {
-				return opts, fmt.Errorf("--module-dir requires a name")
-			}
-			opts.ModuleDir = args[i]
-		default:
-			positional = append(positional, a)
-		}
-	}
-	if len(positional) > 0 {
-		if opts.Source != "" {
-			return opts, fmt.Errorf("cannot combine positional URL with --source")
-		}
-		if len(positional) > 1 {
-			return opts, fmt.Errorf("init takes exactly one URL argument; got %v", positional)
-		}
-		opts.Source = positional[0]
-	}
-	// Source is now optional — empty means adopt/convert existing project.
-	return opts, nil
 }
 
 func launchTUI(res *bootstrap.Result, wrapperDir string) error {
@@ -375,7 +208,7 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 
 	// Construct a Planner so pressing P in the TUI runs a real terraform
 	// plan against the wrapper. A failure to locate terraform was already
-	// reported in runOpen / runInit, so this should not error in practice;
+	// reported in runOpen / runModule, so this should not error in practice;
 	// if it does, we leave Planner nil and the TUI surfaces a clear status
 	// message instead of crashing.
 	if tf, err := tfexec.New(wrapperDir, ""); err == nil {
@@ -388,9 +221,9 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	}
 
 	// Construct a RefSwitcher for non-local-source wrappers. Local sources
-	// (--source path) don't have a git remote to switch refs on. This mirrors
-	// m.Modules[0].Switcher and is kept as a global fallback for callers/tests
-	// that consult m.RefSwitcher directly.
+	// (a `source = "./..."` path in main.tf) don't have a git remote to switch
+	// refs on. This mirrors m.Modules[0].Switcher and is kept as a global
+	// fallback for callers/tests that consult m.RefSwitcher directly.
 	if res.LiteralRef != "" || res.ResolvedSHA != "" {
 		m.RefSwitcher = m.Modules[0].Switcher
 	}

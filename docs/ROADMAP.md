@@ -16,9 +16,10 @@ wrapper, iterate against `terraform plan` inside the TUI."
 Concretely:
 
 - The `atelier` CLI: open a wrapper (`atelier`), add/remove/list modules
-  (`atelier module …`), adopt or bootstrap (`atelier init`), prune to sparse
-  form (`atelier tidy`), and clean up (`atelier purge`).
-- Public git source loading; `--source <path>` for local development.
+  (`atelier module …`), prune to sparse form (`atelier tidy`), and clean up
+  (`atelier purge`).
+- Public git source loading (`atelier module add <url>`); local `source =
+  "./..."` paths in a hand-authored `main.tf` are also supported.
 - Two-pane TUI with type-appropriate widgets for `string`, `bool`, `number`,
   `object`, `map(string)`, `map(object)`, `list(string)`, `list(object)`,
   `set(...)`, and nullable scalars.
