@@ -54,6 +54,9 @@ func (v Variable) VarName() string { return v.Name }
 // VarIsRequired satisfies the wrapper-package tfvarsLike adapter.
 func (v Variable) VarIsRequired() bool { return !v.HasDefault }
 
+// VarIsSensitive satisfies the wrapper-package tfvarsLike adapter.
+func (v Variable) VarIsSensitive() bool { return v.Sensitive }
+
 // LoadDir scans every *.tf file at the top level of `dir` and returns the
 // declared variables in declaration order (across files, sorted by source
 // position within each file; files in alphabetical order). Sub-directories

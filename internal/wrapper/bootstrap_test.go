@@ -92,6 +92,52 @@ func TestBootstrap_freshWrapper(t *testing.T) {
 			t.Errorf(".gitignore missing %q; got:\n%s", want, gic)
 		}
 	}
+
+	// This wrapper has a sensitive provider attribute, so the README must
+	// carry the secrets-handling note.
+	readme, _ := os.ReadFile(filepath.Join(dir, ReadmeFile))
+	if !strings.Contains(string(readme), "secrets.auto.tfvars") {
+		t.Errorf("README missing secrets note for a wrapper with secrets; got:\n%s", readme)
+	}
+}
+
+func TestBootstrap_readmeOmitsSecretsNoteWhenNoSecrets(t *testing.T) {
+	dir := t.TempDir()
+	// No providers, no sensitive variables → the README should be clean.
+	opts := BootstrapOptions{
+		Dir:             dir,
+		ModuleBlockName: "compute_only",
+		Source:          "git::https://example.com/m.git?ref=v1",
+		Variables: []TFVar{
+			mustVar(t, "region", "string", cty.StringVal("us"), true),
+		},
+	}
+	if err := Bootstrap(opts); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	readme, _ := os.ReadFile(filepath.Join(dir, ReadmeFile))
+	if strings.Contains(string(readme), "secrets.auto.tfvars") {
+		t.Errorf("README should not mention secrets when the wrapper has none; got:\n%s", readme)
+	}
+}
+
+func TestBootstrap_readmeIncludesSecretsNoteForSensitiveVariable(t *testing.T) {
+	dir := t.TempDir()
+	sensitive := mustVar(t, "api_token", "string", cty.NilVal, false)
+	sensitive.Sensitive = true
+	opts := BootstrapOptions{
+		Dir:             dir,
+		ModuleBlockName: "svc",
+		Source:          "git::https://example.com/m.git?ref=v1",
+		Variables:       []TFVar{sensitive},
+	}
+	if err := Bootstrap(opts); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	readme, _ := os.ReadFile(filepath.Join(dir, ReadmeFile))
+	if !strings.Contains(string(readme), "TF_VAR_<name>") {
+		t.Errorf("README missing actionable secrets note for a sensitive variable; got:\n%s", readme)
+	}
 }
 
 func TestBootstrap_doesNotOverwriteExistingFiles(t *testing.T) {

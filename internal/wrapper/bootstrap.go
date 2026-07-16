@@ -25,7 +25,9 @@ secrets.auto.tfvars
 `
 
 // readmeTemplate is the README.md scaffold. Plain enough to read; the user
-// is free to overwrite or extend.
+// is free to overwrite or extend. The sensitive-values note (readmeSecretsNote)
+// is appended only when the wrapper can actually hold secrets, so a wrapper
+// with no sensitive fields carries no scary caveat.
 const readmeTemplate = `# %s wrapper
 
 This directory is a Terraform wrapper authored with [Atelier](https://github.com/MichaelThamm/atelier).
@@ -40,11 +42,17 @@ terraform apply
 
 Atelier's internal state lives in %[3]s.atelier/%[3]s and is regenerable; the rest of
 this directory is a normal Terraform project that runs without Atelier.
-
-> Note: ` + "`secrets.auto.tfvars`" + ` holds sensitive values in plaintext and is
-> gitignored. v1 of Atelier targets a development trust model; see the
-> project README for limitations.
 `
+
+// readmeSecretsNote is appended to the README only when the wrapper has
+// sensitive fields (sensitive variables, or providers that may need sensitive
+// configuration). It is self-contained and actionable — no version string, no
+// dangling "see the project README" pointer.
+const readmeSecretsNote = "\n> Note: sensitive values are stored in `secrets.auto.tfvars` in plaintext and\n" +
+	"> kept out of version control by `.gitignore`. Its only protection is your\n" +
+	"> filesystem permissions — do not commit or share it. To keep a secret off\n" +
+	"> disk, source it from an environment variable (`TF_VAR_<name>`) and remove\n" +
+	"> its entry from that file.\n"
 
 // BootstrapOptions captures the inputs to a fresh wrapper. The caller is the
 // init flow (CLI / TUI launcher).
@@ -64,6 +72,31 @@ type BootstrapOptions struct {
 type TFVar interface {
 	VarName() string
 	VarIsRequired() bool
+	VarIsSensitive() bool
+}
+
+// hasSecrets reports whether the wrapper can hold sensitive values, and thus
+// whether the README should carry the secrets-handling note. It is true when a
+// module variable is declared sensitive, a provider attribute is sensitive, or
+// the module configures any provider at all — the last because provider
+// configuration commonly includes sensitive attributes and the provider schema
+// (which would confirm this) is not yet fetched at bootstrap time, so we
+// conservatively include the note whenever providers are present. A wrapper
+// with no sensitive variables and no providers gets a clean README.
+func (o BootstrapOptions) hasSecrets() bool {
+	for _, v := range o.Variables {
+		if v.VarIsSensitive() {
+			return true
+		}
+	}
+	for _, p := range o.Providers {
+		for _, a := range p.Attributes {
+			if a.Sensitive {
+				return true
+			}
+		}
+	}
+	return len(o.RequiredProviders) > 0
 }
 
 // Bootstrap writes the initial wrapper files into dir. Files that already
@@ -91,6 +124,9 @@ func Bootstrap(opts BootstrapOptions) error {
 		return err
 	}
 	readme := fmt.Sprintf(readmeTemplate, opts.ModuleBlockName, "```", "`")
+	if opts.hasSecrets() {
+		readme += readmeSecretsNote
+	}
 	if err := writeIfMissing(filepath.Join(opts.Dir, ReadmeFile), []byte(readme)); err != nil {
 		return err
 	}
