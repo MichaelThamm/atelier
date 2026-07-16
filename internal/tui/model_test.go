@@ -351,8 +351,8 @@ func TestRefModal_pasteSupport(t *testing.T) {
 	}
 	m = feed(m, pasteMsg)
 
-	if m.refInput != "feature/my-branch" {
-		t.Errorf("after paste, refInput = %q; want %q", m.refInput, "feature/my-branch")
+	if m.refInput.Value() != "feature/my-branch" {
+		t.Errorf("after paste, refInput = %q; want %q", m.refInput.Value(), "feature/my-branch")
 	}
 }
 
@@ -365,20 +365,21 @@ func TestRefModal_typingSingleChars(t *testing.T) {
 	m = feed(m, key("R"))
 	m = feed(m, key("m"), key("a"), key("i"), key("n"))
 
-	if m.refInput != "main" {
-		t.Errorf("refInput = %q; want %q", m.refInput, "main")
+	if m.refInput.Value() != "main" {
+		t.Errorf("refInput = %q; want %q", m.refInput.Value(), "main")
 	}
 
 	// Backspace removes one char.
 	m = feed(m, key("backspace"))
-	if m.refInput != "mai" {
-		t.Errorf("after backspace, refInput = %q; want %q", m.refInput, "mai")
+	if m.refInput.Value() != "mai" {
+		t.Errorf("after backspace, refInput = %q; want %q", m.refInput.Value(), "mai")
 	}
 
-	// Ctrl+U clears all.
+	// Ctrl+U kills to start of line; with the caret at the end that clears
+	// the whole field (ADR-0020 §2 / ADR-0025).
 	m = feed(m, key("ctrl+u"))
-	if m.refInput != "" {
-		t.Errorf("after ctrl+u, refInput = %q; want empty", m.refInput)
+	if m.refInput.Value() != "" {
+		t.Errorf("after ctrl+u, refInput = %q; want empty", m.refInput.Value())
 	}
 }
 

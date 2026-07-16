@@ -178,6 +178,22 @@ variables.
 2. Press `R`, type `v2.0`, confirm.
 3. Plan again — the diff shows what the version bump changes.
 
+The ref field filters the remote's branches and tags as you type
+(case-insensitive substring match, prefix hits first), so a big repo's
+50-plus refs narrow to the few you mean. The field is the same
+readline-style cell as the value editors (see [ADR-0020](docs/adr/0020-readline-style-text-editing.md)),
+so caret motion and word-delete work; free text (an arbitrary SHA, an
+unlisted ref) is always accepted. See
+[ADR-0025](docs/adr/0025-ref-selection-matcher.md) for the design.
+
+| Key | Action |
+|-----|--------|
+| type | Filter the ref list (substring match) |
+| `↑` / `↓` | Move the highlight in the filtered list |
+| `Tab` | Fill the field with the highlighted ref |
+| `Enter` | Switch to the typed ref (free text accepted) |
+| `Esc` | Cancel |
+
 ## Tidying a wrapper
 
 Atelier writes sparse `main.tf` files — only values that differ from the

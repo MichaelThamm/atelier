@@ -125,18 +125,23 @@ type Model struct {
 	RefSwitcher RefSwitcher
 
 	// refModal state: tracks the ref-switch prompt and in-flight switch.
-	refModal     bool     // true when the ref input prompt is visible
-	refInput     string   // current text in the ref input field
-	refSwitching bool     // true when a ref switch is in flight (spinner)
-	refErr       string   // error from last ref switch attempt
-	refOrphaned  []string // vars that no longer exist after a ref switch
-	refModuleIdx int      // index of the module being ref-switched
+	refModal     bool      // true when the ref input prompt is visible
+	refInput     cellInput // canonical readline cell for the ref input field (ADR-0020/0025)
+	refSwitching bool      // true when a ref switch is in flight (spinner)
+	refErr       string    // error from last ref switch attempt
+	refOrphaned  []string  // vars that no longer exist after a ref switch
+	refModuleIdx int       // index of the module being ref-switched
 
 	// availableRefs holds the remote's current ref names for the module the
 	// modal targets, populated asynchronously via RefSwitcher.ListRefs and
-	// shown as a hint under the input. refsLoading tracks the in-flight fetch.
-	availableRefs []string
-	refsLoading   bool
+	// shown as a filterable, selectable list under the input (ADR-0025).
+	// refsLoading tracks the in-flight fetch. refMatches is the current
+	// substring-filtered, prefix-first view of availableRefs and refMatchCursor
+	// is the highlighted row within it.
+	availableRefs  []string
+	refsLoading    bool
+	refMatches     []string
+	refMatchCursor int
 
 	// RefUnresolved, when non-nil, marks the primary module as opened with a
 	// ref that no longer resolves on the remote (e.g. the branch was deleted).
@@ -631,8 +636,10 @@ func (m *Model) Init() tea.Cmd {
 			ref = m.RefUnresolved.Ref
 		}
 		m.refModal = true
-		m.refInput = ref
+		m.refInput = newCellInput(ref, false, "")
 		m.availableRefs = m.RefUnresolved.Available
+		m.refMatchCursor = 0
+		m.refreshRefMatches()
 		if !m.RefUnresolved.Offline {
 			m.refsLoading = true
 			return m.startListRefs()
@@ -756,6 +763,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.refErr = msg.err.Error()
 		}
+		// The field still holds the ref the user just tried (the switch never
+		// cleared it), so they can edit it rather than retype. Refresh the
+		// filtered list against the possibly-updated available set.
+		m.refMatchCursor = 0
+		m.refreshRefMatches()
 		m.status = "ref switch failed: " + msg.err.Error()
 		m.statusDetail = msg.err.Error()
 		m.statusLvl = statusError
@@ -770,6 +782,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg.refs) > 0 {
 			m.availableRefs = msg.refs
 		}
+		m.refreshRefMatches()
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -907,11 +920,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refModuleIdx = m.activeModuleIdx()
 			_, _, ref, _ := m.activeRefInfo()
 			m.refModal = true
-			m.refInput = ref
+			m.refInput = newCellInput(ref, false, "")
 			m.refErr = ""
 			m.refOrphaned = nil
-			// Fetch the remote's current refs for the hint (async, non-fatal).
+			// Fetch the remote's current refs for the list (async, non-fatal).
 			m.availableRefs = nil
+			m.refMatches = nil
+			m.refMatchCursor = 0
+			m.refreshRefMatches()
 			m.refsLoading = true
 			return m, m.startListRefs()
 		}
@@ -1167,14 +1183,21 @@ func (m *Model) applyPresetCmd(i int) tea.Cmd {
 	return m.scheduleValidate()
 }
 
-// handleRefModalKey routes keys while the ref input prompt is visible.
+// handleRefModalKey routes keys while the ref input prompt is visible. The
+// input field is the canonical readline cell (ADR-0020); navigation keys drive
+// the filtered ref list and Tab autocompletes, while everything else is
+// forwarded to the cell so caret motion, word-jumps, and word-delete behave
+// exactly as they do in a value editor (ADR-0025).
 func (m *Model) handleRefModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
 		m.refModal = false
 		return m, nil
 	case tea.KeyEnter:
-		newRef := strings.TrimSpace(m.refInput)
+		// Enter always commits exactly what is typed — never the highlighted
+		// list row — so free-text (a SHA, an unlisted ref) is always reachable
+		// (ADR-0025). Picking from the list is the separate Tab gesture.
+		newRef := strings.TrimSpace(m.refInput.Value())
 		_, _, curRef, _ := m.activeRefInfo()
 		if newRef == "" || newRef == curRef {
 			m.refModal = false
@@ -1185,19 +1208,104 @@ func (m *Model) handleRefModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.refErr = ""
 		m.status = ""
 		return m, tea.Batch(m.startRefSwitch(newRef), spinnerTick())
-	case tea.KeyBackspace:
-		if len(m.refInput) > 0 {
-			m.refInput = m.refInput[:len(m.refInput)-1]
+	case tea.KeyUp, tea.KeyCtrlP:
+		if n := len(m.refMatches); n > 0 {
+			m.refMatchCursor = (m.refMatchCursor - 1 + n) % n
 		}
 		return m, nil
-	case tea.KeyCtrlU:
-		m.refInput = ""
+	case tea.KeyDown, tea.KeyCtrlN:
+		if n := len(m.refMatches); n > 0 {
+			m.refMatchCursor = (m.refMatchCursor + 1) % n
+		}
 		return m, nil
-	case tea.KeyRunes, tea.KeySpace:
-		m.refInput += string(msg.Runes)
+	case tea.KeyPgUp:
+		// Jump a full window up, clamping at the top (no wrap).
+		if n := len(m.refMatches); n > 0 {
+			m.refMatchCursor -= refMatchWindow
+			if m.refMatchCursor < 0 {
+				m.refMatchCursor = 0
+			}
+		}
+		return m, nil
+	case tea.KeyPgDown:
+		// Jump a full window down, clamping at the bottom (no wrap).
+		if n := len(m.refMatches); n > 0 {
+			m.refMatchCursor += refMatchWindow
+			if m.refMatchCursor > n-1 {
+				m.refMatchCursor = n - 1
+			}
+		}
+		return m, nil
+	case tea.KeyTab:
+		// Autocomplete: fill the field with the highlighted match and park the
+		// caret at the end, leaving the user free to edit or confirm.
+		if m.refMatchCursor >= 0 && m.refMatchCursor < len(m.refMatches) {
+			m.refInput.SetValue(m.refMatches[m.refMatchCursor])
+			m.refreshRefMatches()
+		}
 		return m, nil
 	}
+	// Any other key is a cell edit. Re-filter only when the text actually
+	// changed, so caret-only moves (←/→, Home/End) don't reset the highlight.
+	prev := m.refInput.Value()
+	m.refInput.Update(msg)
+	if m.refInput.Value() != prev {
+		m.refreshRefMatches()
+	}
 	return m, nil
+}
+
+// refreshRefMatches recomputes the filtered, prefix-first ref list from
+// availableRefs and the current query, then reconciles the highlight: it keeps
+// the previously-highlighted ref selected if it survived the filter, otherwise
+// it falls back to the current ref (on first open) or the top match.
+func (m *Model) refreshRefMatches() {
+	_, _, curRef, _ := m.activeRefInfo()
+	var prevSel string
+	if m.refMatchCursor >= 0 && m.refMatchCursor < len(m.refMatches) {
+		prevSel = m.refMatches[m.refMatchCursor]
+	}
+	m.refMatches = filterRefs(m.availableRefs, m.refInput.Value(), curRef)
+
+	m.refMatchCursor = 0
+	target := prevSel
+	if target == "" {
+		target = curRef
+	}
+	for i, r := range m.refMatches {
+		if r == target {
+			m.refMatchCursor = i
+			break
+		}
+	}
+}
+
+// filterRefs narrows refs to those matching query by case-insensitive
+// substring, ordered prefix-matches-first and preserving the remote's order
+// within each group (ADR-0025). An empty query — or a query still equal to the
+// seeded current ref (i.e. the field is untouched) — is treated as "browse":
+// the whole list is returned so pressing R immediately shows every option.
+func filterRefs(refs []string, query, curRef string) []string {
+	q := strings.TrimSpace(query)
+	if q == "" || q == curRef {
+		out := make([]string, len(refs))
+		copy(out, refs)
+		return out
+	}
+	lq := strings.ToLower(q)
+	var prefix, other []string
+	for _, r := range refs {
+		idx := strings.Index(strings.ToLower(r), lq)
+		switch {
+		case idx < 0:
+			// no match
+		case idx == 0:
+			prefix = append(prefix, r)
+		default:
+			other = append(other, r)
+		}
+	}
+	return append(prefix, other...)
 }
 
 // applyRefSwitch merges a successful ref switch result into the model,

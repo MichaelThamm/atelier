@@ -31,6 +31,8 @@ Format follows the Michael Nygard template, lightly extended.
 | 0021 | [`atelier tidy` — on-demand prune to sparse form](0021-tidy-command.md)                      | Proposed |
 | 0022 | [Local presets: `atelier.local.yaml`](0022-local-presets.md)                                | Accepted |
 | 0023 | [Map / map(object) row editing lifecycle](0023-map-row-editing-lifecycle.md)                | Proposed |
+| 0024 | [Surfacing Terraform `check` block warnings](0024-check-block-warnings.md)                   | Accepted |
+| 0025 | [Interactive ref selection in the ref-switch modal](0025-ref-selection-matcher.md)          | Proposed |
 
 ## Conventions
 

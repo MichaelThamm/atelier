@@ -28,8 +28,8 @@ func TestInit_autoOpensModalOnUnresolvedRef(t *testing.T) {
 	if !m.refModal {
 		t.Fatal("expected ref modal to auto-open on an unresolved ref")
 	}
-	if m.refInput != "feat/old-ref" {
-		t.Errorf("refInput = %q; want the current (broken) ref pre-seeded", m.refInput)
+	if m.refInput.Value() != "feat/old-ref" {
+		t.Errorf("refInput = %q; want the current (broken) ref pre-seeded", m.refInput.Value())
 	}
 	if len(m.availableRefs) != 2 {
 		t.Errorf("availableRefs = %v; want the bootstrap-supplied list seeded", m.availableRefs)

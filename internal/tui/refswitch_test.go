@@ -294,8 +294,8 @@ func TestRefKey_targetsModuleUnderCursor(t *testing.T) {
 	if m.refModuleIdx != 1 {
 		t.Errorf("refModuleIdx = %d; want 1 (secondary)", m.refModuleIdx)
 	}
-	if m.refInput != "3.0.0" {
-		t.Errorf("ref input seeded with %q; want secondary ref 3.0.0", m.refInput)
+	if m.refInput.Value() != "3.0.0" {
+		t.Errorf("ref input seeded with %q; want secondary ref 3.0.0", m.refInput.Value())
 	}
 }
 

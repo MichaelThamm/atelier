@@ -95,6 +95,17 @@ func (c *cellInput) View() string {
 	return "[" + c.ti.View() + "]"
 }
 
+// ViewInline renders the focused cell without the surrounding `[…]` bracket.
+// It exists for the ref-switch modal, which composes its own label around the
+// field ("New ref: …") rather than presenting it as a bracketed value cell.
+// Like View, a blurred cell is drawn without a caret.
+func (c *cellInput) ViewInline() string {
+	if !c.ti.Focused() {
+		return c.echoedValue()
+	}
+	return c.ti.View()
+}
+
 // echoedValue is the cell's value as displayed: the raw value, or a run of
 // `•` for sensitive cells. Used to render blurred cells without a caret.
 func (c *cellInput) echoedValue() string {

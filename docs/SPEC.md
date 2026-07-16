@@ -426,14 +426,23 @@ the module that owns the currently selected variable (determined by
 that section's module.
 
 The modal shows the module name prominently, the git source URL, current ref
-(with resolved SHA), and an input field for the new ref:
+(with resolved SHA), and an input field for the new ref. Typing filters the
+remote's branches and tags below the field by case-insensitive substring
+(prefix matches first); `↑`/`↓` move the highlight, `Tab` fills the field with
+the highlighted ref, and `Enter` switches to whatever is typed (free text — an
+arbitrary SHA or an unlisted ref — is always accepted). The field is the shared
+readline cell (ADR-0020), so caret motion and word-delete apply.
 
 ```
-╭─ Switch ref: cos_lite ──────────────────╮
-│ Source: git::https://github.com/...     │
+╭─ Switch module ref ─────────────────────╮
+│ Module:  cos_lite                       │
+│ Source:  git::https://github.com/...    │
 │ Current: main (827b891)                 │
 │                                         │
-│ New ref: █                              │
+│ New ref: mode▏                          │
+│ ▸ cos-lite-model-topology               │
+│   cos-lite-model-fixes                  │
+│   1/2                                   │
 ╰─────────────────────────────────────────╯
 ```
 
@@ -442,7 +451,8 @@ progress. On completion, the user returns to the editor with the new ref
 active. See §5.3.1.
 
 See [ADR-0018](adr/0018-additive-module-command.md) for the context-aware
-ref switch design.
+ref switch design and [ADR-0025](adr/0025-ref-selection-matcher.md) for the
+interactive ref selection.
 
 ### 7.5 Plan view (modal-ish)
 

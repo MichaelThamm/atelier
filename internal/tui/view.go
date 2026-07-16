@@ -600,6 +600,17 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "  Alt+Delete     Remove current row (twice to confirm if set)")
 		fmt.Fprintln(&b, "  Tab            Switch panes (variable list ⇄ editor)")
 		fmt.Fprintln(&b, "  Ctrl+Home/End  Jump to first/last field (in an object)")
+
+		if m.activeSwitcher() != nil {
+			fmt.Fprintln(&b)
+			fmt.Fprintln(&b, "Ref switch modal (R):")
+			fmt.Fprintln(&b, "  type           Filter the ref list (substring match)")
+			fmt.Fprintln(&b, "  ↑ ↓            Move the highlight in the ref list")
+			fmt.Fprintln(&b, "  Tab            Fill the field with the highlighted ref")
+			fmt.Fprintln(&b, "  Enter          Switch to the typed ref (free-text ok)")
+			fmt.Fprintln(&b, "  Esc            Cancel")
+			fmt.Fprintln(&b, "                 (editing keys above apply in the field)")
+		}
 	}
 
 	fmt.Fprintln(&b, "  Ctrl+C         Quit immediately")
@@ -728,14 +739,34 @@ func (m *Model) renderRefModal() string {
 	}
 
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "New ref: %s%s\n", m.refInput, styleCursorActive.Render("▏"))
+	// Inner width matches renderModalFrame's budget; scroll the field and
+	// middle-truncate list rows to it so the frame never word-wraps them.
+	innerW := m.width - 8
+	if innerW < 30 {
+		innerW = 30
+	}
+	inputW := innerW - len("New ref: ")
+	if inputW < 8 {
+		inputW = 8
+	}
+	m.refInput.SetWidth(inputW)
+	fmt.Fprintf(&b, "New ref: %s\n", m.refInput.ViewInline())
 
-	// Available-refs hint. Fetched asynchronously; show a loading note while
-	// in flight and a short, truncated list once available.
-	if m.refsLoading {
-		fmt.Fprintln(&b, styleDescription.Render("Available: loading…"))
-	} else if len(m.availableRefs) > 0 {
-		fmt.Fprintln(&b, styleDescription.Render("Available: "+summarizeRefs(m.availableRefs, 6)))
+	// Filterable, selectable ref list. Fetched asynchronously; show a loading
+	// note while in flight, the substring-filtered matches once available, and
+	// a free-text hint when nothing matches (ADR-0025).
+	switch {
+	case m.refsLoading:
+		fmt.Fprintln(&b, styleDescription.Render("  loading refs…"))
+		padLines(&b, refMatchWindow) // keep the frame height constant
+	case len(m.availableRefs) == 0:
+		// Remote unreachable or has no refs: the field stays free-text.
+		padLines(&b, refMatchWindow+1)
+	case len(m.refMatches) == 0:
+		fmt.Fprintln(&b, styleDescription.Render("  no matching refs · [Enter] switches to the typed ref"))
+		padLines(&b, refMatchWindow) // keep the frame height constant
+	default:
+		renderRefMatchList(&b, m.refMatches, m.refMatchCursor, innerW)
 	}
 
 	if m.refErr != "" {
@@ -743,15 +774,58 @@ func (m *Model) renderRefModal() string {
 		fmt.Fprintln(&b, styleStatusError.Render("Error: "+m.refErr))
 	}
 
-	return m.renderModalFrame("Switch module ref", b.String(), "[Enter] switch   [Esc] cancel")
+	return m.renderModalFrame("Switch module ref", b.String(),
+		arrowUpDown+" select   [Tab] fill   [Enter] switch   [Esc] cancel")
 }
 
-// summarizeRefs renders up to max ref names as a comma-separated list,
-// appending "(+N more)" when the list is longer. Keeps the modal hint compact.
-func summarizeRefs(refs []string, max int) string {
-	if len(refs) <= max {
-		return strings.Join(refs, ", ")
+// refMatchWindow is the number of ref rows shown at once in the match list;
+// longer match sets scroll to keep the highlighted row visible.
+const refMatchWindow = 8
+
+// padLines writes n blank lines, used to keep the ref modal's height (and thus
+// its border) constant across its loading/empty/populated states.
+func padLines(b *strings.Builder, n int) {
+	for i := 0; i < n; i++ {
+		fmt.Fprintln(b)
 	}
-	shown := strings.Join(refs[:max], ", ")
-	return fmt.Sprintf("%s (+%d more)", shown, len(refs)-max)
+}
+
+// renderRefMatchList renders up to refMatchWindow filtered refs with a
+// highlight on cursor, a scroll window that keeps the cursor visible, and a
+// position/count footer. Rows are middle-truncated to innerW so the modal
+// frame never word-wraps a long branch name.
+func renderRefMatchList(b *strings.Builder, matches []string, cursor, innerW int) {
+	total := len(matches)
+	start := 0
+	if total > refMatchWindow {
+		start = cursor - refMatchWindow/2
+		if start < 0 {
+			start = 0
+		}
+		if start > total-refMatchWindow {
+			start = total - refMatchWindow
+		}
+	}
+	end := start + refMatchWindow
+	if end > total {
+		end = total
+	}
+	rowW := innerW - 2 // account for the "▸ " / "  " gutter
+	if rowW < 4 {
+		rowW = 4
+	}
+	for i := start; i < end; i++ {
+		name := truncateMiddle(matches[i], rowW)
+		if i == cursor {
+			fmt.Fprintln(b, styleCursorActive.Render("▸ "+name))
+		} else {
+			fmt.Fprintln(b, "  "+name)
+		}
+	}
+	// Pad to a fixed window so the modal frame's height (and thus its border)
+	// stays constant regardless of how many refs currently match.
+	for i := end - start; i < refMatchWindow; i++ {
+		fmt.Fprintln(b)
+	}
+	fmt.Fprintln(b, styleDescription.Render(fmt.Sprintf("  %d/%d", cursor+1, total)))
 }
