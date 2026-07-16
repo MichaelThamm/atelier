@@ -8,6 +8,7 @@ import (
 	"github.com/MichaelThamm/atelier/internal/manifest"
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // ResolvedPreset is a preset ready for application: its Sets are already
@@ -157,4 +158,94 @@ func anyToCty(raw any, typ *tftypes.Type) (cty.Value, error) {
 	}
 
 	return cty.NilVal, fmt.Errorf("unsupported type kind: %v", typ.Kind)
+}
+
+// ctyToAny converts a cty.Value into a YAML-serialisable Go value (the inverse
+// of anyToCty). It walks the value itself rather than a declared type so it
+// faithfully reproduces partial objects produced by wrapper.SparseValue —
+// only the fields that differ from their defaults are present. Numbers are
+// emitted as int64 when integral (so units render as `1`, not `1.0`) and
+// float64 otherwise; nulls become nil (YAML `null`), which is a meaningful
+// preset value (e.g. `s3_endpoint: null`).
+func ctyToAny(v cty.Value) any {
+	if v == cty.NilVal || v.IsNull() {
+		return nil
+	}
+	t := v.Type()
+	switch {
+	case t == cty.Bool:
+		return v.True()
+	case t == cty.String:
+		return v.AsString()
+	case t == cty.Number:
+		bf := v.AsBigFloat()
+		if bf.IsInt() {
+			i, _ := bf.Int64()
+			return i
+		}
+		f, _ := bf.Float64()
+		return f
+	case t.IsObjectType() || t.IsMapType():
+		out := make(map[string]any, v.LengthInt())
+		for it := v.ElementIterator(); it.Next(); {
+			k, ev := it.Element()
+			out[k.AsString()] = ctyToAny(ev)
+		}
+		return out
+	case t.IsListType() || t.IsSetType() || t.IsTupleType():
+		out := make([]any, 0, v.LengthInt())
+		for it := v.ElementIterator(); it.Next(); {
+			_, ev := it.Element()
+			out = append(out, ctyToAny(ev))
+		}
+		return out
+	}
+	return nil
+}
+
+// snapshotPreset builds a manifest.Preset capturing the primary module's
+// current, non-default configuration — exactly the set of arguments Atelier
+// would write to main.tf (wrapper.ShouldEmit + SparseValue, ADR-0007). This is
+// the "generate a preset from what you have" path: it lets users bootstrap an
+// atelier.local.yaml without hand-writing the DSL.
+//
+// It deliberately excludes two things that cannot round-trip through the
+// preset DSL, or should never land in a shared file:
+//
+//   - Sensitive variables (secrets): never serialised, so a committed preset
+//     can't leak credentials. Secrets remain hand-authorable in the file and
+//     still load via [F] — this only governs generation.
+//   - Wired reference expressions (var./module./data./local., preserved in
+//     UnknownAttrs): the DSL holds concrete values only, so there is nothing
+//     faithful to write.
+//
+// The returned int is the number of variables captured; the caller uses it to
+// refuse saving an empty preset.
+func snapshotPreset(s *wrapper.State, name, description string) (manifest.Preset, int) {
+	raw := make(map[string]bool, len(s.UnknownAttrs))
+	for _, ra := range s.UnknownAttrs {
+		raw[ra.Name] = true
+	}
+
+	sets := make(map[string]any)
+	for i := range s.Vars {
+		v := &s.Vars[i]
+		if v.Sensitive || raw[v.Name] {
+			continue
+		}
+		current, _ := s.VariableValue(v.Name)
+		if current == cty.NilVal {
+			continue // required-but-unset: nothing concrete to capture
+		}
+		if !wrapper.ShouldEmit(v, current) {
+			continue // at its default — omit, matching main.tf
+		}
+		writeVal := wrapper.SparseValue(v, current)
+		if writeVal == cty.NilVal {
+			continue
+		}
+		sets[v.Name] = ctyToAny(writeVal)
+	}
+
+	return manifest.Preset{Name: name, Description: description, Sets: sets}, len(sets)
 }

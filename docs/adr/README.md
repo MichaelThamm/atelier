@@ -33,6 +33,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0023 | [Map / map(object) row editing lifecycle](0023-map-row-editing-lifecycle.md)                | Proposed |
 | 0024 | [Surfacing Terraform `check` block warnings](0024-check-block-warnings.md)                   | Accepted |
 | 0025 | [Interactive ref selection in the ref-switch modal](0025-ref-selection-matcher.md)          | Proposed |
+| 0026 | [Generate a preset from the current configuration](0026-save-preset.md)                      | Accepted |
 
 ## Conventions
 

@@ -698,9 +698,29 @@ modules:
 - Reading presets or any manifest from the upstream module repository. This was
   removed; see [ADR-0022](adr/0022-local-presets.md) (supersedes ADR-0010).
 - Local override of candidate names/descriptions (presets only, for now).
-- A `preset save` command to snapshot current values (out of scope for now;
-  hand-write the YAML).
 - Variable annotations, or required-version constraints for Atelier itself.
+
+### 11.4 Generating a preset from the current configuration (`S`)
+
+Pressing `S` in the editor snapshots the wrapper's current configuration into a
+new preset, so a working `atelier.local.yaml` can be authored without learning
+the DSL by hand (see [ADR-0026](adr/0026-save-preset.md)).
+
+- The generated `sets:` captures exactly the non-default arguments Atelier would
+  write to `main.tf` (the sparse-plus-required rule, [ADR-0007](adr/0007-sparse-wrapper-write-rule.md)),
+  so the preset mirrors what you see in the file.
+- **Secrets are excluded** from generation: sensitive variables are never
+  serialised, so a shared preset file cannot leak credentials. (Hand-authored
+  secrets in the file still load via `F`; only generation omits them.) Wired
+  reference expressions (`var.`/`module.`/`data.`/`local.`) are also omitted —
+  the `sets:` DSL holds concrete values only.
+- `S` prompts for a preset `name` (required) and optional `description`, then
+  writes a **new** `atelier.local.yaml` in the wrapper directory.
+- **Create-only.** If an `atelier.local.yaml` already exists in the wrapper
+  directory, `S` refuses and writes nothing — Atelier never merges into or
+  overwrites a file you may have hand-authored. Edit that file directly to add
+  more presets, or move it to a parent to share it. If every value is already
+  at its default, `S` reports there is nothing to save.
 
 See [ADR-0022](adr/0022-local-presets.md).
 

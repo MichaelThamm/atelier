@@ -19,6 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/gitops"
+	"github.com/MichaelThamm/atelier/internal/manifest"
 	"github.com/MichaelThamm/atelier/internal/state"
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
@@ -119,6 +120,15 @@ type Model struct {
 	presets      []ResolvedPreset
 	presetPicker bool // true when the picker overlay is visible
 	presetCursor int  // cursor within the picker list
+
+	// savePreset modal state: captures the current wrapper configuration into
+	// a new atelier.local.yaml (ADR-0026). The snapshot is taken when the
+	// modal opens; name and description are collected via two readline cells.
+	savePresetModal bool
+	savePresetName  cellInput
+	savePresetDesc  cellInput
+	savePresetFocus int            // 0 = name field, 1 = description field
+	savePresetSets  map[string]any // snapshotted non-default values (var -> value)
 
 	// RefSwitcher handles the backend logic of switching module refs.
 	// May be nil (e.g., local source wrappers where ref switching is N/A).
@@ -853,6 +863,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePresetKey(msg)
 	}
 
+	// Save-preset modal interception: text input + confirm/cancel.
+	if m.savePresetModal {
+		return m.handleSavePresetKey(msg)
+	}
+
 	// Ref modal interception: text input + confirm/cancel.
 	if m.refModal {
 		return m.handleRefModalKey(msg)
@@ -902,6 +917,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.presetPicker = true
 			m.presetCursor = 0
 			return m, nil
+		}
+	case "s", "S":
+		// Save the current configuration as a new preset (ADR-0026). Only
+		// from the left pane — in the right pane the key belongs to the editor.
+		if m.focus == focusLeft {
+			return m.openSavePreset()
 		}
 	case "r", "R":
 		// Open the ref switch modal for the module under the cursor. Gated on
@@ -1181,6 +1202,100 @@ func (m *Model) applyPreset(i int) {
 func (m *Model) applyPresetCmd(i int) tea.Cmd {
 	m.applyPreset(i)
 	return m.scheduleValidate()
+}
+
+// openSavePreset opens the save-preset modal, refusing early (with a status
+// hint, no modal) in the two cases where there is nothing useful to do:
+// an atelier.local.yaml already exists in the wrapper directory (Atelier never
+// overwrites one — ADR-0026), or the configuration is entirely at its defaults
+// so the generated preset would be empty.
+func (m *Model) openSavePreset() (tea.Model, tea.Cmd) {
+	if manifest.HasLocalFile(m.State.Dir) {
+		m.flashStatus(fmt.Sprintf("%s already exists here — edit it directly or move it to a parent",
+			manifest.LocalFileName), statusInfo)
+		return m, nil
+	}
+	_, n := snapshotPreset(m.State, "", "")
+	if n == 0 {
+		m.flashStatus("nothing to save — all values are at their defaults", statusInfo)
+		return m, nil
+	}
+
+	m.savePresetModal = true
+	m.savePresetFocus = 0
+	m.savePresetName = newCellInput("", false, "")
+	m.savePresetDesc = newCellInput("", false, "")
+	m.savePresetDesc.Blur()
+	return m, nil
+}
+
+// handleSavePresetKey routes keys while the save-preset modal is visible. Tab
+// (or ↑/↓) moves between the name and description fields; Enter writes the file;
+// Esc cancels. Everything else edits the focused field.
+func (m *Model) handleSavePresetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.savePresetModal = false
+		return m, nil
+	case tea.KeyTab, tea.KeyDown, tea.KeyUp:
+		m.setSavePresetFocus(1 - m.savePresetFocus)
+		return m, nil
+	case tea.KeyEnter:
+		return m.commitSavePreset()
+	}
+	if m.savePresetFocus == 0 {
+		m.savePresetName.Update(msg)
+	} else {
+		m.savePresetDesc.Update(msg)
+	}
+	return m, nil
+}
+
+// setSavePresetFocus moves focus between the name (0) and description (1)
+// cells, updating which one draws a caret.
+func (m *Model) setSavePresetFocus(f int) {
+	m.savePresetFocus = f
+	if f == 0 {
+		m.savePresetName.Focus()
+		m.savePresetDesc.Blur()
+	} else {
+		m.savePresetName.Blur()
+		m.savePresetDesc.Focus()
+	}
+}
+
+// commitSavePreset validates the name, snapshots the current configuration, and
+// writes a new atelier.local.yaml. A blank name keeps the modal open; a write
+// error (including a file that appeared since the modal opened) is surfaced in
+// the status line.
+func (m *Model) commitSavePreset() (tea.Model, tea.Cmd) {
+	name := strings.TrimSpace(m.savePresetName.Value())
+	if name == "" {
+		return m, nil // name is required; wait for input
+	}
+	desc := strings.TrimSpace(m.savePresetDesc.Value())
+
+	preset, n := snapshotPreset(m.State, name, desc)
+	if n == 0 {
+		m.savePresetModal = false
+		m.flashStatus("nothing to save — all values are at their defaults", statusInfo)
+		return m, nil
+	}
+
+	m.savePresetModal = false
+	if err := manifest.SavePreset(m.State.Dir, preset); err != nil {
+		m.flashStatus(fmt.Sprintf("save preset failed: %v", err), statusError)
+		return m, nil
+	}
+	m.flashStatus(fmt.Sprintf("Saved preset %q (%d vars) to %s", name, n, manifest.LocalFileName), statusInfo)
+	return m, nil
+}
+
+// flashStatus sets the transient footer status line at the given level.
+func (m *Model) flashStatus(text string, lvl statusLevel) {
+	m.status = text
+	m.statusLvl = lvl
+	m.statusAt = time.Now()
 }
 
 // handleRefModalKey routes keys while the ref input prompt is visible. The
@@ -1649,6 +1764,9 @@ func (m *Model) View() string {
 	}
 	if m.presetPicker {
 		return m.renderPresetPicker()
+	}
+	if m.savePresetModal {
+		return m.renderSavePresetModal()
 	}
 	if m.refModal || m.refSwitching {
 		return m.renderRefModal()

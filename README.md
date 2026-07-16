@@ -73,6 +73,7 @@ atelier
 | `R` | Left pane | Switch the module ref (branch, tag, or SHA) |
 | `E` | Left pane | Show full error detail (when an error is present) |
 | `F` | Left pane | Open the preset picker (when presets are available) |
+| `S` | Left pane | Save the current configuration as a new preset |
 | `?` | Anywhere | Show the keyboard shortcuts help modal |
 | `^R` | Anywhere | Reset the current variable to its default |
 | `Q` | Left pane | Quit and save |
@@ -162,6 +163,16 @@ modules:
 When presets are found, `[F] preset` appears in the status bar. Press `F`
 to open the picker, navigate with `↑`/`↓`, apply with `Enter`, or cancel
 with `Esc`.
+
+You don't have to hand-write the YAML: configure a wrapper in the TUI, then
+press `S` to generate a preset from the current configuration. Atelier
+captures exactly the non-default values it would write to `main.tf`
+(secrets excluded), prompts for a name and optional description, and writes
+a new `atelier.local.yaml` in the wrapper directory. It never overwrites an
+existing one — if a file is already present, `S` tells you to edit it
+directly or move it to a parent. The generated file doubles as a worked
+template for further hand-editing. See
+[ADR-0026](docs/adr/0026-save-preset.md) for the design.
 
 See [docs/examples/atelier.local.yaml](docs/examples/atelier.local.yaml)
 for a full example, and [ADR-0022](docs/adr/0022-local-presets.md) for the

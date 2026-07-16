@@ -521,6 +521,7 @@ func (m *Model) statusHints() string {
 	if len(m.presets) > 0 {
 		hints += "  [F] preset"
 	}
+	hints += "  [S] save"
 	if m.activeSwitcher() != nil {
 		hints += "  [R] ref"
 	}
@@ -567,6 +568,7 @@ func (m *Model) renderHelpModal() string {
 		if len(m.presets) > 0 {
 			fmt.Fprintln(&b, "  F              Open preset picker")
 		}
+		fmt.Fprintln(&b, "  S              Save current config as a preset")
 		if m.activeSwitcher() != nil {
 			fmt.Fprintln(&b, "  R              Switch module ref")
 		}
@@ -666,6 +668,47 @@ func (m *Model) renderPresetPicker() string {
 		fmt.Fprintln(&b, line)
 	}
 	return m.renderModalFrame("Select a preset", b.String(), "[↑↓] select   [Enter] apply   [Esc] cancel")
+}
+
+// renderSavePresetModal renders the "save current configuration as a preset"
+// overlay: a name field, a description field, and a count of how many
+// non-default variables will be captured (ADR-0026).
+func (m *Model) renderSavePresetModal() string {
+	var b strings.Builder
+
+	if name, _, _, _ := m.activeRefInfo(); name != "" {
+		fmt.Fprintf(&b, "Module:  %s\n", styleDescription.Render(name))
+	}
+	_, n := snapshotPreset(m.State, "", "")
+	noun := "variables"
+	if n == 1 {
+		noun = "variable"
+	}
+	fmt.Fprintf(&b, "Captures %s from the current configuration.\n",
+		styleDescription.Render(fmt.Sprintf("%d non-default %s", n, noun)))
+	fmt.Fprintln(&b)
+
+	// Two labelled cells; the focused one draws a caret. Widths track the
+	// modal's inner budget so long input scrolls rather than wrapping.
+	innerW := m.width - 8
+	if innerW < 30 {
+		innerW = 30
+	}
+	fieldW := innerW - len("Description:  ")
+	if fieldW < 8 {
+		fieldW = 8
+	}
+	m.savePresetName.SetWidth(fieldW)
+	m.savePresetDesc.SetWidth(fieldW)
+
+	fmt.Fprintf(&b, "Name:         %s\n", m.savePresetName.ViewInline())
+	fmt.Fprintf(&b, "Description:  %s\n", m.savePresetDesc.ViewInline())
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, styleDescription.Render(fmt.Sprintf("Writes a new %s in this wrapper (secrets excluded).",
+		"atelier.local.yaml")))
+
+	return m.renderModalFrame("Save preset", b.String(),
+		"[Tab] name/desc   [Enter] save   [Esc] cancel")
 }
 
 // varMarker returns the modified-vs-default indicator the left pane shows

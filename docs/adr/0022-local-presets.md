@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted (supersedes [ADR-0010](0010-manifest-format.md))
+Accepted (supersedes [ADR-0010](0010-manifest-format.md); the "no `preset
+save`" item below is amended by [ADR-0026](0026-save-preset.md))
 
 ## Context
 
@@ -59,6 +60,9 @@ as-is. Two ergonomic adjustments for local files:
 
 - **No `preset save` command.** Snapshotting current wrapper values into a
   preset was considered and rejected for now; users hand-write the YAML.
+  *(Amended by [ADR-0026](0026-save-preset.md): a create-only, secrets-excluded,
+  wrapper-local generator — the `S` key — is now in scope. Merging into an
+  existing file remains rejected.)*
 - **No local override of candidate names/descriptions.** Presets only.
 - **No global (`~/.config`) presets store.** Walk-up local files cover the
   stated need; a global store may be revisited later.
