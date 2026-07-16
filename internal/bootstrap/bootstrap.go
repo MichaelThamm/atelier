@@ -229,10 +229,33 @@ func PrepareStateFromMain(wrapperDir, modulePath, literalRef, sourceURL string) 
 	}
 }
 
-// InitNew runs the full init flow up to (but not including) launching the
-// TUI: clone, discover candidates, build State, write wrapper files, save
-// session.
-func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
+// ModulePrep is the result of PrepareModule: a fully-assembled module State
+// plus the discovery context. State is nil (with Candidates populated) in the
+// one non-error "caller must choose" case — several candidates exist and none
+// was specified via opts.ModulePath.
+type ModulePrep struct {
+	State       *wrapper.State
+	Candidates  []candidate.Candidate
+	ModulePath  string // the resolved candidate sub-path (empty when State is nil)
+	ResolvedSHA string
+	Warnings    []string
+}
+
+// PrepareModule clones opts.Source, discovers module candidates, resolves the
+// module sub-path, and assembles a wrapper.State. It is the shared front half
+// of both `atelier module add` flows — the fresh bootstrap (InitNew) and the
+// additive append (cmd/atelier). Centralising it here ensures a module added
+// to an existing wrapper gets the same candidate discovery as the first one;
+// skipping it was why same-subdir modules (e.g. repos whose Terraform lives
+// under terraform/) were appended with an empty sub-path and thus no variables.
+//
+// Sub-path resolution mirrors Terraform module conventions:
+//   - opts.ModulePath set → validated against the discovered candidates.
+//   - unset and exactly one candidate → auto-picked.
+//   - unset and several candidates → returns ModulePrep{State: nil,
+//     Candidates: …} so the caller can prompt for --module. This is not an
+//     error.
+func PrepareModule(ctx context.Context, opts InitOptions) (*ModulePrep, error) {
 	if opts.WrapperDir == "" {
 		return nil, fmt.Errorf("WrapperDir is required")
 	}
@@ -259,10 +282,9 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 			modulePath = cands[0].Path
 		} else {
 			// Caller must pick. Return the candidate list; State remains nil.
-			return &Result{
+			return &ModulePrep{
 				Candidates:  cands,
 				ResolvedSHA: sha,
-				LiteralRef:  opts.Ref,
 				Warnings:    warnings,
 			}, nil
 		}
@@ -284,6 +306,37 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return &ModulePrep{
+		State:       state,
+		Candidates:  cands,
+		ModulePath:  modulePath,
+		ResolvedSHA: sha,
+		Warnings:    warnings,
+	}, nil
+}
+
+// InitNew runs the full init flow up to (but not including) launching the
+// TUI: clone, discover candidates, build State, write wrapper files, save
+// session.
+func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
+	prep, err := PrepareModule(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	if prep.State == nil {
+		// Multiple candidates — caller must pick with --module.
+		return &Result{
+			Candidates:  prep.Candidates,
+			ResolvedSHA: prep.ResolvedSHA,
+			LiteralRef:  opts.Ref,
+			Warnings:    prep.Warnings,
+		}, nil
+	}
+
+	state := prep.State
+	modulePath := prep.ModulePath
+	sha := prep.ResolvedSHA
 
 	// Convert variables to the wrapper-bootstrap adapter form.
 	tfvarsLike := make([]any, len(state.Vars))
@@ -317,10 +370,10 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 
 	return &Result{
 		State:       state,
-		Candidates:  cands,
+		Candidates:  prep.Candidates,
 		ResolvedSHA: sha,
 		LiteralRef:  opts.Ref,
-		Warnings:    warnings,
+		Warnings:    prep.Warnings,
 	}, nil
 }
 
@@ -648,10 +701,21 @@ func decomposeSource(s string) (url, ref string) {
 
 // ModuleBlockName derives a valid HCL identifier from a directory path.
 // When the path is "." (root module), fallbackName is used instead.
+//
+// The module sub-path basename is preferred, EXCEPT when it is just the
+// conventional Terraform directory name ("terraform"/"tf"): most repos keep
+// their module under terraform/, so using that basename makes every such
+// module collide on the same block name (terraform, terraform_2, …), which is
+// meaningless. In that case fallbackName (the repo basename) is used instead,
+// so blocks read like their source — e.g. mimir_operators rather than
+// terraform_2. A more specific sub-path (e.g. terraform/cos-lite) still keeps
+// its own basename (cos_lite).
 func ModuleBlockName(modulePath, fallbackName string) string {
 	base := filepath.Base(modulePath)
-	if base == "" || base == "." {
-		base = fallbackName
+	if base == "" || base == "." || isGenericModuleDir(base) {
+		if fallbackName != "" && fallbackName != "." {
+			base = fallbackName
+		}
 	}
 	if base == "" || base == "." {
 		base = "this"
@@ -678,6 +742,17 @@ func ModuleBlockName(modulePath, fallbackName string) string {
 		out = "m" + out
 	}
 	return out
+}
+
+// isGenericModuleDir reports whether name is a conventional, uninformative
+// Terraform module directory name that shouldn't be used as a block label when
+// a repo basename is available.
+func isGenericModuleDir(name string) bool {
+	switch strings.ToLower(name) {
+	case "terraform", "tf":
+		return true
+	}
+	return false
 }
 
 func candidatePaths(cands []candidate.Candidate) []string {

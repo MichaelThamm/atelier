@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MichaelThamm/atelier/internal/session"
@@ -71,9 +72,17 @@ func TestModuleBlockName(t *testing.T) {
 		{"terraform/123numeric", "", "m123numeric"},
 		{"weird-name!", "", "weird_name"},
 		{".", "", "this"},
-		{"", "", "this"},
 		{".", "terraform-aws-s3-bucket", "terraform_aws_s3_bucket"},
 		{".", "observability-stack", "observability_stack"},
+		// A bare terraform/ sub-path is uninformative: prefer the repo name so
+		// same-layout modules don't all collapse to terraform / terraform_2.
+		{"terraform", "mimir-operators", "mimir_operators"},
+		{"tf", "loki-operators", "loki_operators"},
+		{"TerraForm", "tempo-operators", "tempo_operators"},
+		// No usable fallback → keep the conventional name rather than "this".
+		{"terraform", "", "terraform"},
+		// A specific sub-path under terraform/ keeps its own basename.
+		{"terraform/cos", "observability-stack", "cos"},
 	}
 	for _, c := range cases {
 		if got := ModuleBlockName(c.in, c.fallback); got != c.want {
@@ -173,6 +182,123 @@ terraform {
 	}
 	if len(state.Providers) != 1 || state.Providers[0].Name != "juju" {
 		t.Errorf("expected juju provider block, got %+v", state.Providers)
+	}
+}
+
+// writeModuleFixture creates dir/<subdir>/variables.tf declaring one typed
+// variable, so candidate.Discover treats <subdir> as a usable candidate.
+func writeModuleFixture(t *testing.T, root, subdir string) {
+	t.Helper()
+	dir := filepath.Join(root, subdir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "variables.tf"), []byte(`
+variable "name" {
+  type    = string
+  default = "x"
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPrepareModule_autoPicksSingleCandidate is the regression test for the
+// bug where `atelier module add` on an existing wrapper skipped candidate
+// discovery, so a repo whose Terraform lives under terraform/ was appended
+// with an empty sub-path (repo root) and thus showed no variables. With
+// discovery, the lone candidate is auto-picked.
+func TestPrepareModule_autoPicksSingleCandidate(t *testing.T) {
+	repoDir := t.TempDir()
+	writeModuleFixture(t, repoDir, "terraform")
+
+	prep, err := PrepareModule(context.Background(), InitOptions{
+		WrapperDir:  t.TempDir(),
+		Source:      repoDir,
+		LocalSource: true,
+	})
+	if err != nil {
+		t.Fatalf("PrepareModule: %v", err)
+	}
+	if prep.State == nil {
+		t.Fatal("expected a resolved State for a single-candidate repo")
+	}
+	if prep.ModulePath != "terraform" {
+		t.Errorf("ModulePath = %q, want terraform", prep.ModulePath)
+	}
+	if len(prep.State.Vars) == 0 {
+		t.Error("expected variables to be loaded from the terraform/ candidate")
+	}
+	if !strings.HasSuffix(prep.State.Source, "//terraform") {
+		t.Errorf("Source = %q, want a //terraform suffix", prep.State.Source)
+	}
+}
+
+// TestPrepareModule_multipleCandidatesRequirePick verifies the "caller must
+// choose" contract: several candidates and no --module returns a nil State
+// with the candidate list, not an error.
+func TestPrepareModule_multipleCandidatesRequirePick(t *testing.T) {
+	repoDir := t.TempDir()
+	writeModuleFixture(t, repoDir, "terraform")
+	writeModuleFixture(t, repoDir, "modules/extra")
+
+	prep, err := PrepareModule(context.Background(), InitOptions{
+		WrapperDir:  t.TempDir(),
+		Source:      repoDir,
+		LocalSource: true,
+	})
+	if err != nil {
+		t.Fatalf("PrepareModule: %v", err)
+	}
+	if prep.State != nil {
+		t.Fatal("expected nil State when multiple candidates and no --module")
+	}
+	if len(prep.Candidates) != 2 {
+		t.Errorf("Candidates = %d, want 2 (%v)", len(prep.Candidates), prep.Candidates)
+	}
+}
+
+// TestPrepareModule_validatesExplicitModulePath ensures a --module that isn't a
+// discovered candidate is rejected rather than silently reading an empty dir.
+func TestPrepareModule_validatesExplicitModulePath(t *testing.T) {
+	repoDir := t.TempDir()
+	writeModuleFixture(t, repoDir, "terraform")
+
+	_, err := PrepareModule(context.Background(), InitOptions{
+		WrapperDir:  t.TempDir(),
+		Source:      repoDir,
+		LocalSource: true,
+		ModulePath:  "does/not/exist",
+	})
+	if err == nil {
+		t.Fatal("expected an error for a --module not among candidates")
+	}
+	if !strings.Contains(err.Error(), "not among discovered candidates") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestPrepareModule_explicitModulePathAccepted confirms a valid --module is
+// honoured and its variables load.
+func TestPrepareModule_explicitModulePathAccepted(t *testing.T) {
+	repoDir := t.TempDir()
+	writeModuleFixture(t, repoDir, "terraform")
+	writeModuleFixture(t, repoDir, "modules/extra")
+
+	prep, err := PrepareModule(context.Background(), InitOptions{
+		WrapperDir:  t.TempDir(),
+		Source:      repoDir,
+		LocalSource: true,
+		ModulePath:  "modules/extra",
+	})
+	if err != nil {
+		t.Fatalf("PrepareModule: %v", err)
+	}
+	if prep.State == nil || prep.ModulePath != "modules/extra" {
+		t.Fatalf("expected modules/extra to be selected, got %+v", prep)
+	}
+	if len(prep.State.Vars) == 0 {
+		t.Error("expected variables from modules/extra")
 	}
 }
 

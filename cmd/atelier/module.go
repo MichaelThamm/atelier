@@ -160,20 +160,34 @@ func runModuleAdd(args []string) error {
 	stop := startSpinner("Cloning and preparing module…")
 	defer stop()
 
-	cloneDir, resolvedSHA, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
+	// Run the same clone + candidate-discovery flow as a fresh bootstrap, so a
+	// module whose Terraform lives in a subdirectory (e.g. `terraform/`) is
+	// appended with the correct `//<subdir>` source and thus shows its
+	// variables in the TUI. Skipping discovery here previously appended such
+	// modules at the repo root, leaving them with no editable variables.
+	prep, err := bootstrap.PrepareModule(ctx, bootstrap.InitOptions{
 		WrapperDir: cwd,
 		Source:     opts.Source,
 		Ref:        opts.Ref,
+		ModulePath: opts.ModulePath,
 	})
 	stop()
 	if err != nil {
 		return err
 	}
-
-	state, err := bootstrap.PrepareState(cwd, cloneDir, opts.ModulePath, resolvedSHA, opts.Ref, opts.Source)
-	if err != nil {
-		return err
+	if prep.State == nil {
+		// Multiple candidates — user needs --module. Nothing was written.
+		fmt.Println("Multiple module candidates found. Re-run with --module <path>:")
+		for _, c := range prep.Candidates {
+			label := c.Path
+			if c.Name != "" {
+				label = fmt.Sprintf("%s — %s", c.Path, c.Name)
+			}
+			fmt.Println("  " + label)
+		}
+		return nil
 	}
+	state := prep.State
 
 	// Determine the block name.
 	blockName := state.ModuleBlockName
