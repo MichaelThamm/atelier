@@ -190,3 +190,46 @@ func TestHasConfigAttr_Empty(t *testing.T) {
 		t.Error("expected false for empty")
 	}
 }
+
+// --- mergeMaps ---
+
+func TestMergeMaps_BothNil(t *testing.T) {
+	got := mergeMaps(nil, nil)
+	if got != nil {
+		t.Errorf("got %v, want nil", got)
+	}
+}
+
+func TestMergeMaps_FirstNil(t *testing.T) {
+	b := map[string]string{"b": "2"}
+	got := mergeMaps(nil, b)
+	if len(got) != 1 || got["b"] != "2" {
+		t.Errorf("got %v, want {b: 2}", got)
+	}
+}
+
+func TestMergeMaps_SecondNil(t *testing.T) {
+	a := map[string]string{"a": "1"}
+	got := mergeMaps(a, nil)
+	if len(got) != 1 || got["a"] != "1" {
+		t.Errorf("got %v, want {a: 1}", got)
+	}
+}
+
+func TestMergeMaps_NoOverlap(t *testing.T) {
+	a := map[string]string{"a": "1"}
+	b := map[string]string{"b": "2"}
+	got := mergeMaps(a, b)
+	if len(got) != 2 || got["a"] != "1" || got["b"] != "2" {
+		t.Errorf("got %v, want {a: 1, b: 2}", got)
+	}
+}
+
+func TestMergeMaps_OverlapSecondWins(t *testing.T) {
+	a := map[string]string{"a": "1", "shared": "from-a"}
+	b := map[string]string{"b": "2", "shared": "from-b"}
+	got := mergeMaps(a, b)
+	if len(got) != 3 || got["shared"] != "from-b" {
+		t.Errorf("got %v, want shared=from-b", got)
+	}
+}

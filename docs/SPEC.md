@@ -283,7 +283,11 @@ Flags:
 - `--ref <ref>` — check out a specific git ref when cloning.
 - `--dir <path>` — target directory (default: current directory).
 - `--type <T>` — restrict discovery to the given list-resource type(s).
-- `--var <K=V>` — supply a variable value (repeatable).
+- `--var <K=V>` — supply a module variable value (repeatable). Written to
+  `main.tf`.
+- `--query-var <K=V>` — supply a query-engine-only value (repeatable). Used
+  by `terraform query` but never written to `main.tf` (e.g. `model_uuid`
+  for the Juju provider).
 - `--provider-version <ver>` — pin the provider version constraint.
 - `--list` — discover and print live resources without importing.
 - `--no-init` — skip `terraform init` before importing.

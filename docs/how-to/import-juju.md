@@ -41,7 +41,7 @@ atelier import juju \
   --source https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite \
   --ref track/3.0 \
-  --var model_uuid=<your-model-uuid>
+  --query-var model_uuid=<your-model-uuid>
 ```
 
 This clones the module, writes an Atelier wrapper, discovers live applications

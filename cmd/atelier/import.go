@@ -29,7 +29,7 @@ import (
 //
 //  1. With --source: clone a remote module, write an Atelier wrapper, and
 //     import live resources into it. The user's workflow is:
-//     atelier import juju --source github.com/org/repo --var model_uuid=...
+//     atelier import juju --source github.com/org/repo --query-var model_uuid=...
 //
 //  2. Without --source: import into an already-initialised Terraform root
 //     (the directory must contain a provider and resource declarations).
@@ -61,6 +61,7 @@ func runImport(args []string) error {
 		verbose        bool
 		listOnly       bool
 		config         = map[string]string{}
+		queryConfig    = map[string]string{}
 	)
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -73,7 +74,7 @@ func runImport(args []string) error {
 			strict = true
 		case a == "--verbose":
 			verbose = true
-		case a == "--source" || a == "--module" || a == "--ref" || a == "--type" || a == "--var" || a == "--dir" || a == "--provider-version" || a == "--preset":
+		case a == "--source" || a == "--module" || a == "--ref" || a == "--type" || a == "--var" || a == "--query-var" || a == "--dir" || a == "--provider-version" || a == "--preset":
 			if i+1 >= len(args) {
 				return fmt.Errorf("flag %q requires a value", a)
 			}
@@ -103,6 +104,15 @@ func runImport(args []string) error {
 					return err
 				}
 				config[k] = v
+			case "--query-var":
+				k, v, ok := strings.Cut(val, "=")
+				if !ok || k == "" {
+					return fmt.Errorf("--query-var expects KEY=VALUE, got %q", val)
+				}
+				if err := validateVarKey(k); err != nil {
+					return err
+				}
+				queryConfig[k] = v
 			}
 		case strings.HasPrefix(a, "--source="):
 			sourceArg = strings.TrimPrefix(a, "--source=")
@@ -128,6 +138,16 @@ func runImport(args []string) error {
 				return err
 			}
 			config[k] = v
+		case strings.HasPrefix(a, "--query-var="):
+			kv := strings.TrimPrefix(a, "--query-var=")
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok || k == "" {
+				return fmt.Errorf("--query-var expects KEY=VALUE, got %q", kv)
+			}
+			if err := validateVarKey(k); err != nil {
+				return err
+			}
+			queryConfig[k] = v
 		case strings.HasPrefix(a, "-"):
 			return fmt.Errorf("unknown flag %q for import", a)
 		default:
@@ -206,6 +226,7 @@ func runImport(args []string) error {
 		Verbose:         verbose,
 		Types:           types,
 		Config:          config,
+		QueryConfig:     queryConfig,
 		WrapperState:    wrapperState,
 	}
 

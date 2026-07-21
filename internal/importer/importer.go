@@ -77,6 +77,11 @@ type Options struct {
 	// that accepts them, e.g. {"model_uuid": "<uuid>"}. Keys become query
 	// variables; values are passed via -var at query time.
 	Config map[string]string
+	// QueryConfig holds query-engine-specific config values that are only
+	// used by `terraform query` and never written to main.tf. For example,
+	// the Juju provider's list resources require `model_uuid` to know which
+	// model to query, but this is not a module input variable.
+	QueryConfig map[string]string
 	// QueryFile overrides the generated query filename (DefaultQueryFile).
 	QueryFile string
 	// BinPath overrides terraform/tofu discovery (mainly for tests).
@@ -242,12 +247,16 @@ func Generate(ctx context.Context, opts Options) (*Result, error) {
 	// connection failure) are always fatal.
 	active := selected
 	var live []tfexec.LiveResource
+	// Merge Config and QueryConfig for query operations. Config holds module
+	// inputs that may also be needed by list blocks (e.g. s3_endpoint).
+	// QueryConfig holds query-engine-only values (e.g. model_uuid for Juju).
+	queryVars := mergeMaps(opts.Config, opts.QueryConfig)
 	for {
 		existingVars := ExistingVars(opts.Dir)
-		if err := os.WriteFile(res.QueryFilePath, RenderQueryFile(active, opts.Config, existingVars...), 0o644); err != nil {
+		if err := os.WriteFile(res.QueryFilePath, RenderQueryFile(active, queryVars, existingVars...), 0o644); err != nil {
 			return nil, fmt.Errorf("write query file: %w", err)
 		}
-		found, qErr := tf.QueryList(ctx, opts.Config)
+		found, qErr := tf.QueryList(ctx, queryVars)
 		if qErr == nil {
 			live = found
 			break
@@ -397,6 +406,22 @@ func typeNames(rs []ListResource) []string {
 	out := make([]string, len(rs))
 	for i, r := range rs {
 		out[i] = r.Type
+	}
+	return out
+}
+
+// mergeMaps returns a new map containing all entries from both maps. When a
+// key appears in both, the second map wins.
+func mergeMaps(a, b map[string]string) map[string]string {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(a)+len(b))
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
 	}
 	return out
 }

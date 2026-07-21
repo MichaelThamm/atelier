@@ -53,16 +53,16 @@ Usage:
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
   atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
-        [--dir PATH] [--type T] [--var K=V] [--list]
-                                               Import a running deployment into Terraform state. With --source,
-                                               clones a remote module, writes an Atelier wrapper, and imports
-                                               live resources into it. Without --source, imports into an
-                                               already-initialised directory. Discovers live resources via
-                                               'terraform query' (requires terraform >= 1.14), matches them to
-                                               your module's resource addresses by name, and runs
-                                               'terraform import' for each. PROVIDER (e.g. juju) sets which
-                                               list-resource types to query. Use --var model_uuid=<uuid> to
-                                               supply the model UUID for the import ID.
+        [--dir PATH] [--type T] [--var K=V] [--query-var K=V] [--list]
+                                                Import a running deployment into Terraform state. With --source,
+                                                clones a remote module, writes an Atelier wrapper, and imports
+                                                live resources into it. Without --source, imports into an
+                                                already-initialised directory. Discovers live resources via
+                                                'terraform query' (requires terraform >= 1.14), matches them to
+                                                your module's resource addresses by name, and runs
+                                                'terraform import' for each. PROVIDER (e.g. juju) sets which
+                                                list-resource types to query. Use --query-var model_uuid=<uuid>
+                                                to supply the model UUID for the Juju query engine.
   atelier --version                            Print the version and exit.
   atelier --help                               Print this help.
 
