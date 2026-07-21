@@ -45,6 +45,13 @@ Concretely:
   live state values after apply, with syntax-highlighted JSON and scrollable
   navigation. Auto-generates `outputs.tf` to re-export module outputs.
 - Single static Go binary; snap packaging.
+- `atelier import [PROVIDER] [flags]`: import a running deployment into
+  Terraform state. Discovers live resources via `terraform query`, matches
+  them to module resource addresses by name, and runs `terraform import` for
+  each. Provider-specific import steps (currently Juju only) handle null
+  normalisation, schema version injection, offer defaults, and model UUID
+  injection. See [ADR-0027](adr/0027-atelier-import.md) and
+  [ADR-0028](adr/0028-provider-specific-import-ids.md).
 
 ## Not yet implemented
 
@@ -124,7 +131,6 @@ syntax highlighting. See SPEC.md §14.3 for details.
 The `atelier.local.yaml` schema is intentionally minimal (`modules:` list with
 `path` + `presets`). Candidates for later:
 
-- A `preset save` command to snapshot current wrapper values into a preset.
 - A user-global presets store (e.g. `~/.config/atelier/`) keyed by source URL,
   complementing walk-up local files.
 - A `--presets <path>` override flag.

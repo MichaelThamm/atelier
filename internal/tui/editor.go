@@ -318,9 +318,10 @@ func (e *stringEditor) Blur()  { e.cell.Blur() }
 // increment/decrement — those characters need to be typeable as part of
 // the number (leading sign, exponent sign).
 type numberEditor struct {
-	v       *tfvars.Variable
-	cell    cellInput
-	touched bool
+	v        *tfvars.Variable
+	cell     cellInput
+	touched  bool
+	lastValid cty.Value // last successfully parsed value; preserved while editing
 }
 
 // numberRunes is the set of characters accepted inside the input. Anything
@@ -335,8 +336,10 @@ func newNumberEditor(v *tfvars.Variable, current cty.Value) *numberEditor {
 	initial := ""
 	if current != cty.NilVal && !current.IsNull() && current.Type() == cty.Number {
 		initial = current.AsBigFloat().Text('f', -1)
+		ne.lastValid = current
 	} else if v.HasDefault && !v.Default.IsNull() {
 		initial = v.Default.AsBigFloat().Text('f', -1)
+		ne.lastValid = v.Default
 	}
 	ne.cell = newCellInput(initial, false, numberRunes)
 	return ne
@@ -369,7 +372,14 @@ func (e *numberEditor) CurrentValue() cty.Value {
 		return cty.NilVal
 	}
 	if n, err := strconv.ParseFloat(v, 64); err == nil {
-		return cty.NumberFloatVal(n)
+		val := cty.NumberFloatVal(n)
+		e.lastValid = val
+		return val
+	}
+	// Input is non-empty but unparseable — preserve the last valid value
+	// instead of returning NilVal (which would delete the variable from state).
+	if e.lastValid != cty.NilVal {
+		return e.lastValid
 	}
 	return cty.NilVal
 }

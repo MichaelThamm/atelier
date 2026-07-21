@@ -323,10 +323,19 @@ func runModuleList(args []string) error {
 }
 
 // sanitizeBlockName converts a user-provided name to a valid HCL identifier.
+// HCL identifiers must match [a-zA-Z_][a-zA-Z0-9_]*.
 func sanitizeBlockName(name string) string {
 	// Replace hyphens and dots with underscores.
 	name = strings.ReplaceAll(name, "-", "_")
 	name = strings.ReplaceAll(name, ".", "_")
+	// Strip any character that is not a letter, digit, or underscore.
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	name = b.String()
 	// Strip leading digits.
 	for len(name) > 0 && name[0] >= '0' && name[0] <= '9' {
 		name = name[1:]

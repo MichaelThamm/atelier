@@ -52,6 +52,17 @@ Usage:
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
+  atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
+        [--dir PATH] [--type T] [--var K=V] [--list]
+                                               Import a running deployment into Terraform state. With --source,
+                                               clones a remote module, writes an Atelier wrapper, and imports
+                                               live resources into it. Without --source, imports into an
+                                               already-initialised directory. Discovers live resources via
+                                               'terraform query' (requires terraform >= 1.14), matches them to
+                                               your module's resource addresses by name, and runs
+                                               'terraform import' for each. PROVIDER (e.g. juju) sets which
+                                               list-resource types to query. Use --var model_uuid=<uuid> to
+                                               supply the model UUID for the import ID.
   atelier --version                            Print the version and exit.
   atelier --help                               Print this help.
 
@@ -97,6 +108,9 @@ func run(args []string) error {
 	}
 	if args[0] == "tidy" {
 		return runTidy(args[1:])
+	}
+	if args[0] == "import" {
+		return runImport(args[1:])
 	}
 	return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 }
@@ -363,11 +377,13 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 		GitRunner:   &gitops.Git{},
 	})
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: skip module %q: clone failed: %v\n", blk.Name, err)
 		return nil
 	}
 
 	state, err := bootstrap.PrepareState(wrapperDir, cloneDir, modPath, sha, ref, srcURL)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: skip module %q: prepare state failed: %v\n", blk.Name, err)
 		return nil
 	}
 	state.ModuleBlockName = blk.Name
@@ -375,7 +391,9 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 
 	// Overlay existing values from main.tf.
 	pm, err := wrapper.ReadMainForBlock(wrapperDir, blk.Name, state.Vars)
-	if err == nil && pm != nil {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: module %q: could not read existing values from main.tf: %v\n", blk.Name, err)
+	} else if pm != nil {
 		for k, v := range pm.Values {
 			state.Values[k] = v
 		}
