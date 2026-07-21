@@ -48,20 +48,20 @@ import (
 // also used to scaffold provider config if the directory has none.
 func runImport(args []string) error {
 	var (
-		providerArg    string
-		dirArg         string
-		sourceArg      string
-		moduleArg      string
-		refArg         string
-		types          []string
-		provVersion    string
-		presetNames    []string
-		noInit         bool
-		strict         bool
-		verbose        bool
-		listOnly       bool
-		config         = map[string]string{}
-		queryConfig    = map[string]string{}
+		providerArg string
+		dirArg      string
+		sourceArg   string
+		moduleArg   string
+		refArg      string
+		types       []string
+		provVersion string
+		presetNames []string
+		noInit      bool
+		strict      bool
+		verbose     bool
+		listOnly    bool
+		config      = map[string]string{}
+		queryConfig = map[string]string{}
 	)
 	for i := 0; i < len(args); i++ {
 		a := args[i]

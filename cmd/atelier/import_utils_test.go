@@ -135,7 +135,7 @@ func TestConvertStringToCty_Bool(t *testing.T) {
 		Name: "test",
 		Type: &tftypes.Type{Kind: tftypes.KindBool},
 	}
-	
+
 	// Test true values
 	for _, val := range []string{"true", "1", "yes", "TRUE", "Yes"} {
 		got := convertStringToCty(val, v)
@@ -143,7 +143,7 @@ func TestConvertStringToCty_Bool(t *testing.T) {
 			t.Errorf("convertStringToCty(%q) = %v, want cty.True", val, got)
 		}
 	}
-	
+
 	// Test false values
 	for _, val := range []string{"false", "0", "no", "FALSE", "No"} {
 		got := convertStringToCty(val, v)
@@ -151,7 +151,7 @@ func TestConvertStringToCty_Bool(t *testing.T) {
 			t.Errorf("convertStringToCty(%q) = %v, want cty.False", val, got)
 		}
 	}
-	
+
 	// Test invalid value
 	got := convertStringToCty("invalid", v)
 	if got != cty.NilVal {
@@ -164,7 +164,7 @@ func TestConvertStringToCty_Number(t *testing.T) {
 		Name: "test",
 		Type: &tftypes.Type{Kind: tftypes.KindNumber},
 	}
-	
+
 	// Test integer
 	got := convertStringToCty("42", v)
 	if got.Type() != cty.Number {
@@ -174,13 +174,13 @@ func TestConvertStringToCty_Number(t *testing.T) {
 	if got.AsBigFloat().IsInt() == false {
 		t.Errorf("convertStringToCty(\"42\") should be an integer")
 	}
-	
+
 	// Test float
 	got = convertStringToCty("3.14", v)
 	if got.Type() != cty.Number {
 		t.Errorf("convertStringToCty(\"3.14\") type = %v, want number", got.Type())
 	}
-	
+
 	// Test invalid value
 	got = convertStringToCty("abc", v)
 	if got != cty.NilVal {
@@ -248,7 +248,7 @@ func TestConvertStringToCty_InvalidHCL(t *testing.T) {
 func TestApplyPresets_SinglePreset(t *testing.T) {
 	// Create a temporary directory with an atelier.local.yaml file.
 	dir := t.TempDir()
-	
+
 	// Create a minimal atelier.local.yaml with a preset.
 	yamlContent := `
 modules:
@@ -262,7 +262,7 @@ modules:
 	if err := os.WriteFile(filepath.Join(dir, "atelier.local.yaml"), []byte(yamlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// Create a wrapper state with a variable declaration.
 	state := &wrapper.State{
 		Dir:    dir,
@@ -274,13 +274,13 @@ modules:
 			},
 		},
 	}
-	
+
 	// Apply the preset.
 	err := applyPresets(dir, state, []string{"test-preset"})
 	if err != nil {
 		t.Fatalf("applyPresets() error = %v", err)
 	}
-	
+
 	// Check that the preset value was applied.
 	val, ok := state.Values["model_uuid"]
 	if !ok {
@@ -294,7 +294,7 @@ modules:
 func TestApplyPresets_MultiplePresets(t *testing.T) {
 	// Create a temporary directory with an atelier.local.yaml file.
 	dir := t.TempDir()
-	
+
 	// Create a minimal atelier.local.yaml with multiple presets.
 	yamlContent := `
 modules:
@@ -312,7 +312,7 @@ modules:
 	if err := os.WriteFile(filepath.Join(dir, "atelier.local.yaml"), []byte(yamlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// Create a wrapper state with a variable declaration.
 	state := &wrapper.State{
 		Dir:    dir,
@@ -324,13 +324,13 @@ modules:
 			},
 		},
 	}
-	
+
 	// Apply both presets (preset-2 should override preset-1).
 	err := applyPresets(dir, state, []string{"preset-1", "preset-2"})
 	if err != nil {
 		t.Fatalf("applyPresets() error = %v", err)
 	}
-	
+
 	// Check that preset-2's value won.
 	val, ok := state.Values["model_uuid"]
 	if !ok {
@@ -344,7 +344,7 @@ modules:
 func TestApplyPresets_VarOverridesPreset(t *testing.T) {
 	// Create a temporary directory with an atelier.local.yaml file.
 	dir := t.TempDir()
-	
+
 	// Create a minimal atelier.local.yaml with a preset.
 	yamlContent := `
 modules:
@@ -358,7 +358,7 @@ modules:
 	if err := os.WriteFile(filepath.Join(dir, "atelier.local.yaml"), []byte(yamlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// Create a wrapper state with a variable declaration.
 	state := &wrapper.State{
 		Dir:    dir,
@@ -370,19 +370,19 @@ modules:
 			},
 		},
 	}
-	
+
 	// --var flag should override preset.
 	config := map[string]string{
 		"model_uuid": "uuid-from-var",
 	}
-	
+
 	// Apply the preset and then the --var override.
 	err := applyPresets(dir, state, []string{"test-preset"})
 	if err != nil {
 		t.Fatalf("applyPresets() error = %v", err)
 	}
 	applyVarOverrides(state, config)
-	
+
 	// Check that --var flag won.
 	val, ok := state.Values["model_uuid"]
 	if !ok {
@@ -396,7 +396,7 @@ modules:
 func TestApplyPresets_PresetNotFound(t *testing.T) {
 	// Create a temporary directory with an atelier.local.yaml file.
 	dir := t.TempDir()
-	
+
 	// Create a minimal atelier.local.yaml with a preset.
 	yamlContent := `
 modules:
@@ -410,7 +410,7 @@ modules:
 	if err := os.WriteFile(filepath.Join(dir, "atelier.local.yaml"), []byte(yamlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// Create a wrapper state.
 	state := &wrapper.State{
 		Dir:    dir,
@@ -422,7 +422,7 @@ modules:
 			},
 		},
 	}
-	
+
 	// Try to apply a non-existent preset.
 	err := applyPresets(dir, state, []string{"non-existent-preset"})
 	if err == nil {
@@ -436,7 +436,7 @@ modules:
 func TestApplyPresets_NoPresetsFile(t *testing.T) {
 	// Create a temporary directory without an atelier.local.yaml file.
 	dir := t.TempDir()
-	
+
 	// Create a wrapper state.
 	state := &wrapper.State{
 		Dir:    dir,
@@ -448,7 +448,7 @@ func TestApplyPresets_NoPresetsFile(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Try to apply a preset when no file exists.
 	err := applyPresets(dir, state, []string{"test-preset"})
 	if err == nil {

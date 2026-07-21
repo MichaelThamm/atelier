@@ -62,9 +62,9 @@ func PlanCreates(ctx context.Context, opts Options) ([]PlannedResource, error) {
 
 // validationError represents a terraform variable validation error.
 type validationError struct {
-	Variable    string
-	Message     string
-	RawError    error
+	Variable string
+	Message  string
+	RawError error
 }
 
 func (e *validationError) Error() string {
@@ -91,7 +91,7 @@ func parseValidationError(err error) (*validationError, bool) {
 	}
 
 	errStr := err.Error()
-	
+
 	// Match the terraform validation error pattern:
 	// Error: Invalid value for variable
 	//   on  line 0:
@@ -103,20 +103,20 @@ func parseValidationError(err error) (*validationError, bool) {
 		// Use (?s) flag to make . match newlines for multi-line messages
 		msgPattern := regexp.MustCompile(`(?s)\(source code not available\)\s*\n\s*(.*?)\s*\n\s*This was checked`)
 		msgMatch := msgPattern.FindStringSubmatch(errStr)
-		
+
 		var validationMsg string
 		if len(msgMatch) > 1 {
 			validationMsg = strings.TrimSpace(msgMatch[1])
 		}
-		
+
 		if validationMsg != "" {
 			return &validationError{
-				Variable: "",  // Variable name not in error message; user must identify from context
+				Variable: "", // Variable name not in error message; user must identify from context
 				Message:  validationMsg,
 				RawError: err,
 			}, true
 		}
 	}
-	
+
 	return nil, false
 }
