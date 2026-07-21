@@ -10,8 +10,10 @@ the implementation satisfies. Architectural decisions referenced inline as
 ## 1. Overview
 
 Atelier is a provider-agnostic terminal UI for configuring Terraform root
-modules. It works with any Terraform provider (AWS, GCP, Azure, Juju, etc.)
-and has no provider-specific code paths. The user points it at a Terraform
+modules. It works with any Terraform provider (AWS, GCP, Azure, Juju, etc.).
+The configuration and TUI surface is fully provider-agnostic; `atelier import`
+is the sole exception, containing provider-specific import steps (currently
+Juju only — see ADR-0028). The user points it at a Terraform
 module (typically a public git repository), and Atelier:
 
 1. Clones the repository into a managed cache (`.atelier/clone/`).
@@ -33,8 +35,9 @@ module (typically a public git repository), and Atelier:
 
 ### Goals
 
-- Provider-agnostic: work identically for any Terraform provider without
-  special-casing provider names or resource types.
+- Provider-agnostic: the configuration and TUI surface work identically for
+  any Terraform provider without special-casing provider names or resource
+  types. (`atelier import` is the sole exception; see §1.)
 - Work for any Terraform root module that declares variables.
 - Produce a wrapper directory that is runnable without Atelier installed.
 - Round-trip cleanly: a user can hand-edit `main.tf` between sessions and
@@ -243,12 +246,14 @@ atelier module add <git-url> --ref <ref>   # add at a specific ref
 atelier module add <git-url> --module <subdir>  # skip the candidate picker
 atelier module rm <name> [--force]         # remove a module from the wrapper
 atelier module list                        # list modules in the wrapper
+atelier import [PROVIDER] [flags]          # import live resources into Terraform state
 atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ directories
 atelier --help                             # print usage
 ```
 
 See [ADR-0018](adr/0018-additive-module-command.md) for the `module`
-subcommand design.
+subcommand design and [ADR-0027](adr/0027-atelier-import.md) for the
+`import` subcommand design.
 
 There is no `atelier init`. A wrapper is created and modules are added through
 `atelier module add <url>`.
@@ -256,13 +261,43 @@ There is no `atelier init`. A wrapper is created and modules are added through
 That is the complete CLI surface. Notably absent:
 
 - No `atelier plan` / `atelier apply` (use `terraform` directly in the
-  wrapper).
+  wrapper, or press `P`/`A` within the TUI).
 - No daemon mode or persistent sessions.
 
 Outputs are viewable from within the TUI (see §7.6); a standalone
 `atelier output` subcommand is not provided.
 
-### 6.1 Module subcommand
+### 6.1 Import subcommand
+
+`atelier import [PROVIDER] [flags]` imports a running deployment into Terraform
+state. Provider-specific import steps (currently Juju only — see ADR-0028)
+handle null normalisation, schema version injection, offer defaults, and model
+UUID injection. The importer package itself remains provider-agnostic; all
+provider-specific logic lives in the CLI layer.
+
+Flags:
+
+- `--source <git-url>` — clone a remote module, write an Atelier wrapper, and
+  import into it. When omitted, imports into an already-initialised directory.
+- `--module <path>` — skip the candidate picker and use the given module path.
+- `--ref <ref>` — check out a specific git ref when cloning.
+- `--dir <path>` — target directory (default: current directory).
+- `--type <T>` — restrict discovery to the given list-resource type(s).
+- `--var <K=V>` — supply a module variable value (repeatable). Written to
+  `main.tf`.
+- `--query-var <K=V>` — supply a query-engine-only value (repeatable). Used
+  by `terraform query` but never written to `main.tf` (e.g. `model_uuid`
+  for the Juju provider).
+- `--provider-version <ver>` — pin the provider version constraint.
+- `--list` — discover and print live resources without importing.
+- `--no-init` — skip `terraform init` before importing.
+- `--strict` — treat list-resource query errors as fatal (no automatic retry with fewer types).
+- `--verbose` — print per-resource match scoring.
+
+See [docs/how-to/import-juju.md](../docs/how-to/import-juju.md) for a
+worked Juju example.
+
+### 6.2 Module subcommand
 
 `atelier module add <git-url>` is the primary entry point for adding modules:
 
@@ -279,7 +314,7 @@ responsibility.
 `atelier module list` prints a table (name, source, ref) without launching
 the TUI.
 
-### 6.2 Purge
+### 6.3 Purge
 
 `atelier purge [PATH] [--force]` removes Atelier's internal directories
 (`.atelier/` and `.clone/`) from the target directory (defaults to CWD).
@@ -295,7 +330,7 @@ This is useful for cleaning up Atelier state without disturbing the wrapper
 itself, e.g. before archiving a wrapper directory or forcing a fresh
 re-introspection on next open.
 
-### 6.3 Behaviour matrix
+### 6.4 Behaviour matrix
 
 | CWD state                          | Command            | Behaviour                                                                                  |
 |------------------------------------|--------------------|--------------------------------------------------------------------------------------------|
@@ -801,7 +836,7 @@ See [ADR-0002](adr/0002-author-and-plan-scope.md).
 
 ### 14.1 Language and key libraries
 
-- **Language:** Go (>= 1.22). See [ADR-0005](adr/0005-implementation-language-go.md).
+- **Language:** Go (>= 1.21). See [ADR-0005](adr/0005-implementation-language-go.md).
 - **TUI:** [`github.com/charmbracelet/bubbletea`](https://github.com/charmbracelet/bubbletea),
   [`bubbles`](https://github.com/charmbracelet/bubbles),
   [`lipgloss`](https://github.com/charmbracelet/lipgloss).

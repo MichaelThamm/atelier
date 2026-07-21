@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	hcversion "github.com/hashicorp/go-version"
@@ -21,6 +22,13 @@ import (
 
 // MinVersion is the lowest terraform version Atelier supports (SPEC §5.2 ¶5).
 const MinVersion = "1.5.0"
+
+// QueryMinVersion is the lowest terraform version that supports `terraform
+// query` (the list-resource / bulk-import mechanism `atelier import` builds
+// on). This is gated per-command rather than raising MinVersion, so every
+// other Atelier command keeps working on terraform >= MinVersion.
+// See ADR-0027.
+const QueryMinVersion = "1.14.0"
 
 // DebugEnvVar, when set to a truthy value, switches on terraform's own
 // TRACE-level logging (TF_LOG/TF_LOG_PATH) for every command Atelier runs.
@@ -211,6 +219,12 @@ func (t *Terraform) Apply(ctx context.Context, planFile string, stdout io.Writer
 	return t.tf.Apply(ctx, tfexec.DirOrPlan(planFile))
 }
 
+// Import runs `terraform import <address> <id>`, bringing a single live
+// resource into Terraform state at the given module address.
+func (t *Terraform) Import(ctx context.Context, address, id string) error {
+	return t.tf.Import(ctx, address, id)
+}
+
 // Output runs `terraform output -json` and returns the parsed output map.
 func (t *Terraform) Output(ctx context.Context) (map[string]tfexec.OutputMeta, error) {
 	return t.tf.Output(ctx)
@@ -234,4 +248,164 @@ func (t *Terraform) StateMv(ctx context.Context, src, dst string) error {
 // tfexec runner.
 func (t *Terraform) SetEnv(env map[string]string) error {
 	return t.tf.SetEnv(env)
+}
+
+// CheckQueryVersion ensures the binary is new enough for `terraform query`
+// (>= QueryMinVersion). `atelier import` calls this before attempting a query
+// so the user gets an actionable message instead of terraform-exec's generic
+// compatibility error. See ADR-0027.
+func (t *Terraform) CheckQueryVersion(ctx context.Context) (string, error) {
+	v, _, err := t.tf.Version(ctx, true)
+	if err != nil {
+		return "", fmt.Errorf("query terraform version: %w", err)
+	}
+	mv, _ := hcversion.NewVersion(QueryMinVersion)
+	if v.LessThan(mv) {
+		return v.String(), fmt.Errorf("atelier import requires terraform (or tofu) >= %s for 'terraform query'; found %s", QueryMinVersion, v)
+	}
+	return v.String(), nil
+}
+
+// QueryDiagnostic is a single diagnostic emitted by `terraform query`, with
+// enough location detail for callers to map it back to a specific list block.
+type QueryDiagnostic struct {
+	Severity string
+	Summary  string
+	Detail   string
+	Filename string
+	Line     int
+}
+
+// QueryError is returned by QueryList when the query fails. It
+// carries the parsed error diagnostics so callers can, for example, identify
+// and skip the specific list resource types that failed.
+type QueryError struct {
+	Diagnostics []QueryDiagnostic
+	Err         error
+}
+
+func (e *QueryError) Error() string {
+	if len(e.Diagnostics) == 0 {
+		if e.Err != nil {
+			return "terraform query: " + e.Err.Error()
+		}
+		return "terraform query failed"
+	}
+	parts := make([]string, len(e.Diagnostics))
+	for i, d := range e.Diagnostics {
+		parts[i] = d.String()
+	}
+	return "terraform query failed:\n" + strings.Join(parts, "\n\n")
+}
+
+func (e *QueryError) Unwrap() error { return e.Err }
+
+// String renders a diagnostic as "summary: detail (at file:line)".
+func (d QueryDiagnostic) String() string {
+	msg := d.Summary
+	if d.Detail != "" {
+		msg += ": " + d.Detail
+	}
+	if d.Filename != "" {
+		msg += fmt.Sprintf(" (at %s:%d)", d.Filename, d.Line)
+	}
+	return msg
+}
+
+// LiveResource is one live object discovered by `terraform query`, carrying
+// the provider-declared resource identity (the generic key used to match it to
+// a resource in the target module — see internal/importer). No provider is
+// special-cased: everything here comes from the query's JSON stream.
+type LiveResource struct {
+	// ResourceType is the resource type, e.g. "juju_application".
+	ResourceType string
+	// Address is the flat address terraform assigned in the query result, e.g.
+	// "list.juju_application.apps[0]". Informational only; import targets are
+	// the module addresses matched separately.
+	Address string
+	// DisplayName is terraform's human label for the object, if any.
+	DisplayName string
+	// Identity is the resource identity object (schema-defined by the
+	// provider). This is the generic match key against a plan's AfterIdentity.
+	Identity map[string]any
+	// IdentityVersion is the identity schema version reported by the provider.
+	IdentityVersion int64
+	// Attributes is the object's attribute values (query "resource_object"),
+	// used as a fallback match key when identity is unavailable on the plan
+	// side.
+	Attributes map[string]any
+}
+
+// QueryList runs `terraform query -json` (no -generate-config-out) with the
+// given `-var` assignments and harvests the live objects the directory's
+// *.tfquery.hcl list blocks match. It deliberately does NOT generate config:
+// `atelier import` imports into an existing module, so it needs only the live
+// resources' identities, not fresh resource blocks (ADR-0027).
+//
+// It drains terraform's JSON log stream to completion (required, or the
+// underlying process blocks). On failure it returns a *QueryError carrying the
+// parsed error diagnostics so callers can attribute failures to a specific
+// list block and skip it.
+func (t *Terraform) QueryList(ctx context.Context, vars map[string]string) ([]LiveResource, error) {
+	var opts []tfexec.QueryOption
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		opts = append(opts, tfexec.Var(k+"="+vars[k]))
+	}
+
+	seq, err := t.tf.QueryJSON(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("terraform query: %w", err)
+	}
+	// QueryJSON redirects stdout to an internal pipe; clear it afterwards so a
+	// later command on this Terraform doesn't inherit the closed writer.
+	defer t.tf.SetStdout(nil)
+
+	var (
+		found []LiveResource
+		diags []QueryDiagnostic
+	)
+	for msg := range seq {
+		if msg.Msg == nil {
+			// Terminal message: carries the command's exit error, if any.
+			if msg.Err != nil {
+				return found, &QueryError{Diagnostics: diags, Err: msg.Err}
+			}
+			break
+		}
+		switch m := msg.Msg.(type) {
+		case tfjson.ListResourceFoundMessage:
+			d := m.ListResourceFound
+			found = append(found, LiveResource{
+				ResourceType:    d.ResourceType,
+				Address:         d.Address,
+				DisplayName:     d.DisplayName,
+				Identity:        d.Identity,
+				IdentityVersion: d.IdentityVersion,
+				Attributes:      d.ResourceObject,
+			})
+		case tfjson.DiagnosticLogMessage:
+			if m.Diagnostic.Severity == tfjson.DiagnosticSeverityError {
+				diags = append(diags, toQueryDiagnostic(m.Diagnostic))
+			}
+		}
+	}
+	return found, nil
+}
+
+func toQueryDiagnostic(d tfjson.Diagnostic) QueryDiagnostic {
+	qd := QueryDiagnostic{
+		Severity: string(d.Severity),
+		Summary:  d.Summary,
+		Detail:   d.Detail,
+	}
+	if d.Range != nil {
+		qd.Filename = d.Range.Filename
+		qd.Line = d.Range.Start.Line
+	}
+	return qd
 }

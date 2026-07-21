@@ -103,7 +103,7 @@ func rawAttr(src []byte, attr *hclsyntax.Attribute) RawAttr {
 }
 
 func rangeBytes(src []byte, r hcl.Range) []byte {
-	if r.Start.Byte < 0 || r.End.Byte > len(src) {
+	if r.Start.Byte < 0 || r.End.Byte > len(src) || r.End.Byte < r.Start.Byte {
 		return nil
 	}
 	out := make([]byte, r.End.Byte-r.Start.Byte)

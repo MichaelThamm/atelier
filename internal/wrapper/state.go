@@ -180,3 +180,10 @@ func (s *State) FindVar(name string) *tfvars.Variable {
 	}
 	return nil
 }
+
+// EnsureValues initializes the Values map if nil.
+func (s *State) EnsureValues() {
+	if s.Values == nil {
+		s.Values = map[string]cty.Value{}
+	}
+}

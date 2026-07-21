@@ -34,6 +34,8 @@ Format follows the Michael Nygard template, lightly extended.
 | 0024 | [Surfacing Terraform `check` block warnings](0024-check-block-warnings.md)                   | Accepted |
 | 0025 | [Interactive ref selection in the ref-switch modal](0025-ref-selection-matcher.md)          | Proposed |
 | 0026 | [Generate a preset from the current configuration](0026-save-preset.md)                      | Accepted |
+| 0027 | [`atelier import` — import live infrastructure into an existing module](0027-atelier-import.md) | Proposed |
+| 0028 | [Provider-specific import IDs — scoped to Juju for v1](0028-provider-specific-import-ids.md) | Proposed |
 
 ## Conventions
 

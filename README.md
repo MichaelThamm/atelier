@@ -2,11 +2,26 @@
 
 A provider-agnostic terminal UI for configuring Terraform modules.
 
-Atelier works with **any** Terraform provider — AWS, GCP, Azure, Juju, or
-anything else with a Terraform provider. It treats a module's variables as
-its API surface. The wrapper it generates captures only the values the
-deployer chose to set, so `main.tf` reads as a concise statement of intent
-rather than a wall of options. Defaults handle the rest, and plan diffs show exactly what changes between versions — making large modules approachable for first-time and experienced Terraform users alike.
+It treats a module's variables as its API surface. The wrapper it generates
+captures only the values the deployer chose to set, so `main.tf` reads as a
+concise statement of intent rather than a wall of options. Defaults handle the
+rest, and plan diffs show exactly what changes between versions — making large
+modules approachable for first-time and experienced Terraform users alike.
+
+## Design intent
+
+- **Generic.** Works with any Terraform provider and any Terraform module
+  that declares variables, not just Canonical products.
+- **Wrapper-as-artifact.** The wrapper directory is the durable output. It is
+  version-controllable, shareable, runnable without Atelier installed, and
+  CI-compatible. Atelier's internal state lives in a `.atelier/` subdirectory
+  that is regenerable from the wrapper.
+- **Plan and apply in the TUI.** Atelier owns the configure → plan iteration
+  loop and supports `terraform apply` from the plan view (`A` key). The
+  wrapper remains independently runnable without Atelier installed.
+- **User-owned presets.** Reusable variable bundles live in a wrapper-local
+  `atelier.local.yaml`, discovered by walking up from the wrapper directory, so
+  one file can be shared across sibling wrappers. See [Presets](#presets).
 
 ## Requirements
 
@@ -18,19 +33,17 @@ rather than a wall of options. Defaults handle the rest, and plan diffs show exa
 
 ### Prebuilt binary (recommended)
 
-Open the [latest release](https://github.com/MichaelThamm/atelier/releases/latest),
-download the archive matching your OS and CPU, extract it, and move the
+Download the archive matching your OS and CPU, extract it, and move the
 `atelier` binary onto your `PATH`:
 
 ```bash
-VERSION=0.0.0
-OS=linux       # linux|windows|darwin
-ARCH=amd64     # amd64|arm64
-
+VERSION=$(curl -sSf https://api.github.com/repos/MichaelThamm/atelier/releases/latest | grep '"tag_name"' | cut -d '"' -f 4) \
+OS=linux \
+ARCH=amd64 \
 curl -sSfL \
-  "https://github.com/MichaelThamm/atelier/releases/download/v${VERSION}/atelier_${VERSION}_${OS}_${ARCH}.tar.gz" \
-  | tar -xz atelier
-sudo install atelier /usr/local/bin/atelier
+  "https://github.com/MichaelThamm/atelier/releases/download/${VERSION}/atelier_${VERSION#v}_${OS}_${ARCH}.tar.gz" \
+  | tar -xz atelier \
+  && sudo install atelier /usr/local/bin/atelier
 ```
 
 Builds are published for Linux, macOS, and Windows on amd64 and arm64;
@@ -45,14 +58,17 @@ go install github.com/MichaelThamm/atelier/cmd/atelier@latest
 
 ## Quick start
 
+Start a new wrapper from any public git repo containing Terraform modules.
+`module add` bootstraps the wrapper on first use:
+
 ```bash
-# Start a new wrapper from any public git repo containing Terraform modules.
-# `module add` bootstraps the wrapper on first use:
 mkdir my-vpc && cd my-vpc
 atelier module add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 atelier module add https://github.com/canonical/observability-stack.git --module terraform/cos-lite
+```
 
-# Re-open an existing wrapper (run with no arguments in the wrapper dir):
+Re-open an existing wrapper (run with no arguments in the wrapper dir):
+```bash
 atelier
 ```
 
@@ -105,7 +121,7 @@ unchanged.
 ### Map / map(object) editors
 
 Rows are keyed first: `+ Add row` (or `Enter` past the last value) drops you
-on a new row's **key** cell. `Enter` is the single "advance forward" verb —
+on a new row's key cell. `Enter` is the single "advance forward" verb —
 it moves key → value, value → next row, and on the last value it commits and
 opens a fresh row. In a `map(object)`, once a row's key is named, `Enter`
 drills into the object; `Esc` backs out one level at a time. A row with an
@@ -124,7 +140,10 @@ See [ADR-0023](docs/adr/0023-map-row-editing-lifecycle.md).
 | `Tab` | Switch panes (variable list ⇄ editor) |
 | `Ctrl+Home` / `Ctrl+End` | Jump to the first / last field (inside an object editor) |
 
-### Output view
+### Scrolling and navigation
+
+The following shortcuts work in any scrollable view: the variable list, plan
+tree, plan diff, and output view.
 
 | Key | Action |
 |-----|--------|
@@ -134,14 +153,14 @@ See [ADR-0023](docs/adr/0023-map-row-editing-lifecycle.md).
 | `Ctrl+U` / `PgUp` | Half-page up |
 | `g` | Jump to top |
 | `G` | Jump to bottom |
-| `Esc` / `q` | Close |
+| `Esc` / `q` | Close (in modal views) |
 
 ## Presets
 
-**Presets** are user-owned, not maintainer-owned: Atelier never reads any file
+Presets are user-owned, not maintainer-owned: Atelier never reads any file
 from the upstream module repository. You declare presets — named bundles of
 variable values that you apply in one action, then customise as needed — in a
-wrapper-local `atelier.local.yaml`. Atelier discovers it by **walking up** from
+wrapper-local `atelier.local.yaml`. Atelier discovers it by walking up from
 the wrapper directory, so a single file at a parent directory (e.g.
 `tf-testing/atelier.local.yaml`) is shared by every wrapper beneath it.
 
@@ -205,6 +224,29 @@ unlisted ref) is always accepted. See
 | `Enter` | Switch to the typed ref (free text accepted) |
 | `Esc` | Cancel |
 
+## Outputs
+
+Press `O` in plan view to inspect module outputs. Before apply, Atelier
+shows the planned output values from the plan file. After apply, it fetches
+live values from state. The output view is scrollable — use `j`/`k` or
+`PgUp`/`PgDn` to navigate large outputs.
+
+Atelier generates an `outputs.tf` in the wrapper that forwards all of the
+module's declared outputs:
+
+```hcl
+output "offers" {
+  value = module.cos_lite.offers
+}
+```
+
+## Validate on save
+
+Every time you edit a variable, Atelier immediately saves the change to disk
+and debounces a background `terraform validate`. Errors appear inline in the
+status bar; press `E` to see full diagnostics. Validation runs
+`terraform init` automatically if the workspace hasn't been initialised yet.
+
 ## Tidying a wrapper
 
 Atelier writes sparse `main.tf` files — only values that differ from the
@@ -240,28 +282,13 @@ expression (`var.x`, `module.y.z`) are never pruned.
 
 See [ADR-0021](docs/adr/0021-tidy-command.md) for the design.
 
-## Validate on save
+## Importing live infrastructure
 
-Every time you edit a variable, Atelier debounces a background
-`terraform validate`. Errors appear inline in the status bar; press `E` to
-see full diagnostics. Validation runs `terraform init` automatically if the
-workspace hasn't been initialised yet.
-
-## Outputs
-
-Press `O` in plan view to inspect module outputs. Before apply, Atelier
-shows the planned output values from the plan file. After apply, it fetches
-live values from state. The output view is scrollable — use `j`/`k` or
-`PgUp`/`PgDn` to navigate large outputs.
-
-Atelier generates an `outputs.tf` in the wrapper that forwards all of the
-module's declared outputs:
-
-```hcl
-output "offers" {
-  value = module.cos_lite.offers
-}
-```
+`atelier import` reconstructs Terraform state for an existing module from a
+running deployment. It discovers live resources via `terraform query`, matches
+them to the module's resource addresses, and runs `terraform import` for each
+match. See [docs/how-to/import-juju.md](docs/how-to/import-juju.md) for a
+step-by-step Juju walkthrough.
 
 ## Troubleshooting
 
@@ -285,6 +312,7 @@ Atelier persists terraform's diagnostics under the wrapper's
 | --- | --- |
 | [docs/SPEC.md](docs/SPEC.md) | Specification: surface, contracts, behaviours |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What Atelier does today and what's not yet implemented |
+| [docs/how-to/](docs/how-to/) | Step-by-step guides |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 | [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` |
 

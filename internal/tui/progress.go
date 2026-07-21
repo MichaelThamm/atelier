@@ -139,11 +139,19 @@ func extractPhase(line string) string {
 // extractResourcePhase shortens a resource-level line like
 // "module.charm.juju_application.app: Creating..." to just the resource
 // address and action.
-func extractResourcePhase(line, _ string) string {
-	// Terraform resource lines have the form "address: Action..."
-	// Just return the line as-is (truncation happens at render time).
-	if idx := strings.Index(line, ":"); idx > 0 {
-		return strings.TrimSpace(line)
+func extractResourcePhase(line, action string) string {
+	line = strings.TrimSpace(line)
+	// Extract the resource address: everything before the first ": ".
+	if idx := strings.Index(line, ": "); idx > 0 {
+		addr := strings.TrimSpace(line[:idx])
+		if action != "" {
+			return addr + ": " + action
+		}
+		// Action not provided — extract from line (e.g. "Still creating...").
+		return addr + ": " + strings.TrimSpace(line[idx+2:])
 	}
-	return strings.TrimSpace(line)
+	if action != "" {
+		return line + " [" + action + "]"
+	}
+	return line
 }
