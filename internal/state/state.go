@@ -18,6 +18,7 @@ type Resource struct {
 	Mode       string                 // "managed" or "data"
 	Type       string                 // e.g. "juju_application"
 	Name       string                 // e.g. "grafana"
+	Provider   string                 // e.g. "provider[\"registry.terraform.io/juju/juju\"]"
 	Address    string                 // full address: module.cos_lite.juju_application.grafana
 	Attributes map[string]interface{} // all attributes from the state
 }
@@ -70,6 +71,7 @@ func Parse(data []byte) (*State, error) {
 				Mode:       r.Mode,
 				Type:       r.Type,
 				Name:       r.Name,
+				Provider:   r.Provider,
 				Address:    addr,
 				Attributes: inst.Attributes,
 			})
@@ -173,10 +175,91 @@ func buildAddress(module, typ, name string, indexKey interface{}) string {
 	return addr
 }
 
+// EnsureSchemaVersions sets the schema_version on all instances of the given
+// resource types in terraform.tfstate. This is a workaround for providers
+// (like juju/juju) that declare a non-zero Version in their schema but do
+// not implement UpgradeState(). Without schema_version in state, Terraform
+// tries to upgrade from version 0 to the declared version and fails.
+func EnsureSchemaVersions(dir string, versions map[string]int) error {
+	if len(versions) == 0 {
+		return nil
+	}
+	path := filepath.Join(dir, "terraform.tfstate")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("reading state: %w", err)
+	}
+
+	var raw rawState
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("decoding state: %w", err)
+	}
+	if raw.Version == 0 {
+		return nil
+	}
+
+	patched := 0
+	for i := range raw.Resources {
+		r := &raw.Resources[i]
+		if v, ok := versions[r.Type]; ok {
+			for j := range r.Instances {
+				inst := &r.Instances[j]
+				if inst.SchemaVersion == 0 {
+					inst.SchemaVersion = v
+					patched++
+				}
+			}
+		}
+	}
+
+	if patched == 0 {
+		return nil
+	}
+
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding state: %w", err)
+	}
+	out = append(out, '\n')
+	return writeStateFile(path, out)
+}
+
+// writeStateFile writes data to path atomically via a temp file and rename.
+func writeStateFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, ".atelier-state-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
 // rawState models the subset of terraform.tfstate v4 we care about.
 type rawState struct {
-	Version   int           `json:"version"`
-	Resources []rawResource `json:"resources"`
+	Version          int           `json:"version"`
+	TerraformVersion string        `json:"terraform_version,omitempty"`
+	Serial           int           `json:"serial,omitempty"`
+	Lineage          string        `json:"lineage,omitempty"`
+	Outputs          interface{}   `json:"outputs,omitempty"`
+	Resources        []rawResource `json:"resources"`
+	CheckResults     interface{}   `json:"check_results,omitempty"`
 }
 
 type rawResource struct {
@@ -184,10 +267,15 @@ type rawResource struct {
 	Mode      string        `json:"mode"`
 	Type      string        `json:"type"`
 	Name      string        `json:"name"`
+	Provider  string        `json:"provider,omitempty"`
 	Instances []rawInstance `json:"instances"`
 }
 
 type rawInstance struct {
-	IndexKey   interface{}            `json:"index_key"`
-	Attributes map[string]interface{} `json:"attributes"`
+	IndexKey              interface{}            `json:"index_key"`
+	SchemaVersion         int                    `json:"schema_version,omitempty"`
+	Attributes            map[string]interface{} `json:"attributes"`
+	SensitiveAttributes   []interface{}          `json:"sensitive_attributes,omitempty"`
+	IdentitySchemaVersion int                    `json:"identity_schema_version,omitempty"`
+	Identity              interface{}            `json:"identity,omitempty"`
 }
