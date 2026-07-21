@@ -222,9 +222,9 @@ func TestPlannedCreatesExtractsIdentity(t *testing.T) {
 			Address: "module.cos.aws_instance.web",
 			Type:    "aws_instance",
 			Change: &tfjson.Change{
-				Actions:        tfjson.Actions{tfjson.ActionCreate},
-				After:          map[string]any{"ami": "abc-123", "instance_type": "t2.micro"},
-				AfterIdentity:  map[string]any{"id": "i-0123456789abcdef0"},
+				Actions:       tfjson.Actions{tfjson.ActionCreate},
+				After:         map[string]any{"ami": "abc-123", "instance_type": "t2.micro"},
+				AfterIdentity: map[string]any{"id": "i-0123456789abcdef0"},
 			},
 		},
 	}}
@@ -267,8 +267,8 @@ func TestMatchByIdentity(t *testing.T) {
 	}
 	planned := []PlannedResource{
 		{
-			Address: "module.cos.aws_instance.web",
-			Type:    "aws_instance",
+			Address:  "module.cos.aws_instance.web",
+			Type:     "aws_instance",
 			Identity: map[string]any{"id": "i-bbb"},
 		},
 	}
@@ -291,8 +291,8 @@ func TestMatchByIdentityFallsBackToName(t *testing.T) {
 	}
 	planned := []PlannedResource{
 		{
-			Address: "module.cos.aws_instance.web",
-			Type:    "aws_instance",
+			Address:  "module.cos.aws_instance.web",
+			Type:     "aws_instance",
 			Identity: map[string]any{"id": "i-nonexistent"},
 		},
 	}
@@ -313,8 +313,8 @@ func TestMatchByIdentityAmbiguousFallsBackToName(t *testing.T) {
 	}
 	planned := []PlannedResource{
 		{
-			Address: "module.cos.aws_instance.web",
-			Type:    "aws_instance",
+			Address:  "module.cos.aws_instance.web",
+			Type:     "aws_instance",
 			Identity: map[string]any{"id": "i-shared"},
 		},
 	}
@@ -501,9 +501,9 @@ func TestParseIntegrationIDEndpointPairs(t *testing.T) {
 
 func TestParseIntegrationIDEndpointPairsMalformed(t *testing.T) {
 	cases := []struct {
-		name   string
+		name     string
 		identity map[string]any
-		wantLen int
+		wantLen  int
 	}{
 		{"nil", nil, 0},
 		{"too few parts", map[string]any{"id": "uuid:app1"}, 0},

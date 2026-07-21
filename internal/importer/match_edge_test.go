@@ -46,7 +46,7 @@ func TestPlannedCreates_SkipsImporting(t *testing.T) {
 	plan := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
 		{Address: "juju_application.importing", Type: "juju_application",
 			Change: &tfjson.Change{
-				Actions:  tfjson.Actions{tfjson.ActionCreate},
+				Actions:   tfjson.Actions{tfjson.ActionCreate},
 				Importing: &tfjson.Importing{ID: "some-existing-id"},
 			}},
 		{Address: "juju_application.normal", Type: "juju_application",
@@ -101,8 +101,8 @@ func TestPlannedCreates_WithIdentity(t *testing.T) {
 	plan := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
 		{Address: "juju_application.id", Type: "juju_application",
 			Change: &tfjson.Change{
-				Actions: tfjson.Actions{tfjson.ActionCreate},
-				After: map[string]any{"name": "app"},
+				Actions:       tfjson.Actions{tfjson.ActionCreate},
+				After:         map[string]any{"name": "app"},
 				AfterIdentity: map[string]any{"id": "uuid-123"},
 			}},
 	}}
