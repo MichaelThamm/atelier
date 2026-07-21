@@ -84,7 +84,7 @@ for each.
 4. **Import via `terraform import`.** For each match, construct the
    provider-specific import ID (currently Juju:
    `<model_uuid>:<app_name>`) and run `terraform import <address> <id>`.
-   The model UUID is supplied by the user via `--var model_uuid=<uuid>`.
+   The model UUID is supplied by the user via `--query-var model_uuid=<uuid>`.
 5. **Report results.** List matched, imported, and unmatched resources. No
    config is generated — the module already declares everything.
 

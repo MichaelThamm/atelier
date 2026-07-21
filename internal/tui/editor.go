@@ -318,9 +318,9 @@ func (e *stringEditor) Blur()  { e.cell.Blur() }
 // increment/decrement — those characters need to be typeable as part of
 // the number (leading sign, exponent sign).
 type numberEditor struct {
-	v        *tfvars.Variable
-	cell     cellInput
-	touched  bool
+	v         *tfvars.Variable
+	cell      cellInput
+	touched   bool
 	lastValid cty.Value // last successfully parsed value; preserved while editing
 }
 

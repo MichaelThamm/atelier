@@ -253,13 +253,13 @@ func writeStateFile(path string, data []byte) error {
 
 // rawState models the subset of terraform.tfstate v4 we care about.
 type rawState struct {
-	Version          int            `json:"version"`
-	TerraformVersion string         `json:"terraform_version,omitempty"`
-	Serial           int            `json:"serial,omitempty"`
-	Lineage          string         `json:"lineage,omitempty"`
-	Outputs          interface{}    `json:"outputs,omitempty"`
-	Resources        []rawResource  `json:"resources"`
-	CheckResults     interface{}    `json:"check_results,omitempty"`
+	Version          int           `json:"version"`
+	TerraformVersion string        `json:"terraform_version,omitempty"`
+	Serial           int           `json:"serial,omitempty"`
+	Lineage          string        `json:"lineage,omitempty"`
+	Outputs          interface{}   `json:"outputs,omitempty"`
+	Resources        []rawResource `json:"resources"`
+	CheckResults     interface{}   `json:"check_results,omitempty"`
 }
 
 type rawResource struct {
@@ -272,10 +272,10 @@ type rawResource struct {
 }
 
 type rawInstance struct {
-	IndexKey             interface{}            `json:"index_key"`
-	SchemaVersion        int                    `json:"schema_version,omitempty"`
-	Attributes           map[string]interface{} `json:"attributes"`
-	SensitiveAttributes  []interface{}          `json:"sensitive_attributes,omitempty"`
-	IdentitySchemaVersion int                   `json:"identity_schema_version,omitempty"`
-	Identity             interface{}            `json:"identity,omitempty"`
+	IndexKey              interface{}            `json:"index_key"`
+	SchemaVersion         int                    `json:"schema_version,omitempty"`
+	Attributes            map[string]interface{} `json:"attributes"`
+	SensitiveAttributes   []interface{}          `json:"sensitive_attributes,omitempty"`
+	IdentitySchemaVersion int                    `json:"identity_schema_version,omitempty"`
+	Identity              interface{}            `json:"identity,omitempty"`
 }
