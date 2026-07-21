@@ -10,8 +10,16 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
+
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/importer"
+	"github.com/MichaelThamm/atelier/internal/manifest"
+	"github.com/MichaelThamm/atelier/internal/tftypes"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/tui"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -40,18 +48,19 @@ import (
 // also used to scaffold provider config if the directory has none.
 func runImport(args []string) error {
 	var (
-		providerArg string
-		dirArg      string
-		sourceArg   string
-		moduleArg   string
-		refArg      string
-		types       []string
-		provVersion string
-		noInit      bool
-		strict      bool
-		verbose     bool
-		listOnly    bool
-		config      = map[string]string{}
+		providerArg    string
+		dirArg         string
+		sourceArg      string
+		moduleArg      string
+		refArg         string
+		types          []string
+		provVersion    string
+		presetNames    []string
+		noInit         bool
+		strict         bool
+		verbose        bool
+		listOnly       bool
+		config         = map[string]string{}
 	)
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -64,7 +73,7 @@ func runImport(args []string) error {
 			strict = true
 		case a == "--verbose":
 			verbose = true
-		case a == "--source" || a == "--module" || a == "--ref" || a == "--type" || a == "--var" || a == "--dir" || a == "--provider-version":
+		case a == "--source" || a == "--module" || a == "--ref" || a == "--type" || a == "--var" || a == "--dir" || a == "--provider-version" || a == "--preset":
 			if i+1 >= len(args) {
 				return fmt.Errorf("flag %q requires a value", a)
 			}
@@ -83,6 +92,8 @@ func runImport(args []string) error {
 				dirArg = val
 			case "--provider-version":
 				provVersion = val
+			case "--preset":
+				presetNames = append(presetNames, val)
 			case "--var":
 				k, v, ok := strings.Cut(val, "=")
 				if !ok || k == "" {
@@ -105,6 +116,8 @@ func runImport(args []string) error {
 			dirArg = strings.TrimPrefix(a, "--dir=")
 		case strings.HasPrefix(a, "--provider-version="):
 			provVersion = strings.TrimPrefix(a, "--provider-version=")
+		case strings.HasPrefix(a, "--preset="):
+			presetNames = append(presetNames, strings.TrimPrefix(a, "--preset="))
 		case strings.HasPrefix(a, "--var="):
 			kv := strings.TrimPrefix(a, "--var=")
 			k, v, ok := strings.Cut(kv, "=")
@@ -151,6 +164,27 @@ func runImport(args []string) error {
 		dir, wrapperState, err = setupSourceModule(dir, sourceArg, moduleArg, refArg)
 		if err != nil {
 			return err
+		}
+	}
+
+	// Apply presets if specified via --preset flags. Presets are loaded from
+	// atelier.local.yaml files discovered by walking up from the wrapper
+	// directory. Multiple presets are merged in order (later overrides earlier),
+	// and --var flags override all preset values.
+	if len(presetNames) > 0 && wrapperState != nil {
+		if err := applyPresets(dir, wrapperState, presetNames); err != nil {
+			return err
+		}
+	}
+
+	// Merge --var flag values into the wrapper state and persist to main.tf.
+	// This ensures both preset values and --var values are visible to
+	// terraform plan via main.tf (not just the temp .auto.tfvars, which can't
+	// represent complex types correctly).
+	if wrapperState != nil {
+		applyVarOverrides(wrapperState, config)
+		if err := wrapperState.Write(); err != nil {
+			return fmt.Errorf("write values to main.tf: %w", err)
 		}
 	}
 
@@ -315,6 +349,130 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	}
 
 	return dir, res.State, nil
+}
+
+// applyVarOverrides merges --var flag values into the wrapper state, converting
+// string values to typed cty.Values based on the variable declarations.
+func applyVarOverrides(state *wrapper.State, config map[string]string) {
+	for varName, strVal := range config {
+		v := state.FindVar(varName)
+		if v == nil {
+			continue
+		}
+		val := convertStringToCty(strVal, v)
+		if val != cty.NilVal {
+			state.Values[varName] = val
+		}
+	}
+}
+
+// applyPresets loads the named presets from atelier.local.yaml files and
+// applies them to the wrapper state. Presets are merged in order (later
+// overrides earlier).
+func applyPresets(dir string, state *wrapper.State, presetNames []string) error {
+	// Load all available presets from atelier.local.yaml files.
+	rawPresets, warns := manifest.LoadLocalPresets(dir, modulePathFromState(state))
+	for _, w := range warns {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+	if len(rawPresets) == 0 {
+		return fmt.Errorf("no presets found in atelier.local.yaml files")
+	}
+
+	// Resolve presets to typed cty.Values.
+	resolvedPresets := tui.ResolvePresets(rawPresets, state.Vars)
+	if len(resolvedPresets) == 0 {
+		return fmt.Errorf("no presets resolved for module")
+	}
+
+	// Build a lookup map for quick access by name.
+	presetByName := make(map[string]tui.ResolvedPreset, len(resolvedPresets))
+	for _, p := range resolvedPresets {
+		presetByName[p.Name] = p
+	}
+
+	// Apply presets in order (later overrides earlier).
+	appliedPresets := make(map[string]bool)
+	for _, name := range presetNames {
+		p, ok := presetByName[name]
+		if !ok {
+			// List available presets for a helpful error message.
+			available := make([]string, 0, len(resolvedPresets))
+			for _, rp := range resolvedPresets {
+				available = append(available, rp.Name)
+			}
+			return fmt.Errorf("preset %q not found; available presets: %v", name, available)
+		}
+		appliedPresets[name] = true
+
+		// Merge preset values into wrapper state.
+		for varName, val := range p.Values {
+			state.Values[varName] = val
+		}
+	}
+
+	// Print which presets were applied.
+	if len(appliedPresets) > 0 {
+		names := make([]string, 0, len(appliedPresets))
+		for name := range appliedPresets {
+			names = append(names, name)
+		}
+		fmt.Fprintf(os.Stderr, "Applied preset(s): %s\n", strings.Join(names, ", "))
+	}
+
+	return nil
+}
+
+// convertStringToCty converts a string value to a cty.Value based on the
+// variable's declared type. This is used to convert --var flag values to
+// typed values for the wrapper state.
+func convertStringToCty(strVal string, v *tfvars.Variable) cty.Value {
+	if v == nil || v.Type == nil {
+		// No type info; treat as string.
+		return cty.StringVal(strVal)
+	}
+
+	typ := v.Type
+	switch typ.Kind {
+	case tftypes.KindString:
+		return cty.StringVal(strVal)
+	case tftypes.KindBool:
+		switch strings.ToLower(strVal) {
+		case "true", "1", "yes":
+			return cty.True
+		case "false", "0", "no":
+			return cty.False
+		default:
+			return cty.NilVal // invalid bool
+		}
+	case tftypes.KindNumber:
+		// Try to parse as a number.
+		// First, try to parse as an integer.
+		var n int64
+		if _, err := fmt.Sscanf(strVal, "%d", &n); err == nil {
+			return cty.NumberIntVal(n)
+		}
+		// Then, try to parse as a float.
+		var f float64
+		if _, err := fmt.Sscanf(strVal, "%f", &f); err == nil {
+			return cty.NumberFloatVal(f)
+		}
+		return cty.NilVal // invalid number
+	case tftypes.KindObject, tftypes.KindMap, tftypes.KindList, tftypes.KindSet:
+		// Parse HCL expressions (objects, maps, lists, sets).
+		expr, diags := hclsyntax.ParseExpression([]byte(strVal), "", hcl.Pos{Line: 1, Column: 1})
+		if diags.HasErrors() {
+			return cty.NilVal
+		}
+		val, diags := expr.Value(nil)
+		if diags.HasErrors() {
+			return cty.NilVal
+		}
+		return val
+	default:
+		// For any other types, return nil and let terraform handle it.
+		return cty.NilVal
+	}
 }
 
 // tfexecLocate checks that terraform/tofu is on PATH. It is a thin wrapper

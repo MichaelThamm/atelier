@@ -1,6 +1,7 @@
 package importer
 
 import (
+	"fmt"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -549,5 +550,77 @@ func TestMatchOfferByName(t *testing.T) {
 	}
 	if len(unmatchedLive) != 0 {
 		t.Errorf("expected 0 unmatched live, got %d: %v", len(unmatchedLive), unmatchedLive)
+	}
+}
+
+func TestParseValidationError(t *testing.T) {
+	cases := []struct {
+		name      string
+		errStr    string
+		wantValid bool
+		wantVar   string
+		wantMsg   string
+	}{
+		{
+			name: "COS postgresql_offer_url validation error",
+			errStr: `Error: Invalid value for variable
+
+  on  line 0:
+  (source code not available)
+
+postgresql_offer_url must be supplied when Grafana is scaled > 1 due to its
+database requirements.
+
+This was checked by the validation rule at
+.terraform/modules/cos/terraform/cos/variables.tf:103,3-13.`,
+			wantValid: true,
+			wantVar:   "",
+			wantMsg:   "postgresql_offer_url must be supplied when Grafana is scaled > 1 due to its\ndatabase requirements.",
+		},
+		{
+			name: "non-validation error",
+			errStr: `Error: Provider configuration not present
+
+To work with module.cos.juju_application.alertmanager its original
+provider configuration at
+["registry.terraform.io/juju/juju"] is required, but it has been
+removed from the configuration.`,
+			wantValid: false,
+		},
+		{
+			name: "validation error without variable name",
+			errStr: `Error: Invalid value for variable
+
+  on  line 0:
+  (source code not available)
+
+external_certificates_offer_url and external_ca_cert_offer_url must be
+supplied together (either both set or both null).
+
+This was checked by the validation rule at
+.terraform/modules/cos_lite/variables.tf:45,3-13.`,
+			wantValid: true,
+			wantVar:   "",
+			wantMsg:   "external_certificates_offer_url and external_ca_cert_offer_url must be\nsupplied together (either both set or both null).",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := fmt.Errorf("%s", tc.errStr)
+			ve, ok := parseValidationError(err)
+			if ok != tc.wantValid {
+				t.Errorf("parseValidationError() ok = %v, want %v", ok, tc.wantValid)
+				return
+			}
+			if !tc.wantValid {
+				return
+			}
+			if ve.Variable != tc.wantVar {
+				t.Errorf("Variable = %q, want %q", ve.Variable, tc.wantVar)
+			}
+			if ve.Message != tc.wantMsg {
+				t.Errorf("Message = %q, want %q", ve.Message, tc.wantMsg)
+			}
+		})
 	}
 }
