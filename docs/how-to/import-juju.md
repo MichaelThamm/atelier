@@ -62,7 +62,7 @@ The six resources to add are `juju_access_secret` objects that `terraform query`
 
 ### Importing a partial deployment
 
-Similar to the `Importing a COS deployment` section, we can deploy a partially complete module as well. In this example, Loki is deployed with Atelier:
+Similar to the `Importing a full deployment` section, we can also import a partially complete module. In this example, Loki is deployed with Atelier:
 
 ```bash
 atelier module add https://github.com/canonical/loki-operators.git  # plan and apply
