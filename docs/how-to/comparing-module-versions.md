@@ -1,6 +1,6 @@
 # Comparing module versions before you upgrade
 
-**How to see exactly what changes when you bump a Terraform module ref, without leaving your terminal.**
+**Inspect changes when you modify a Terraform module, without leaving your terminal.**
 
 ---
 
@@ -14,20 +14,48 @@ Before you switch anything, plan at the version you're running now. Press `P` an
 
 This is your baseline. You know what the current version of the module would do.
 
+```
+╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Module: cos_lite ·unpinned  ⚠ 3 check warning(s)                                                                │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  Plan: 47 to add, 0 to change, 0 to destroy.                                                                      
+  ⚠ 3 check warning(s): grafana.storage_directives is unset, so it will use the default 1G volume. Set a size …    
+╭────────────────────────────────────────────╮╭───────────────────────────────────────────────────────────────────╮
+│ ▾ module.cos_lite                          ││ Select a resource row to see its attribute diff.                  │ 
+│   ▸ juju_integration                       ││                                                                   │ 
+│   ▸ juju_model                             ││ Use ↑/↓ to navigate, Enter to collapse/expand, Tab to focus this  │ 
+│   ▸ juju_offer                             ││ pane.                                                             │ 
+│   ▸ terraform_data                         ││                                                                   │ 
+│ ▾ module.cos_lite.module.alertmanager      ││                                                                   │ 
+│   ▸ juju_application                       ││                                                                   │ 
+│ ▾ module.cos_lite.module.catalogue         ││                                                                   │ 
+│   ▸ juju_application                       ││                                                                   │ 
+│ ▾ module.cos_lite.module.grafana           ││                                                                   │ 
+│   ▸ juju_application                       ││                                                                   │ 
+│ (1/21 0%)                                  ││                                                                   │ 
+╰────────────────────────────────────────────╯╰───────────────────────────────────────────────────────────────────╯
+╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│     [↑︎↓︎] navigate  [Enter] toggle  [Tab] focus diff  [P] re-plan  [A] apply  [W] warnings  [Esc] back  [?] help │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
 ## Switch the ref
 
-Press `R` and Atelier opens the ref switch modal. The module you're targeting is context-aware: in a multi-module wrapper, `R` targets whichever module owns the variable your cursor is on, not always the primary one.
-
-The modal shows the current ref and a searchable list of available branches and tags from the remote. The matcher is a case-insensitive substring filter with prefix-first ordering, so typing `v2` immediately narrows the list to matching refs while free text (an arbitrary SHA, an unlisted tag) is always accepted. The input field supports the same readline-style keybindings as the value editors, so caret motion and word-delete work as expected.
+Press `R` and Atelier opens the ref switch modal. The module you're targeting is context-aware: in a multi-module wrapper, `R` targets whichever module owns the variable your cursor is on, not always the primary one. The modal shows the current ref and a searchable list of available branches and tags from the remote.
 
 Confirm with `Enter` and Atelier:
 
 1. **Re-clones the module** from the remote at the new ref.
-2. **Carries your variable values forward**, including wired HCL expressions like `model_uuid = data.juju_model.service_model.uuid`. If a variable exists in both versions, your value comes with it. If a variable was present in the old ref but is missing in the new one, it's flagged as orphaned and dropped. If the new ref introduced required variables you haven't set, Atelier jumps the cursor to the first one so you can fill it in immediately.
+2. **Carries your variable values forward**, including wired HCL expressions like `model_uuid = data.juju_model.service_model.uuid`. If a variable exists in both versions, your value comes with it. If a variable was present in the old ref but is missing in the new one, it's flagged as orphaned and dropped. If the new ref introduced required variables you haven't set, Atelier sets those as required with `[!]`.
 3. **Runs `terraform init -upgrade`** on the next plan so Terraform re-fetches the module source at the new ref.
 4. **Saves the wrapper** with the updated source URL.
 
 You don't need to re-clone, re-init, or reconfigure anything manually.
+
+The message provides context on what variable changes occurred:
+```
+Switched cos_lite to ref: track/2 (69a6621) · 4 orphaned: risk, model, postgresql_offer_url, ingress · 2 new: channel, model_uuid · 1 required model_uuid
+```
 
 ## Plan again and read the diff
 
@@ -41,7 +69,10 @@ The plan view doesn't stop at diffs. Press `S` to toggle between the **plan diff
 
 After a successful apply, the plan is consumed and the state view is shown automatically, since there's nothing left to diff against. On the next plan, the diff view returns.
 
-The plan header always tells you where you stand: `"Plan: 3 to add, 1 to change, 0 to destroy. | State: 54 resource(s) across 8 modules"`.
+The plan header always tells you where you stand:
+```
+Plan: 3 to add, 1 to change, 0 to destroy. | State: 54 resource(s) across 8 modules
+```
 
 ## The full workflow
 

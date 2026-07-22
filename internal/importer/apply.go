@@ -12,17 +12,28 @@ import (
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
+// PlanResult holds the output of PlanCreates.
+type PlanResult struct {
+	// Creates are resources the plan would create (not in state).
+	Creates []PlannedResource
+	// AllModuleResources includes both creates and resources already in state.
+	// Used for matching live objects to module addresses even when the state
+	// is partially populated.
+	AllModuleResources []PlannedResource
+}
+
 // PlanCreates runs `terraform plan` against the target module *before* any
-// imports are performed, and returns the resources it would create — the
-// set of import candidates whose module addresses the matcher pairs to live
-// objects. The plan is run with empty (or partial) state; resources present in
-// config but absent from state show as creates.
+// imports are performed, and returns both the import candidates (resources
+// terraform would create) and the full set of module resources (including
+// those already in state). The plan is run with the current state; resources
+// present in config but absent from state show as creates, while resources
+// already in state show as no-ops.
 //
 // When WrapperState is set, all variable values are already persisted in
 // main.tf via State.Write(), so the temp tfvars is skipped. Otherwise, config
 // values are written to a temporary .auto.tfvars file so the plan can resolve
 // module variables that reference them (e.g. model_uuid).
-func PlanCreates(ctx context.Context, opts Options) ([]PlannedResource, error) {
+func PlanCreates(ctx context.Context, opts Options) (*PlanResult, error) {
 	tf, err := tfexec.New(opts.Dir, opts.BinPath)
 	if err != nil {
 		return nil, err
@@ -57,7 +68,10 @@ func PlanCreates(ctx context.Context, opts Options) ([]PlannedResource, error) {
 		}
 		return nil, err
 	}
-	return PlannedCreates(plan), nil
+	return &PlanResult{
+		Creates:           PlannedCreates(plan, false),
+		AllModuleResources: PlannedCreates(plan, true),
+	}, nil
 }
 
 // validationError represents a terraform variable validation error.

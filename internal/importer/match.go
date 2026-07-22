@@ -57,7 +57,12 @@ var unimportableTypes = map[string]bool{
 // PlannedCreates extracts the resources a plan would create — the import
 // candidates. Resource types that have no live counterpart (see
 // unimportableTypes) are excluded.
-func PlannedCreates(plan *tfjson.Plan) []PlannedResource {
+//
+// When includeExisting is true, resources already present in state (no-op
+// changes) are also included. This gives the caller the full set of module
+// resources for matching live objects against module addresses, even when
+// the state already tracks some of them.
+func PlannedCreates(plan *tfjson.Plan, includeExisting bool) []PlannedResource {
 	if plan == nil {
 		return nil
 	}
@@ -69,10 +74,14 @@ func PlannedCreates(plan *tfjson.Plan) []PlannedResource {
 		if rc.Change.Importing != nil {
 			continue
 		}
-		if !rc.Change.Actions.Create() {
+		if !rc.Change.Actions.Create() && !includeExisting {
 			continue
 		}
 		if unimportableTypes[rc.Type] {
+			continue
+		}
+		// When includeExisting is false, skip no-op (already-in-state) resources.
+		if !includeExisting && rc.Change.Actions.NoOp() {
 			continue
 		}
 		pr := PlannedResource{
