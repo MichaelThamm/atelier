@@ -20,7 +20,7 @@ func TestPlannedCreates(t *testing.T) {
 		{Address: "module.cos.juju_application.being_replaced", Type: "juju_application",
 			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionDelete, tfjson.ActionCreate}}},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 2 {
 		t.Fatalf("expected 2 planned creates, got %d: %v", len(creates), creates)
 	}
@@ -38,7 +38,7 @@ func TestPlannedCreatesFiltersUnimportableTypes(t *testing.T) {
 		{Address: "module.cos.terraform_data.interface", Type: "terraform_data",
 			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionCreate}}},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 1 {
 		t.Fatalf("expected 1 planned create (terraform_data filtered), got %d: %v", len(creates), creates)
 	}
@@ -48,7 +48,7 @@ func TestPlannedCreatesFiltersUnimportableTypes(t *testing.T) {
 }
 
 func TestPlannedCreatesNil(t *testing.T) {
-	if got := PlannedCreates(nil); got != nil {
+	if got := PlannedCreates(nil, false); got != nil {
 		t.Errorf("expected nil, got %v", got)
 	}
 }
@@ -182,7 +182,7 @@ func TestPlannedCreatesExtractsPlannedName(t *testing.T) {
 			},
 		},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 1 {
 		t.Fatalf("expected 1 planned create, got %d", len(creates))
 	}
@@ -229,7 +229,7 @@ func TestPlannedCreatesExtractsIdentity(t *testing.T) {
 			},
 		},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 1 {
 		t.Fatalf("expected 1 planned create, got %d", len(creates))
 	}
@@ -252,7 +252,7 @@ func TestPlannedCreatesNoIdentity(t *testing.T) {
 			},
 		},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 1 {
 		t.Fatalf("expected 1 planned create, got %d", len(creates))
 	}

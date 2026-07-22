@@ -276,9 +276,11 @@ func Generate(ctx context.Context, opts Options) (*Result, error) {
 	}
 	res.Selected = active
 
-	// Plan the existing module (empty state) to find resources it wants to
-	// create — the import candidates — then match each to a live object.
-	planned, err := PlanCreates(ctx, opts)
+	// Plan the existing module to find resources it wants to create (import
+	// candidates) and the full set of module resources (for matching live
+	// objects to module addresses). When the state is partially populated,
+	// some resources show as no-ops — we still need them for matching.
+	planResult, err := PlanCreates(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +288,7 @@ func Generate(ctx context.Context, opts Options) (*Result, error) {
 	// even if a later step (match, import, post-import) fails.
 	tfvarsPath := filepath.Join(opts.Dir, "atelier-import.auto.tfvars")
 	defer os.Remove(tfvarsPath) // best-effort
-	matched, unmatchedPlanned, unmatchedLive := Match(live, planned, opts.Verbose)
+	matched, unmatchedPlanned, unmatchedLive := Match(live, planResult.AllModuleResources, opts.Verbose)
 
 	res.UnmatchedPlanned = unmatchedPlanned
 	res.UnmatchedLive = unmatchedLive
@@ -295,10 +297,21 @@ func Generate(ctx context.Context, opts Options) (*Result, error) {
 		return res, nil
 	}
 
+	// Build a set of addresses that are actual creates (not already in state)
+	// so we only import resources that need importing.
+	createAddrs := make(map[string]bool, len(planResult.Creates))
+	for _, c := range planResult.Creates {
+		createAddrs[c.Address] = true
+	}
+
 	// Build the provider-specific import ID for each match and run
-	// `terraform import <address> <id>`.
+	// `terraform import <address> <id>`. Only import resources that are
+	// actual creates — resources already in state are already managed.
 	res.IDs = make(map[string]string, len(matched))
 	for _, m := range matched {
+		if !createAddrs[m.Address] {
+			continue // already in state, skip import
+		}
 		if opts.BuildImportID == nil {
 			continue
 		}

@@ -11,7 +11,14 @@ import (
 // --- PlannedCreates edge cases ---
 
 func TestPlannedCreates_NilPlan(t *testing.T) {
-	got := PlannedCreates(nil)
+	got := PlannedCreates(nil, false)
+	if got != nil {
+		t.Errorf("got %v, want nil", got)
+	}
+}
+
+func TestPlannedCreates_NilPlan_IncludeExisting(t *testing.T) {
+	got := PlannedCreates(nil, true)
 	if got != nil {
 		t.Errorf("got %v, want nil", got)
 	}
@@ -23,7 +30,7 @@ func TestPlannedCreates_NilResourceChange(t *testing.T) {
 		{Address: "juju_application.ok", Type: "juju_application",
 			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionCreate}}},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 1 {
 		t.Fatalf("got %d, want 1", len(creates))
 	}
@@ -36,7 +43,7 @@ func TestPlannedCreates_NilChange(t *testing.T) {
 	plan := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
 		{Address: "juju_application.nil_change", Type: "juju_application", Change: nil},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 0 {
 		t.Errorf("got %d, want 0", len(creates))
 	}
@@ -52,7 +59,7 @@ func TestPlannedCreates_SkipsImporting(t *testing.T) {
 		{Address: "juju_application.normal", Type: "juju_application",
 			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionCreate}}},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 1 {
 		t.Fatalf("got %d, want 1", len(creates))
 	}
@@ -68,7 +75,7 @@ func TestPlannedCreates_UnimportableType(t *testing.T) {
 		{Address: "juju_application.ok", Type: "juju_application",
 			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionCreate}}},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 1 {
 		t.Fatalf("got %d, want 1", len(creates))
 	}
@@ -85,7 +92,7 @@ func TestPlannedCreates_NonMapAfter(t *testing.T) {
 				After:   "some_string_value",
 			}},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 1 {
 		t.Fatalf("got %d, want 1", len(creates))
 	}
@@ -106,7 +113,7 @@ func TestPlannedCreates_WithIdentity(t *testing.T) {
 				AfterIdentity: map[string]any{"id": "uuid-123"},
 			}},
 	}}
-	creates := PlannedCreates(plan)
+	creates := PlannedCreates(plan, false)
 	if len(creates) != 1 {
 		t.Fatalf("got %d", len(creates))
 	}
@@ -220,6 +227,66 @@ func TestOfferURLFromIdentity_NoID(t *testing.T) {
 	got := offerURLFromIdentity(map[string]any{"other": "value"})
 	if got != "" {
 		t.Errorf("got %q, want empty", got)
+	}
+}
+
+// --- PlannedCreates includeExisting ---
+
+func TestPlannedCreates_IncludeExisting_IncludesNoOp(t *testing.T) {
+	plan := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		{Address: "module.cos.juju_application.alertmanager", Type: "juju_application",
+			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionCreate}}},
+		{Address: "module.cos.juju_application.already_there", Type: "juju_application",
+			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop},
+				After: map[string]any{"name": "already_there"}}},
+		{Address: "module.cos.juju_model.cos", Type: "juju_model",
+			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionCreate}}},
+	}}
+	creates := PlannedCreates(plan, true)
+	if len(creates) != 3 {
+		t.Fatalf("expected 3 (all module resources), got %d: %v", len(creates), creates)
+	}
+	// Verify the no-op resource is included with its attributes.
+	found := false
+	for _, c := range creates {
+		if c.Address == "module.cos.juju_application.already_there" {
+			found = true
+			if c.PlannedName != "already_there" {
+				t.Errorf("expected PlannedName=already_there, got %q", c.PlannedName)
+			}
+		}
+	}
+	if !found {
+		t.Error("no-op resource not found in includeExisting results")
+	}
+}
+
+func TestPlannedCreates_IncludeExisting_False_SkipsNoOp(t *testing.T) {
+	plan := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		{Address: "module.cos.juju_application.alertmanager", Type: "juju_application",
+			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionCreate}}},
+		{Address: "module.cos.juju_application.already_there", Type: "juju_application",
+			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}}},
+	}}
+	creates := PlannedCreates(plan, false)
+	if len(creates) != 1 {
+		t.Fatalf("expected 1 (creates only), got %d: %v", len(creates), creates)
+	}
+	if creates[0].Address != "module.cos.juju_application.alertmanager" {
+		t.Errorf("unexpected address: %s", creates[0].Address)
+	}
+}
+
+func TestPlannedCreates_IncludeExisting_SkipsUnimportableInBothModes(t *testing.T) {
+	plan := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		{Address: "module.cos.juju_application.alertmanager", Type: "juju_application",
+			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionCreate}}},
+		{Address: "module.cos.terraform_data.replace", Type: "terraform_data",
+			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}}},
+	}}
+	creates := PlannedCreates(plan, true)
+	if len(creates) != 1 {
+		t.Fatalf("expected 1 (terraform_data filtered even with includeExisting), got %d: %v", len(creates), creates)
 	}
 }
 
