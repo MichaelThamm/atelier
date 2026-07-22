@@ -17,7 +17,7 @@ Lost your Terraform state, or never had one to begin with? With `atelier import`
 
 > To avoid data loss, `juju_application` resources must not show `replace` or `create` actions in the Terraform plan.
 
-## Importing a full deployment
+### Importing a full deployment
 
 Given a running [Canonical Observability Stack (COS)](https://github.com/canonical/observability-stack/tree/main/terraform/cos) deployment, note the model UUID from `juju models`, then run:
 
@@ -35,8 +35,6 @@ atelier import juju \
 ```
 
 The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. The `--query-var` input (here, `model_uuid`) is required by the Juju provider's query engine. The `--var` or `--preset` flags supply variable values the module needs.
-
-## After the import
 
 Atelier queries the live deployment and reports what it matched. For COS, `98/118` resources are automatically importable:
 
@@ -62,13 +60,7 @@ Plan: 6 to add, 7 to change, 0 to destroy.  |  State: 111 resource(s) across 25 
 
 The six resources to add are `juju_access_secret` objects that `terraform query` cannot resolve (zero or ambiguous matches). The seven changes are attribute drift, mostly where the module's defaults diverge slightly from the live state. Neither category represents a real infrastructure change, which is exactly what you want to see after an import: the state is close enough that a plan is a formality, not a warning.
 
-## Next steps
-
-With state imported, you can use Atelier like any other wrapper: edit variables in the TUI, plan to check the diff, apply to converge, or bump the module ref to upgrade the deployment. The wrapper is a normal Atelier wrapper; the import just gave it a head start.
-
----
-
-## Importing a partial deployment
+### Importing a partial deployment
 
 Similar to the `Importing a COS deployment` section, we can deploy a partially complete module as well. In this example, Loki is deployed with Atelier:
 
@@ -129,3 +121,7 @@ loki:loki-cluster                  loki-read:loki-cluster           loki_cluster
 loki:loki-cluster                  loki-write:loki-cluster          loki_cluster  regular  
 loki:loki-peers                    loki:loki-peers                  loki_peers    peer
 ```
+
+## Next steps
+
+With state imported, you can use Atelier like any other wrapper: edit variables in the TUI, plan to check the diff, apply to converge, or bump the module ref to upgrade the deployment. The wrapper is a normal Atelier wrapper; the import just gave it a head start.
