@@ -1,81 +1,71 @@
-# Importing a live Juju deployment
+# Comparing module versions before you upgrade
 
-`atelier import` pulls a running Juju deployment under Terraform management.
-The workflow is: deploy normally, then import the live applications so Atelier
-can manage them going forward.
+**Inspect changes when you modify a Terraform module, without leaving your terminal.**
 
-## Prerequisites
+---
 
-- `terraform` (or `tofu`) >= 1.14 on your `PATH`
-- `atelier` on your `PATH`
-- `juju` with an active controller and a deployed model
-- `git` on your `PATH`
+Lost your Terraform state, or never had one to begin with? With `atelier import`, you can reconstruct it from a live deployment by pointing Atelier at the upstream module that manages it.
 
-## Step 1: Deploy COS Lite
+## What `atelier import` does
 
-```bash
-atelier module add https://github.com/canonical/observability-stack.git \
-  --module terraform/cos-lite --ref track/3.0
-atelier plan
-atelier apply
-```
+`atelier import juju` clones the upstream module, writes an Atelier wrapper, discovers live resources via `terraform query`, matches them to the module's resource addresses, and runs `terraform import` for each match. The result is a wrapper directory whose Terraform state reflects your running infrastructure, ready to manage with normal Atelier operations.
 
-This deploys COS Lite through the standard Atelier flow. Note the model UUID
-from `juju status`.
+## Importing a COS deployment
 
-## Step 2: Remove state
-
-Delete the Terraform state so we can re-import from the live deployment:
-
-```bash
-rm -f terraform.tfstate terraform.tfstate.backup
-```
-
-## Step 3: Import into a fresh wrapper
-
-Create a new directory (not the one you applied from) and import:
+Given a running [Canonical Observability Stack (COS)](https://github.com/canonical/observability-stack/tree/main/terraform/cos) deployment, note the model UUID from `juju models`, then run:
 
 ```bash
 mkdir import-target && cd import-target
+
 atelier import juju \
-  --source https://github.com/canonical/observability-stack.git \
-  --module terraform/cos-lite \
-  --ref track/3.0 \
-  --query-var model_uuid=<your-model-uuid>
+    --source https://github.com/canonical/observability-stack.git \
+    --module terraform/cos \
+    --ref track/3.0 \
+    --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8 \
+    --preset cos-vars
 ```
 
-This clones the module, writes an Atelier wrapper, discovers live applications
-via `terraform query`, matches them to the module's resource addresses, and
-runs `terraform import` for each match.
+The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. The `--query-var` input (here, `model_uuid`) is required by the Juju provider's query engine. The `--var` or `--preset` flags supply variable values the module needs.
 
-## Step 4: Check the plan
+## Use cases
 
-Run `atelier` to open the TUI, or use the CLI directly:
+The key sign that an import is needed (and that it worked) is the plan after import: `juju_application` resources should not show `replace` or `create` actions. If the plan proposes replacing applications that are already running, something is wrong with the import. A clean import means the state matches reality closely enough that the plan only shows attribute drift or minor additions.
 
-```bash
-terraform plan
+Common scenarios:
+
+1. **Bundle to Terraform migration.** A COS Lite deployment originally stood up via a Juju bundle is now managed through Terraform, but the bundle's resource graph and the Terraform module's resource graph don't map 1:1. Importing lets you start from the live deployment and let Terraform take over without redeploying.
+2. **Lost state file.** You deployed COS Lite with Terraform, deleted or lost the `terraform.tfstate`, and need to continue managing the existing deployment. Importing reconstructs the state so you can plan and apply again without tearing anything down.
+
+## After the import
+
+Atelier queries the live deployment and reports what it matched. For COS, 98 out of 118 resources are automatically importable:
+
+```
+Matched 98 resource(s):
+  module.cos.module.catalogue.juju_application.catalogue  (import ID: 2af837d8-…:catalogue)
+  module.cos.module.grafana.juju_application.grafana      (import ID: 2af837d8-…:grafana)
+  module.cos.juju_integration.ingress["loki"]              (import ID: 2af837d8-…:traefik:ingress:loki:ingress)
+  …
 ```
 
-The plan should show:
+Four module resources (like `juju_model` and `juju_access_secret`) have zero or ambiguous live matches and must be imported manually. Twenty-nine live resources not declared by the module are left alone.
 
-- **Applications** — no changes (imported successfully).
-- **Integrations, offers, and other resources** — to be created. These are
-  resources the module declares that weren't imported.
+The full match list is printed to the terminal during import. The important thing is the ratio: `98/118` is typical for a Juju-backed module, and the imported state structure matches the upstream module exactly.
 
-## Step 5: Reconcile
+From this point forward, you manage the deployment with normal Atelier operations. Running `atelier` in the wrapper directory opens the TUI with the imported state loaded:
 
-You have two options:
+```
+Module: cos@track/3.0  ✓ valid  ⚠ 6 check warning(s)
+```
 
-1. **Remove stale resources via Juju** — delete offers, integrations, and
-   other resources that the module will recreate:
-   ```bash
-   juju remove-relation ...
-   juju remove-application ...
-   ```
+The variables pane shows the module's inputs, and the plan view confirms the import has a small delta against the live deployment:
 
-2. **Let Terraform recreate everything** — `terraform apply` will create all
-   integrations, offers, and other resources the module declares. Existing
-   applications are preserved.
+```
+Plan: 6 to add, 7 to change, 0 to destroy.  |  State: 111 resource(s) across 25 modules
+```
 
-Either way, from this point forward you manage the deployment with normal
-Atelier/Terraform operations (`atelier plan`, `atelier apply`).
+The six resources to add are `juju_access_secret` objects that `terraform query` cannot resolve (zero or ambiguous matches). The seven changes are attribute drift, mostly where the module's defaults diverge slightly from the live state. Neither category represents a real infrastructure change, which is exactly what you want to see after an import: the state is close enough that a plan is a formality, not a warning.
+
+## Next steps
+
+With state imported, you can use Atelier like any other wrapper: edit variables in the TUI, plan to check the diff, apply to converge, or press `R` to upgrade the module ref and compare versions. The wrapper is a normal Atelier wrapper; the import just gave it a head start.
