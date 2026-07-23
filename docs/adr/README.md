@@ -36,6 +36,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0026 | [Generate a preset from the current configuration](0026-save-preset.md)                      | Accepted |
 | 0027 | [`atelier import` — import live infrastructure into an existing module](0027-atelier-import.md) | Proposed |
 | 0028 | [Provider-specific import IDs — scoped to Juju for v1](0028-provider-specific-import-ids.md) | Proposed |
+| 0029 | [Live logs view (`L`)](0029-live-logs-view.md)                                              | Accepted |
 
 ## Conventions
 

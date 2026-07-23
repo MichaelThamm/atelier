@@ -43,6 +43,7 @@ All per-screen height helpers derive from it:
 |--------|---------------------|------------|
 | Editor (two-pane) | `contentHeight() − 2` | Subtract panel borders (top+bottom). |
 | Plan | `contentHeight() − 3` | Subtract summary line (1) + panel borders (2). |
+| Logs view | `contentHeight() − 2` | Subtract panel borders (top+bottom). |
 | Output modal | `contentHeight()` (no additional border math needed; handled by `renderModalFrame`). |
 | Error modal | Same as output. |
 
@@ -78,6 +79,7 @@ scrolling:
 | Right editor | `editorScroll` (new) | Automatic via `EditorWithCursor` | Yes |
 | Plan tree | `planScroll` (new) | ↑↓, PgUp/PgDn, g/G | Yes |
 | Plan diff | `planDiffScroll` (new) | `[` / `]` keys | Manual |
+| Logs view | `logScroll` (new) | ↑↓/j/k, PgUp/PgDn, g/G | Manual |
 | Output view | `outputScroll` (existing) | j/k, PgUp/PgDn, g/G | Manual |
 
 The right-pane editor uses a new optional interface `EditorWithCursor`:

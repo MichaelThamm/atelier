@@ -2,12 +2,7 @@
 #
 # Atelier discovers this file by walking UP from the wrapper directory to the
 # filesystem root (or $HOME). Placing it at a shared parent means every wrapper
-# beneath it inherits these presets. For example, dropping this file at
-# `tf-testing/atelier.local.yaml` makes the presets available to
-# `tf-testing/cos/`, `tf-testing/cos-lite/`, etc.
-#
-# Atelier never reads any file from the upstream module repository; presets are
-# entirely your own. See docs/SPEC.md §11 and docs/adr/0022-local-presets.md.
+# beneath it inherits these presets.
 
 modules:
   # "." matches this wrapper's primary module regardless of its sub-path within
@@ -15,13 +10,15 @@ modules:
   # shared local file: you don't have to track the upstream path.
   - path: "."
     presets:
-      - name: minimal
-        description: "Single-unit dev deployment; TLS off; placeholder S3."
+      - name: cos-s3
+        description: "S3 information."
         sets:
-          internal_tls: false
-          s3_endpoint: null
+          s3_endpoint: http://10.1.0.13:8333
           s3_access_key: "placeholder"
           s3_secret_key: "placeholder"
+      - name: cos-units
+        description: "Single-unit dev deployment."
+        sets:
           alertmanager:
             units: 1
           grafana:
@@ -48,18 +45,11 @@ modules:
             querier_units: 1
             query_frontend_units: 1
 
-      - name: production
-        description: "Multi-unit with TLS enabled."
-        sets:
-          internal_tls: true
-          alertmanager:
-            units: 3
-
   # You can also target a specific module by its upstream sub-path. An exact
   # match here takes precedence over the "." entry above for that module.
   #
   # - path: terraform/cos-lite
   #   presets:
-  #     - name: ha
+  #     - name: secure
   #       sets:
   #         internal_tls: true

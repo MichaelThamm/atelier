@@ -438,8 +438,11 @@ elements (panel borders, summary lines) subtract from this budget.
 - Validation indicator: `✓ valid` or `✗ N error(s), M warning(s)`.
 
 **Footer** (contextual hints change by mode):
-- Editor mode: `[cos_lite] [Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [R] ref  [Q] quit  [?] help`
-- Plan mode: `[↑↓/g/G] navigate  [Enter] toggle  [[ ]] diff scroll  [P] re-plan  [A] apply  [O] outputs  [Esc] back  [?] help`
+- Editor mode: `[cos_lite] [Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [R] ref  [L] logs  [Q] quit  [?] help`
+- Plan mode: `[↑↓/g/G] navigate  [Enter] toggle  [[ ]] diff scroll  [P] re-plan  [A] apply  [L] logs  [Esc] back  [?] help`
+- Logs view: `[↑↓] scroll  [L/Tab/Esc] back  [?] help`
+- Plan loading: `[L] logs  [Esc] cancel  [?] help`
+- Small terminal (`height < 15`): `[?] help` only.
 - Hints for `[F]`, `[R]`, `[O]`, `[A]`, `[E]` appear only when the
   corresponding feature is available.
 - In multi-module wrappers, the footer shows the active module context
@@ -526,6 +529,7 @@ Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 m
   the infrastructure now matches) and reloads the state. Errors are surfaced
   in the status bar and viewable via `E`.
 - Pressing `O` shows the output view (see §7.6).
+- Pressing `L` shows the logs view (see §7.7).
 - `Esc` returns to the editor.
 - Inline per-attribute diffs *inside* tree nodes are not yet implemented; see
   [ADR-0011](adr/0011-plan-output-tree.md).
@@ -559,6 +563,38 @@ output "offers" {
 This file is generated at bootstrap (`atelier module add`) and kept in sync
 when re-opening an existing wrapper (`EnsureOutputs`). It enables `terraform
 output` to work outside Atelier and makes plan-time output values available.
+
+### 7.7 Logs view
+
+Triggered by `L` from the editor, plan view, or plan-loading state. Replaces
+the body with a scrollable panel showing the raw terraform stdout captured
+during the most recent plan, apply, or ref-switch operation.
+
+- The panel uses the same bordered style as the plan diff pane
+  (`stylePanelFocused`), full terminal width.
+- Content is clamped to `panelHeight()` lines using `clampToLines`; a scroll
+  indicator shows position when output exceeds the viewport.
+- Navigation: `j`/`k` scroll line-by-line, `Ctrl+D`/`Ctrl+U` or `PgDn`/`PgUp`
+  for half-page jumps, `g`/`G` for top/bottom.
+- `L`, `Tab`, or `Esc` returns to the previous view (plan view if
+  `planState == planReady`, editor otherwise). `Esc` during plan loading
+  cancels the plan and returns to the editor.
+- The `[L] logs` footer hint appears whenever the `ProgressTracker` has
+  buffered output lines, including after plan/apply completes (post-mortem
+  review).
+- The footer during plan/apply loading shows a spinner with elapsed time;
+  full output is available via `L` rather than truncating the phase string
+  in the footer.
+- When the terminal is small (`height < 15`), the footer collapses to
+  `[?] help` only.
+
+The `ProgressTracker` accumulates raw terraform stdout lines via
+`ProgressWriter` (an `io.Writer` attached to `terraform.SetStdout`). Lines
+are appended thread-safely and persist after the operation completes, so
+logs remain available for review until the next operation replaces the
+tracker.
+
+See [ADR-0029](adr/0029-live-logs-view.md).
 
 ## 8. Type-to-widget mapping
 
