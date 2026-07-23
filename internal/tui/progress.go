@@ -14,6 +14,7 @@ type ProgressTracker struct {
 	mu        sync.Mutex
 	phase     string
 	startTime time.Time
+	lines     []string // raw terraform stdout lines for the logs view
 }
 
 // NewProgressTracker creates a tracker and records the start time.
@@ -42,6 +43,31 @@ func (p *ProgressTracker) Elapsed() time.Duration {
 	return time.Since(p.startTime)
 }
 
+// AppendLine appends a raw terraform stdout line to the log buffer (thread-safe).
+func (p *ProgressTracker) AppendLine(s string) {
+	p.mu.Lock()
+	p.lines = append(p.lines, s)
+	p.mu.Unlock()
+}
+
+// Lines returns a copy of all buffered log lines (thread-safe).
+func (p *ProgressTracker) Lines() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cp := make([]string, len(p.lines))
+	copy(cp, p.lines)
+	return cp
+}
+
+// Reset clears the log buffer and resets the phase and start time.
+func (p *ProgressTracker) Reset() {
+	p.mu.Lock()
+	p.lines = nil
+	p.phase = ""
+	p.startTime = time.Now()
+	p.mu.Unlock()
+}
+
 // ProgressWriter is an io.Writer that parses terraform's human-readable
 // stdout line-by-line and updates a ProgressTracker with meaningful phase
 // information.
@@ -59,6 +85,9 @@ func (w *ProgressWriter) Write(p []byte) (n int, err error) {
 		}
 		line := strings.TrimSpace(string(w.buf[:idx]))
 		w.buf = w.buf[idx+1:]
+		if line != "" {
+			w.Tracker.AppendLine(line)
+		}
 		if phase := extractPhase(line); phase != "" {
 			w.Tracker.SetPhase(phase)
 		}

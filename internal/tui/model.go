@@ -57,6 +57,10 @@ type Model struct {
 	editor       Editor
 	editorScroll int // scroll offset for the right pane content
 
+	// activeView switches the body between the editor and live logs.
+	activeView viewMode
+	logScroll  int // scroll offset for the logs view
+
 	// status text shown at the bottom. Cleared when a new edit lands.
 	status       string
 	statusLvl    statusLevel
@@ -201,6 +205,14 @@ type focusPane int
 const (
 	focusLeft focusPane = iota
 	focusRight
+)
+
+// viewMode controls which body content is displayed in the default layout.
+type viewMode int
+
+const (
+	viewEditor viewMode = iota
+	viewLogs
 )
 
 type statusLevel int
@@ -680,7 +692,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.planState = planReady
 		m.planErr = ""
 		m.status = ""
-		m.progress = nil
 		return m, nil
 	case planErrorMsg:
 		m.planState = planIdle
@@ -689,7 +700,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusDetail = msg.err.Error()
 		m.statusLvl = statusError
 		m.statusAt = time.Now()
-		m.progress = nil
 		return m, nil
 	case spinnerTickMsg:
 		if m.planState == planLoading || m.refSwitching || m.applyState == applyLoading {
@@ -703,7 +713,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "apply succeeded"
 		m.statusLvl = statusInfo
 		m.statusAt = time.Now()
-		m.progress = nil
 		// Invalidate the plan — it has been consumed.
 		m.planState = planIdle
 		m.plan = nil
@@ -723,7 +732,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusDetail = msg.err.Error()
 		m.statusLvl = statusError
 		m.statusAt = time.Now()
-		m.progress = nil
 		return m, nil
 	case validateDebounceMsg:
 		// Only fire if no newer edit has occurred since this tick was scheduled.
@@ -754,12 +762,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.validateOutput = nil
 		return m, nil
 	case refSwitchResultMsg:
-		m.progress = nil
 		m.applyRefSwitch(msg.result)
 		return m, nil
 	case refSwitchErrorMsg:
 		m.refSwitching = false
-		m.progress = nil
 		// A failed switch must not tear down the current state — the user may
 		// have simply typed a ref that doesn't exist. Re-open the modal so
 		// they can correct it, phrase a precise message when the remote told
@@ -848,13 +854,42 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePlanKey(msg)
 	}
 	if m.planState == planLoading {
-		// While plan is in flight only Ctrl+C and Esc do anything.
-		if msg.String() == "esc" {
+		// While plan is in flight, the logs view gets priority for scroll
+		// and navigation keys. Esc cancels the plan from either view.
+		if m.activeView == viewLogs {
+			if msg.String() == "esc" {
+				m.planState = planIdle
+				m.status = "plan cancelled (best effort)"
+				m.statusLvl = statusInfo
+				m.activeView = viewEditor
+				m.logScroll = 0
+				return m, nil
+			}
+			return m.handleLogsKey(msg)
+		}
+		switch msg.String() {
+		case "esc":
 			m.planState = planIdle
 			m.status = "plan cancelled (best effort)"
 			m.statusLvl = statusInfo
+		case "l", "L":
+			if m.progress != nil {
+				m.activeView = viewLogs
+				lines := m.progress.Lines()
+				h := m.panelHeight()
+				if h < 1 {
+					h = 1
+				}
+				m.logScroll = max(0, len(lines)-h)
+			}
 		}
 		return m, nil
+	}
+
+	// Logs view interception: when the logs panel is active, it owns
+	// scroll keys, L/Tab/Esc to return, and arrow keys.
+	if m.activeView == viewLogs {
+		return m.handleLogsKey(msg)
 	}
 
 	// Preset picker interception: the overlay owns all keys until
@@ -882,6 +917,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == focusLeft {
 			m.quit = true
 			return m, tea.Quit
+		}
+	case "l", "L":
+		if m.progress != nil && len(m.progress.Lines()) > 0 {
+			m.activeView = viewLogs
+			lines := m.progress.Lines()
+			h := m.panelHeight()
+			if h < 1 {
+				h = 1
+			}
+			m.logScroll = max(0, len(lines)-h)
+			return m, nil
 		}
 	case "tab":
 		if m.focus == focusLeft {
@@ -986,6 +1032,62 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleLogsKey processes key events when the logs view is active.
+func (m *Model) handleLogsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.progress == nil {
+		m.activeView = viewEditor
+		m.logScroll = 0
+		return m, nil
+	}
+	lines := m.progress.Lines()
+	h := m.panelHeight()
+	if h < 1 {
+		h = 1
+	}
+
+	switch msg.String() {
+	case "l", "L", "tab", "esc":
+		m.activeView = viewEditor
+		m.logScroll = 0
+		return m, nil
+	case "up", "k":
+		if m.logScroll > 0 {
+			m.logScroll--
+		}
+		return m, nil
+	case "down", "j":
+		if m.logScroll < len(lines)-h {
+			m.logScroll++
+		}
+		return m, nil
+	case "pgup":
+		m.logScroll -= h
+		if m.logScroll < 0 {
+			m.logScroll = 0
+		}
+		return m, nil
+	case "pgdown":
+		m.logScroll += h
+		if max := len(lines) - h; m.logScroll > max {
+			m.logScroll = max
+			if m.logScroll < 0 {
+				m.logScroll = 0
+			}
+		}
+		return m, nil
+	case "home", "g":
+		m.logScroll = 0
+		return m, nil
+	case "end", "G":
+		m.logScroll = len(lines) - h
+		if m.logScroll < 0 {
+			m.logScroll = 0
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
 // shouldApplyEditorValue decides whether the live editor value should be
 // pushed into state on this tick. A variable wired to a preserved expression
 // (a reference Atelier can't model) is treated as read-only until the user
@@ -1024,6 +1126,17 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Switch focus to the diff pane.
 		m.planDiffFocus = true
 		return m, nil
+	case "L":
+		if m.progress != nil {
+			m.activeView = viewLogs
+			lines := m.progress.Lines()
+			h := m.panelHeight()
+			if h < 1 {
+				h = 1
+			}
+			m.logScroll = max(0, len(lines)-h)
+			return m, nil
+		}
 	case "s", "S":
 		// Toggle between diff view and state values view.
 		if m.tfState != nil && m.stateTree != nil {
@@ -1758,6 +1871,12 @@ func (m *Model) View() string {
 	}
 	if m.warnDetail {
 		return m.renderWarnDetail()
+	}
+	if m.activeView == viewLogs {
+		header := m.renderHeader()
+		logs := m.renderLogsView()
+		footer := m.renderFooter()
+		return lipgloss.JoinVertical(lipgloss.Left, header, logs, footer)
 	}
 	if m.planState == planReady {
 		return m.renderPlanScreen()

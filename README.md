@@ -88,6 +88,7 @@ atelier
 | `W` | Plan view | Show `check` block warnings (when the plan reports any) |
 | `R` | Left pane | Switch the module ref (branch, tag, or SHA) |
 | `E` | Left pane | Show full error detail (when an error is present) |
+| `L` | Plan view / Loading | View live terraform logs (scrollable) |
 | `F` | Left pane | Open the preset picker (when presets are available) |
 | `S` | Left pane | Save the current configuration as a new preset |
 | `?` | Anywhere | Show the keyboard shortcuts help modal |
@@ -143,7 +144,7 @@ See [ADR-0023](docs/adr/0023-map-row-editing-lifecycle.md).
 ### Scrolling and navigation
 
 The following shortcuts work in any scrollable view: the variable list, plan
-tree, plan diff, and output view.
+tree, plan diff, output view, and logs view.
 
 | Key | Action |
 |-----|--------|

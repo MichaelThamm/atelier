@@ -60,9 +60,9 @@ small.
 
 ### Streaming apply logs and cancellation
 
-Apply is currently fire-and-forget with a spinner. A future version may add
-streaming log output, cancellation (`Ctrl+C` during apply), partial-apply
-recovery, and post-apply state inspection.
+Apply and plan now stream terraform stdout to a `ProgressTracker` buffer,
+visible via `L` (live logs view). Remaining work: `Ctrl+C` cancellation
+during apply, partial-apply recovery, and post-apply state inspection.
 
 ### Authenticated git access
 

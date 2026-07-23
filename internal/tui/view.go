@@ -396,6 +396,16 @@ func (m *Model) renderHeader() string {
 
 // renderFooter is the bottom bar showing transient status messages and key hints.
 func (m *Model) renderFooter() string {
+	if m.height < 15 {
+		hints := styleHelp.Render("[?] help")
+		contentW := m.width - 4
+		gap := contentW - lipgloss.Width(hints)
+		if gap < 1 {
+			gap = 1
+		}
+		bar := strings.Repeat(" ", gap) + hints
+		return styleStatusBar.Width(m.width - 2).Render(bar)
+	}
 	var left string
 	switch {
 	case m.applyState == applyLoading:
@@ -454,6 +464,46 @@ func (m *Model) renderFooter() string {
 	return styleStatusBar.Width(m.width - 2).Render(bar)
 }
 
+// renderLogsView renders a scrollable panel of live terraform stdout lines.
+func (m *Model) renderLogsView() string {
+	if m.progress == nil {
+		return stylePanel.Width(m.width - 2).Height(m.panelHeight()).
+			Render(styleDescription.Render("No logs available."))
+	}
+	lines := m.progress.Lines()
+	h := m.panelHeight()
+	if h < 1 {
+		h = 1
+	}
+
+	// Clamp scroll and height to valid range.
+	if len(lines) == 0 {
+		m.logScroll = 0
+		h = 0
+	} else if len(lines) <= h {
+		m.logScroll = 0
+		h = len(lines)
+	} else if m.logScroll > len(lines)-h {
+		m.logScroll = len(lines) - h
+	}
+	if m.logScroll < 0 {
+		m.logScroll = 0
+	}
+
+	var content string
+	if h > 0 {
+		visible := lines[m.logScroll : m.logScroll+h]
+		content = strings.Join(visible, "\n")
+	}
+	if content == "" {
+		content = styleDescription.Render("Waiting for terraform output…")
+	}
+	content = clampToLines(content, m.panelHeight())
+
+	return stylePanelFocused.Width(m.width - 2).Height(m.panelHeight()).
+		Render(content)
+}
+
 // progressSuffix returns a formatted string with elapsed time and current
 // phase from the progress tracker, e.g. " (12s) Refreshing state…". Returns
 // "" if no progress tracker is active.
@@ -462,16 +512,7 @@ func (m *Model) progressSuffix() string {
 		return ""
 	}
 	elapsed := m.progress.Elapsed().Truncate(time.Second)
-	phase := m.progress.Phase()
-	if phase == "" {
-		return fmt.Sprintf(" (%s)", formatDuration(elapsed))
-	}
-	// Truncate phase to keep the footer readable.
-	const maxPhaseLen = 50
-	if len(phase) > maxPhaseLen {
-		phase = phase[:maxPhaseLen-1] + "…"
-	}
-	return fmt.Sprintf(" (%s) %s", formatDuration(elapsed), phase)
+	return fmt.Sprintf(" (%s)", formatDuration(elapsed))
 }
 
 // formatDuration renders a duration as a compact human string: "3s", "1m12s".
@@ -490,9 +531,15 @@ func (m *Model) renderStatus() string {
 }
 
 func (m *Model) statusHints() string {
+	if m.height < 15 {
+		return "[?] help"
+	}
+	if m.activeView == viewLogs {
+		return "[" + arrowUpDown + "] scroll  [L/Tab/Esc] back  [?] help"
+	}
 	switch m.planState {
 	case planLoading:
-		return "[Esc] cancel  [?] help"
+		return "[L] logs  [Esc] cancel  [?] help"
 	case planReady:
 		if m.planDiffFocus {
 			return "[" + arrowUpDown + "] scroll diff  [Tab/Esc] back to tree  [?] help"
@@ -507,6 +554,9 @@ func (m *Model) statusHints() string {
 		}
 		if m.Applier != nil && m.applyState != applyLoading {
 			hints += "  [A] apply"
+		}
+		if m.progress != nil && len(m.progress.Lines()) > 0 {
+			hints += "  [L] logs"
 		}
 		if len(m.checkWarnings) > 0 {
 			hints += "  [W] warnings"
@@ -524,6 +574,9 @@ func (m *Model) statusHints() string {
 	hints += "  [S] save"
 	if m.activeSwitcher() != nil {
 		hints += "  [R] ref"
+	}
+	if m.progress != nil && len(m.progress.Lines()) > 0 {
+		hints += "  [L] logs"
 	}
 	if m.statusLvl == statusError && m.statusDetail != "" {
 		hints += "  [E] error"
@@ -557,6 +610,9 @@ func (m *Model) renderHelpModal() string {
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			fmt.Fprintln(&b, "  E              Show error details")
 		}
+		if m.progress != nil && len(m.progress.Lines()) > 0 {
+			fmt.Fprintln(&b, "  L              View terraform logs")
+		}
 		fmt.Fprintln(&b, "  Esc/q          Return to editor")
 	default:
 		fmt.Fprintln(&b, "  Tab            Switch pane (left ↔ right)")
@@ -574,6 +630,9 @@ func (m *Model) renderHelpModal() string {
 		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			fmt.Fprintln(&b, "  E              Show error details")
+		}
+		if m.progress != nil && len(m.progress.Lines()) > 0 {
+			fmt.Fprintln(&b, "  L              View terraform logs")
 		}
 		fmt.Fprintln(&b, "  Q              Quit (auto-saves)")
 
@@ -602,6 +661,14 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "  Alt+Delete     Remove current row (twice to confirm if set)")
 		fmt.Fprintln(&b, "  Tab            Switch panes (variable list ⇄ editor)")
 		fmt.Fprintln(&b, "  Ctrl+Home/End  Jump to first/last field (in an object)")
+
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Logs view (L):")
+		fmt.Fprintln(&b, "  ↑/k  ↓/j      Scroll up/down")
+		fmt.Fprintln(&b, "  PgUp/Ctrl+U   Half-page up")
+		fmt.Fprintln(&b, "  PgDn/Ctrl+D   Half-page down")
+		fmt.Fprintln(&b, "  g/G           Jump to top/bottom")
+		fmt.Fprintln(&b, "  L/Tab/Esc     Return to previous view")
 
 		if m.activeSwitcher() != nil {
 			fmt.Fprintln(&b)
