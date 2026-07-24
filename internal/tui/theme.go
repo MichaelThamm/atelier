@@ -115,6 +115,11 @@ var (
 				BorderForeground(colorPrimary).
 				Padding(0, 1)
 
+	// styleTabActive highlights the active tab in the logs view.
+	styleTabActive = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true)
+
 	// styleCursorActive is the highlight applied to the cursor row in the
 	// *focused* pane. The dark-on-primary contrast pops against either
 	// terminal background.

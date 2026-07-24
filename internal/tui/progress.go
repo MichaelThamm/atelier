@@ -2,10 +2,18 @@ package tui
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"sync"
 	"time"
 )
+
+// LogLine represents a single log entry with timestamp and source information.
+type LogLine struct {
+	Content   string
+	Timestamp time.Time
+	IsStderr  bool
+}
 
 // ProgressTracker holds thread-safe progress state for long-running terraform
 // operations. The plan/apply goroutine updates it via a ProgressWriter; the
@@ -14,7 +22,7 @@ type ProgressTracker struct {
 	mu        sync.Mutex
 	phase     string
 	startTime time.Time
-	lines     []string // raw terraform stdout lines for the logs view
+	lines     []LogLine // unified log buffer with timestamps
 }
 
 // NewProgressTracker creates a tracker and records the start time.
@@ -43,19 +51,79 @@ func (p *ProgressTracker) Elapsed() time.Duration {
 	return time.Since(p.startTime)
 }
 
+// StartTime returns when the tracker was created.
+func (p *ProgressTracker) StartTime() time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.startTime
+}
+
 // AppendLine appends a raw terraform stdout line to the log buffer (thread-safe).
 func (p *ProgressTracker) AppendLine(s string) {
 	p.mu.Lock()
-	p.lines = append(p.lines, s)
+	p.lines = append(p.lines, LogLine{
+		Content:   s,
+		Timestamp: time.Now(),
+		IsStderr:  false,
+	})
+	p.mu.Unlock()
+}
+
+// AppendStderrLine appends a stderr line to the log buffer (thread-safe).
+func (p *ProgressTracker) AppendStderrLine(s string) {
+	p.mu.Lock()
+	p.lines = append(p.lines, LogLine{
+		Content:   s,
+		Timestamp: time.Now(),
+		IsStderr:  true,
+	})
 	p.mu.Unlock()
 }
 
 // Lines returns a copy of all buffered log lines (thread-safe).
+// For backwards compatibility, returns only the Content strings.
 func (p *ProgressTracker) Lines() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	cp := make([]string, len(p.lines))
+	for i, l := range p.lines {
+		cp[i] = l.Content
+	}
+	return cp
+}
+
+// AllLines returns a copy of all buffered LogLine entries (thread-safe).
+func (p *ProgressTracker) AllLines() []LogLine {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cp := make([]LogLine, len(p.lines))
 	copy(cp, p.lines)
+	return cp
+}
+
+// StderrLines returns only stderr lines (thread-safe).
+func (p *ProgressTracker) StderrLines() []LogLine {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var cp []LogLine
+	for _, l := range p.lines {
+		if l.IsStderr {
+			cp = append(cp, l)
+		}
+	}
+	return cp
+}
+
+// StdoutLines returns only stdout lines (thread-safe).
+func (p *ProgressTracker) StdoutLines() []LogLine {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var cp []LogLine
+	for _, l := range p.lines {
+		if !l.IsStderr {
+			cp = append(cp, l)
+		}
+	}
 	return cp
 }
 
@@ -83,7 +151,7 @@ func (w *ProgressWriter) Write(p []byte) (n int, err error) {
 		if idx < 0 {
 			break
 		}
-		line := strings.TrimSpace(string(w.buf[:idx]))
+		line := strings.TrimRight(string(w.buf[:idx]), "\r\n")
 		w.buf = w.buf[idx+1:]
 		if line != "" {
 			w.Tracker.AppendLine(line)
@@ -93,6 +161,38 @@ func (w *ProgressWriter) Write(p []byte) (n int, err error) {
 		}
 	}
 	return len(p), nil
+}
+
+// ErrorLogWriter is an io.Writer that captures stderr lines into the
+// ProgressTracker with isStderr=true. This allows both stdout and stderr
+// to be displayed in the unified logs view. When a file writer is provided,
+// it also writes to the log file so .atelier/logs/tf-stderr.log stays populated.
+type ErrorLogWriter struct {
+	Tracker    *ProgressTracker
+	FileWriter io.Writer // optional: also write to the log file
+	buf        []byte
+}
+
+func (w *ErrorLogWriter) Write(p []byte) (n int, err error) {
+	// Write to log file if provided
+	if w.FileWriter != nil {
+		if _, ferr := w.FileWriter.Write(p); ferr != nil && err == nil {
+			err = ferr
+		}
+	}
+	w.buf = append(w.buf, p...)
+	for {
+		idx := bytes.IndexByte(w.buf, '\n')
+		if idx < 0 {
+			break
+		}
+		line := strings.TrimRight(string(w.buf[:idx]), "\r\n")
+		w.buf = w.buf[idx+1:]
+		if line != "" {
+			w.Tracker.AppendStderrLine(line)
+		}
+	}
+	return len(p), err
 }
 
 // extractPhase distils a raw terraform output line into a short, user-friendly

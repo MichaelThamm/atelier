@@ -468,27 +468,43 @@ func (m *Model) renderFooter() string {
 	return styleStatusBar.Width(m.width - 2).Render(bar)
 }
 
-// renderLogsView renders a scrollable panel of live terraform stdout lines.
+// renderLogsView renders a scrollable panel of live terraform output with
+// tabs for stderr (errors) and stdout (logs).
 func (m *Model) renderLogsView() string {
 	if m.progress == nil {
 		return stylePanel.Width(m.width - 2).Height(m.panelHeight()).
 			Render(styleDescription.Render("No logs available."))
 	}
-	lines := m.progress.Lines()
+
+	// Get lines based on active tab
+	var lines []LogLine
+	switch m.logsTab {
+	case logsTabErrors:
+		lines = m.progress.StderrLines()
+	case logsTabLogs:
+		lines = m.progress.StdoutLines()
+	}
+
+	// Format lines (no per-line timestamps - action start time shown in footer)
+	formattedLines := make([]string, len(lines))
+	for i, l := range lines {
+		formattedLines[i] = l.Content
+	}
+
 	h := m.panelHeight()
 	if h < 1 {
 		h = 1
 	}
 
 	// Clamp scroll and height to valid range.
-	if len(lines) == 0 {
+	if len(formattedLines) == 0 {
 		m.logScroll = 0
 		h = 0
-	} else if len(lines) <= h {
+	} else if len(formattedLines) <= h {
 		m.logScroll = 0
-		h = len(lines)
-	} else if m.logScroll > len(lines)-h {
-		m.logScroll = len(lines) - h
+		h = len(formattedLines)
+	} else if m.logScroll > len(formattedLines)-h {
+		m.logScroll = len(formattedLines) - h
 	}
 	if m.logScroll < 0 {
 		m.logScroll = 0
@@ -496,16 +512,45 @@ func (m *Model) renderLogsView() string {
 
 	var content string
 	if h > 0 {
-		visible := lines[m.logScroll : m.logScroll+h]
+		visible := formattedLines[m.logScroll : m.logScroll+h]
 		content = strings.Join(visible, "\n")
 	}
+
+	// Empty state message
 	if content == "" {
-		content = styleDescription.Render("Waiting for terraform output…")
+		switch m.logsTab {
+		case logsTabErrors:
+			content = styleDescription.Render("No errors captured.")
+		case logsTabLogs:
+			content = styleDescription.Render("No logs captured.")
+		}
 	}
 	content = clampToLines(content, m.panelHeight())
 
+	// Build tab bar with action start time
+	errorCount := len(m.progress.StderrLines())
+	logCount := len(m.progress.StdoutLines())
+	errorLabel := fmt.Sprintf("Errors (%d)", errorCount)
+	logLabel := fmt.Sprintf("Logs (%d)", logCount)
+
+	var tabBar strings.Builder
+	if m.logsTab == logsTabErrors {
+		tabBar.WriteString(styleTabActive.Render(errorLabel))
+		tabBar.WriteString("  ")
+		tabBar.WriteString(logLabel)
+	} else {
+		tabBar.WriteString(errorLabel)
+		tabBar.WriteString("  ")
+		tabBar.WriteString(styleTabActive.Render(logLabel))
+	}
+
+	// Add action start time
+	startTime := m.progress.StartTime().Format("15:04:05")
+	tabBar.WriteString(styleDescription.Render(fmt.Sprintf("  (started %s)", startTime)))
+
+	// Combine tab bar and content
 	return stylePanelFocused.Width(m.width - 2).Height(m.panelHeight()).
-		Render(content)
+		Render(tabBar.String() + "\n" + content)
 }
 
 // progressSuffix returns a formatted string with elapsed time and current
@@ -539,7 +584,7 @@ func (m *Model) statusHints() string {
 		return "[?] help"
 	}
 	if m.activeView == viewLogs {
-		return "[" + arrowUpDown + "] scroll  [L/Tab/Esc] back  [?] help"
+		return "[" + arrowUpDown + "] scroll  [Tab] switch tab  [L/Esc] back  [?] help"
 	}
 	switch m.planState {
 	case planLoading:
@@ -559,14 +604,11 @@ func (m *Model) statusHints() string {
 		if m.Applier != nil && m.applyState != applyLoading {
 			hints += "  [A] apply"
 		}
-		if m.progress != nil && len(m.progress.Lines()) > 0 {
+		if m.progress != nil && (len(m.progress.StderrLines()) > 0 || len(m.progress.StdoutLines()) > 0) {
 			hints += "  [L] logs"
 		}
 		if len(m.checkWarnings) > 0 {
 			hints += "  [W] warnings"
-		}
-		if m.statusLvl == statusError && m.statusDetail != "" {
-			hints += "  [E] error"
 		}
 		if m.refDetailText != "" {
 			hints += "  [D] details"
@@ -582,11 +624,8 @@ func (m *Model) statusHints() string {
 	if m.activeSwitcher() != nil {
 		hints += "  [R] ref"
 	}
-	if m.progress != nil && len(m.progress.Lines()) > 0 {
+	if m.progress != nil && (len(m.progress.StderrLines()) > 0 || len(m.progress.StdoutLines()) > 0) {
 		hints += "  [L] logs"
-	}
-	if m.statusLvl == statusError && m.statusDetail != "" {
-		hints += "  [E] error"
 	}
 	if m.refDetailText != "" {
 		hints += "  [D] details"
@@ -617,13 +656,10 @@ func (m *Model) renderHelpModal() string {
 		if len(m.checkWarnings) > 0 {
 			fmt.Fprintln(&b, "  W              Show check warnings")
 		}
-		if m.statusLvl == statusError && m.statusDetail != "" {
-			fmt.Fprintln(&b, "  E              Show error details")
-		}
 		if m.refDetailText != "" {
 			fmt.Fprintln(&b, "  D              Show ref switch summary")
 		}
-		if m.progress != nil && len(m.progress.Lines()) > 0 {
+		if m.progress != nil && (len(m.progress.StderrLines()) > 0 || len(m.progress.StdoutLines()) > 0) {
 			fmt.Fprintln(&b, "  L              View terraform logs")
 		}
 		fmt.Fprintln(&b, "  Esc/q          Return to editor")
@@ -641,13 +677,10 @@ func (m *Model) renderHelpModal() string {
 		if m.activeSwitcher() != nil {
 			fmt.Fprintln(&b, "  R              Switch module ref")
 		}
-		if m.statusLvl == statusError && m.statusDetail != "" {
-			fmt.Fprintln(&b, "  E              Show error details")
-		}
 		if m.refDetailText != "" {
 			fmt.Fprintln(&b, "  D              Show ref switch summary")
 		}
-		if m.progress != nil && len(m.progress.Lines()) > 0 {
+		if m.progress != nil && (len(m.progress.StderrLines()) > 0 || len(m.progress.StdoutLines()) > 0) {
 			fmt.Fprintln(&b, "  L              View terraform logs")
 		}
 		fmt.Fprintln(&b, "  Q              Quit (auto-saves)")
@@ -718,11 +751,6 @@ func (m *Model) contentHeight() int {
 // bodyHeight is an alias for contentHeight (used by the editor screen).
 func (m *Model) bodyHeight() int {
 	return m.contentHeight()
-}
-
-// renderErrorDetail renders a centered modal showing the complete error output.
-func (m *Model) renderErrorDetail() string {
-	return m.renderModalFrame("Error details", m.statusDetail, "[Esc] close")
 }
 
 // renderRefDetail renders a centered modal showing the full ref switch summary

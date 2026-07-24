@@ -7,8 +7,8 @@ Accepted — supersedes height-budget aspects of [ADR-0006](0006-two-pane-ui-lay
 ## Context
 
 The TUI has four primary screens a user can reach: the variable editor
-(two-pane), the plan/state view, the output modal, and the error detail
-modal. Each screen computed its own available height independently using
+(two-pane), the plan/state view, the output modal, and the unified logs
+view. Each screen computed its own available height independently using
 ad-hoc constants (`bodyHeight()`, `planBodyHeight()`, modal frame math).
 
 This caused two classes of defects:

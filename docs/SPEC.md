@@ -445,15 +445,15 @@ elements (panel borders, summary lines) subtract from this budget.
 - Logs view: `[↑↓] scroll  [L/Tab/Esc] back  [?] help`
 - Plan loading: `[L] logs  [Esc] cancel  [?] help`
 - Small terminal (`height < 15`): `[?] help` only.
-- Hints for `[F]`, `[R]`, `[O]`, `[A]`, `[E]` appear only when the
+- Hints for `[F]`, `[R]`, `[O]`, `[A]` appear only when the
   corresponding feature is available.
 - In multi-module wrappers, the footer shows the active module context
   (e.g. `[cos_lite]`) so the user always knows which module `R` and `F`
   will target.
 
 - When validation or plan emits errors, the first line of the error is shown
-  in the footer. Pressing `E` opens a full-screen error detail modal
-  with the complete multi-line output; `Esc` dismisses it.
+  in the footer. Pressing `L` opens the unified logs view (§7.7) showing
+  stderr with the full error output.
 - On the first plan of each session, Atelier runs `terraform init` to
   ensure the module cache matches the wrapper's current source. After a ref
   switch, it uses `terraform init -upgrade` instead.
@@ -529,7 +529,7 @@ Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 m
 - Pressing `A` from the plan view runs `terraform apply` using the cached
   plan file. A spinner shows progress; success invalidates the plan (since
   the infrastructure now matches) and reloads the state. Errors are surfaced
-  in the status bar and viewable via `E`.
+  in the status bar and viewable via `L` (§7.7).
 - Pressing `O` shows the output view (see §7.6).
 - Pressing `L` shows the logs view (see §7.7).
 - `Esc` returns to the editor.
@@ -569,32 +569,57 @@ output` to work outside Atelier and makes plan-time output values available.
 ### 7.7 Logs view
 
 Triggered by `L` from the editor, plan view, or plan-loading state. Replaces
-the body with a scrollable panel showing the raw terraform stdout captured
-during the most recent plan, apply, or ref-switch operation.
+the body with a scrollable panel showing terraform output captured during the
+most recent plan, apply, or ref-switch operation.
 
-- The panel uses the same bordered style as the plan diff pane
-  (`stylePanelFocused`), full terminal width.
-- Content is clamped to `panelHeight()` lines using `clampToLines`; a scroll
-  indicator shows position when output exceeds the viewport.
-- Navigation: `j`/`k` scroll line-by-line, `Ctrl+D`/`Ctrl+U` or `PgDn`/`PgUp`
+The logs view is a **unified interface** with two tabs:
+
+- **Errors** (default): shows stderr lines — terraform errors, warnings, and diagnostics.
+- **Logs**: shows stdout lines — phase progress, provider operations, resource updates.
+
+**Tab bar**: displayed at the top of the panel with counts and action start time:
+```
+Errors (3)  Logs (15)  (started 14:32:05)
+```
+
+- The active tab is highlighted with `styleTabActive` (bold, primary colour).
+- Empty tabs show a descriptive message ("No errors captured." / "No logs captured.").
+
+**Navigation**:
+- `Tab` switches between Errors and Logs tabs (scroll resets to bottom).
+- `j`/`k` scroll line-by-line, `Ctrl+D`/`Ctrl+U` or `PgDn`/`PgUp`
   for half-page jumps, `g`/`G` for top/bottom.
 - `L`, `Tab`, or `Esc` returns to the previous view (plan view if
   `planState == planReady`, editor otherwise). `Esc` during plan loading
   cancels the plan and returns to the editor.
+
+**Footer hints**: `[↑↓] scroll  [Tab] switch tab  [L/Esc] back  [?] help`
+
 - The `[L] logs` footer hint appears whenever the `ProgressTracker` has
-  buffered output lines, including after plan/apply completes (post-mortem
-  review).
+  buffered output lines (stdout or stderr), including after plan/apply
+  completes (post-mortem review).
 - The footer during plan/apply loading shows a spinner with elapsed time;
   full output is available via `L` rather than truncating the phase string
   in the footer.
 - When the terminal is small (`height < 15`), the footer collapses to
   `[?] help` only.
 
-The `ProgressTracker` accumulates raw terraform stdout lines via
-`ProgressWriter` (an `io.Writer` attached to `terraform.SetStdout`). Lines
-are appended thread-safely and persist after the operation completes, so
-logs remain available for review until the next operation replaces the
-tracker.
+**Log capture**:
+
+The `ProgressTracker` accumulates terraform output via two writers:
+- `ProgressWriter` (stdout): captures phase progress and resource operations.
+- `ErrorLogWriter` (stderr): captures errors and diagnostics.
+
+Both writers feed into a unified `LogLine` buffer (with `IsStderr` flag and
+timestamp). Lines persist after the operation completes, so logs remain
+available for review until the next operation replaces the tracker.
+
+**Log files** (`.atelier/logs/tf-stderr.log`):
+
+Terraform stderr is also written to a persistent log file. Each action
+(plan, apply) appends a timestamp header (`=== action started at HH:MM:SS ===`)
+followed by the raw stderr output. This provides a durable record of errors
+across sessions.
 
 See [ADR-0029](adr/0029-live-logs-view.md).
 

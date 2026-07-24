@@ -500,7 +500,7 @@ func TestValidate_invalidSetsStatusDetailForEKey(t *testing.T) {
 		t.Errorf("statusLvl = %v; want statusError", mm.statusLvl)
 	}
 	if mm.statusDetail == "" {
-		t.Fatal("statusDetail should be set for E key")
+		t.Fatal("statusDetail should be set for error display")
 	}
 	if !strings.Contains(mm.statusDetail, "Missing required argument") {
 		t.Errorf("statusDetail missing diagnostic summary: %q", mm.statusDetail)
@@ -509,12 +509,8 @@ func TestValidate_invalidSetsStatusDetailForEKey(t *testing.T) {
 		t.Errorf("statusDetail missing diagnostic detail: %q", mm.statusDetail)
 	}
 
-	// Pressing E should now open the error detail modal.
-	out2, _ := mm.Update(key("e"))
-	mm2 := out2.(*Model)
-	if !mm2.errorDetail {
-		t.Error("E key should open errorDetail when validate errors present")
-	}
+	// Errors are now displayed in the unified logs view via [L] key,
+	// not via the old [E] error detail modal.
 }
 
 // TestPlanTree_heightConsistency verifies that the rendered tree and diff
