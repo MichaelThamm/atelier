@@ -87,6 +87,7 @@ atelier
 | `O` | Plan view | Show terraform outputs (planned values or state) |
 | `W` | Plan view | Show `check` block warnings (when the plan reports any) |
 | `R` | Left pane | Switch the module ref (branch, tag, or SHA) |
+| `D` | Left pane / Plan view | Show ref switch summary (when a switch produced orphaned or new vars) |
 | `E` | Left pane | Show full error detail (when an error is present) |
 | `L` | Plan view / Loading | View live terraform logs (scrollable) |
 | `F` | Left pane | Open the preset picker (when presets are available) |

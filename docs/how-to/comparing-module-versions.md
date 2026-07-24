@@ -54,8 +54,10 @@ You don't need to re-clone, re-init, or reconfigure anything manually.
 
 The message provides context on what variable changes occurred:
 ```
-Switched cos_lite to ref: track/2 (69a6621) · 4 orphaned: risk, model, postgresql_offer_url, ingress · 2 new: channel, model_uuid · 1 required model_uuid
+Switched cos_lite to ref track/2 (69a6621) · 4 orphaned, 2 new — see [D] for details
 ```
+Press `D` to open a detail modal listing every orphaned and new variable name,
+any required-unset warnings, and init status.
 
 ## Plan again and read the diff
 
