@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -331,7 +332,7 @@ func Generate(ctx context.Context, opts Options) (*Result, error) {
 	for _, addr := range addrs {
 		id := res.IDs[addr]
 		if err := tf.Import(ctx, addr, id); err != nil {
-			return res, fmt.Errorf("terraform import %s %s: %w", addr, id, err)
+			return res, enhanceError(fmt.Sprintf("terraform import %s %s: ", addr, id), err)
 		}
 		res.Imported = append(res.Imported, ImportResult{
 			Address:  addr,
@@ -437,4 +438,46 @@ func mergeMaps(a, b map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// enhanceError wraps an error with better context if it matches a known
+// pattern. The prefix is prepended to the enhanced message, and the original
+// error is preserved via Unwrap().
+func enhanceError(prefix string, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	errMsg := err.Error()
+	if hint := ClassifyError(errMsg); hint != nil {
+		return &enhancedError{
+			prefix:  prefix,
+			hint:    hint,
+			original: err,
+		}
+	}
+	return fmt.Errorf("%s%w", prefix, err)
+}
+
+// enhancedError wraps an error with helpful context from an ErrorHint.
+type enhancedError struct {
+	prefix   string
+	hint     *ErrorHint
+	original error
+}
+
+func (e *enhancedError) Error() string {
+	var b strings.Builder
+	b.WriteString(e.prefix)
+	b.WriteString(e.hint.Summary)
+	b.WriteString("\n\n")
+	b.WriteString(e.hint.Details)
+	b.WriteString("\n\n")
+	b.WriteString("Original error:\n")
+	b.WriteString(e.original.Error())
+	return b.String()
+}
+
+func (e *enhancedError) Unwrap() error {
+	return e.original
 }

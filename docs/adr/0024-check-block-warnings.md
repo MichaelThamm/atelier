@@ -30,7 +30,7 @@ Before this ADR, Atelier never surfaced these warnings. Two facts constrain
 the design:
 
 1. **They are warnings, not errors.** Routing them through the existing error
-   surface (red status bar, `[E]` error modal, `[!]` required markers) would
+   surface (red status bar, `[L]` logs view errors tab, `[!]` required markers) would
    over-alarm the user for a non-blocking condition.
 2. **They only evaluate at plan time.** `terraform validate` does not evaluate
    `check` blocks — it never computes variable values against providers. So

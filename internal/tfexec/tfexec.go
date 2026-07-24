@@ -63,7 +63,8 @@ func Locate() (string, error) {
 // opaque: it exists primarily so tests can substitute a stub via the
 // Operations interface.
 type Terraform struct {
-	tf *tfexec.Terraform
+	tf          *tfexec.Terraform
+	stderrFile  *os.File // log file handle for .atelier/logs/tf-stderr.log
 }
 
 // New returns a Terraform pinned to the wrapper directory `workdir`. If
@@ -108,15 +109,13 @@ func (t *Terraform) configureLogging(workdir string) {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return
 	}
-	if f, err := os.OpenFile(filepath.Join(logDir, stderrLogName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
-		// The *os.File is referenced by tf via SetStderr for the lifetime of
-		// this Terraform, so it won't be closed out from under terraform; the
-		// OS reclaims the handle when the (short-lived) process exits.
-		t.tf.SetStderr(f)
+	// Open (or create) the log file and store the handle. The file is NOT
+	// set as stderr here — the planner truncates, writes a timestamp header,
+	// and sets stderr before each action so binary junk never precedes the header.
+	if f, err := os.OpenFile(filepath.Join(logDir, stderrLogName), os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		t.stderrFile = f
 	}
 	if debugEnabled() {
-		// SetLogPath alone defaults TF_LOG to TRACE (see terraform-exec docs),
-		// which avoids the `terraform version` probe SetLog would trigger.
 		_ = t.tf.SetLogPath(filepath.Join(logDir, traceLogName))
 	}
 }
@@ -175,6 +174,19 @@ func (t *Terraform) InitUpgrade(ctx context.Context) error {
 // Pass nil to clear.
 func (t *Terraform) SetStdout(w io.Writer) {
 	t.tf.SetStdout(w)
+}
+
+// SetStderr redirects terraform's stderr to the given writer.
+// Pass nil to clear.
+func (t *Terraform) SetStderr(w io.Writer) {
+	t.tf.SetStderr(w)
+}
+
+// StderrFile returns the log file handle for .atelier/logs/tf-stderr.log,
+// or nil if logging is not configured. Used by callers that need to tee
+// stderr to both the file and a progress tracker.
+func (t *Terraform) StderrFile() *os.File {
+	return t.stderrFile
 }
 
 // Validate runs `terraform validate -json`.

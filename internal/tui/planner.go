@@ -6,11 +6,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/MichaelThamm/atelier/internal/tfexec"
 )
+
+// writeTimestampHeader seeks to the end of the log file and writes a separator
+// line with the current time so each plan/apply/init action is clearly delimited.
+// Subsequent stderr output appends naturally after the header.
+func writeTimestampHeader(f *os.File) {
+	if f == nil {
+		return
+	}
+	f.Seek(0, 2) // seek to end
+	ts := time.Now().Format("2006-01-02 15:04:05")
+	fmt.Fprintf(f, "\n=== action started at %s ===\n", ts)
+}
 
 // Planner is the narrow interface the TUI needs from a terraform executor.
 // Defined here (rather than depending on tfexec.Terraform directly) so tests
@@ -79,7 +92,9 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	if p.Progress != nil {
 		p.Progress.SetPhase("Running terraform init…")
 		p.Tf.SetStdout(&ProgressWriter{Tracker: p.Progress})
+		p.Tf.SetStderr(&ErrorLogWriter{Tracker: p.Progress, FileWriter: p.Tf.StderrFile()})
 		defer p.Tf.SetStdout(nil)
+		defer p.Tf.SetStderr(nil)
 	}
 
 	// After a ref switch we must run -upgrade to re-fetch the module even
@@ -116,9 +131,14 @@ func (p *TfexecPlanner) Plan(ctx context.Context) (*tfjson.Plan, error) {
 	planFile := filepath.Join(cacheDir, "plan.tfplan")
 
 	var stdout *ProgressWriter
+	var stderr *ErrorLogWriter
 	if p.Progress != nil {
 		p.Progress.SetPhase("Running terraform plan…")
 		stdout = &ProgressWriter{Tracker: p.Progress}
+		stderr = &ErrorLogWriter{Tracker: p.Progress, FileWriter: p.Tf.StderrFile()}
+		p.Tf.SetStderr(stderr)
+		writeTimestampHeader(p.Tf.StderrFile())
+		defer p.Tf.SetStderr(nil)
 	}
 	plan, _, err := p.Tf.Plan(ctx, planFile, stdout)
 	if err != nil {
@@ -138,9 +158,14 @@ func (p *TfexecPlanner) Apply(ctx context.Context) error {
 	}
 
 	var stdout *ProgressWriter
+	var stderr *ErrorLogWriter
 	if p.Progress != nil {
 		p.Progress.SetPhase("Running terraform apply…")
 		stdout = &ProgressWriter{Tracker: p.Progress}
+		stderr = &ErrorLogWriter{Tracker: p.Progress, FileWriter: p.Tf.StderrFile()}
+		p.Tf.SetStderr(stderr)
+		writeTimestampHeader(p.Tf.StderrFile())
+		defer p.Tf.SetStderr(nil)
 	}
 	return p.Tf.Apply(ctx, planFile, stdout)
 }

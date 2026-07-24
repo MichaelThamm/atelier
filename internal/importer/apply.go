@@ -82,6 +82,12 @@ type validationError struct {
 }
 
 func (e *validationError) Error() string {
+	// Use the hint system to provide better context
+	errMsg := e.RawError.Error()
+	if hint := ClassifyError(errMsg); hint != nil {
+		return hint.Summary + "\n\n" + hint.Details
+	}
+
 	return fmt.Sprintf("terraform plan variable validation failed:\n"+
 		"  Variable: %s\n"+
 		"  Error: %s\n\n"+

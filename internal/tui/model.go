@@ -61,12 +61,14 @@ type Model struct {
 	activeView viewMode
 	logScroll  int // scroll offset for the logs view
 
+	// logsTab tracks which tab is active in the unified logs view
+	logsTab logsTabMode
+
 	// status text shown at the bottom. Cleared when a new edit lands.
 	status       string
 	statusLvl    statusLevel
 	statusAt     time.Time
-	statusDetail string // full multi-line error for [E] detail view
-	errorDetail  bool   // true when the error detail modal is visible
+	statusDetail string // full multi-line error shown in the logs view
 
 	// checkWarnings holds failed `check` block assertions from the most
 	// recent plan. Populated on planResultMsg, cleared on the next plan/apply.
@@ -219,6 +221,14 @@ type viewMode int
 const (
 	viewEditor viewMode = iota
 	viewLogs
+)
+
+// logsTabMode controls which tab is active in the unified logs view.
+type logsTabMode int
+
+const (
+	logsTabErrors logsTabMode = iota // default: show stderr
+	logsTabLogs                       // show stdout
 )
 
 type statusLevel int
@@ -836,14 +846,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Error detail modal: takes priority over all other views.
-	if m.errorDetail {
-		if msg.String() == "esc" || msg.String() == "q" || msg.String() == "e" || msg.String() == "E" {
-			m.errorDetail = false
-		}
-		return m, nil
-	}
-
 	// Check-warnings detail modal: same dismiss pattern as the error modal,
 	// toggled by W (or Esc/q).
 	if m.warnDetail {
@@ -1012,22 +1014,16 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refsLoading = true
 			return m, m.startListRefs()
 		}
-	case "e", "E":
-		// Open error detail modal when an error is present.
-		if m.focus == focusLeft && m.statusLvl == statusError && m.statusDetail != "" {
-			m.errorDetail = true
-			return m, nil
+		case "d", "D":
+			// Open ref-switch detail modal when a ref switch summary is available.
+			if m.focus == focusLeft && m.refDetailText != "" {
+				m.refDetail = true
+				return m, nil
+			}
+		case "ctrl+r":
+			m.resetCurrent()
+			return m, m.scheduleValidate()
 		}
-	case "d", "D":
-		// Open ref-switch detail modal when a ref switch summary is available.
-		if m.focus == focusLeft && m.refDetailText != "" {
-			m.refDetail = true
-			return m, nil
-		}
-	case "ctrl+r":
-		m.resetCurrent()
-		return m, m.scheduleValidate()
-	}
 
 	if m.focus == focusLeft {
 		return m.handleListKey(msg)
@@ -1059,16 +1055,38 @@ func (m *Model) handleLogsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.logScroll = 0
 		return m, nil
 	}
-	lines := m.progress.Lines()
+
+	// Get lines based on active tab for scroll calculations
+	var lines []LogLine
+	switch m.logsTab {
+	case logsTabErrors:
+		lines = m.progress.StderrLines()
+	case logsTabLogs:
+		lines = m.progress.StdoutLines()
+	}
+
 	h := m.panelHeight()
 	if h < 1 {
 		h = 1
 	}
 
 	switch msg.String() {
-	case "l", "L", "tab", "esc":
+	case "l", "L", "esc":
 		m.activeView = viewEditor
 		m.logScroll = 0
+		return m, nil
+	case "tab":
+		// Switch between errors and logs tabs, reset scroll to bottom
+		if m.logsTab == logsTabErrors {
+			m.logsTab = logsTabLogs
+		} else {
+			m.logsTab = logsTabErrors
+		}
+		// Reset scroll to bottom when switching tabs
+		m.logScroll = len(lines) - h
+		if m.logScroll < 0 {
+			m.logScroll = 0
+		}
 		return m, nil
 	case "up", "k":
 		if m.logScroll > 0 {
@@ -1184,12 +1202,6 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.applyState = applyLoading
 			m.applyErr = ""
 			return m, tea.Batch(m.startApply(), spinnerTick())
-		}
-	case "e", "E":
-		// Open error detail modal when an error is present.
-		if m.statusLvl == statusError && m.statusDetail != "" {
-			m.errorDetail = true
-			return m, nil
 		}
 	case "d", "D":
 		// Open ref-switch detail modal when a ref switch summary is available.
@@ -1974,9 +1986,6 @@ func (m *Model) View() string {
 	if m.helpModal {
 		return m.renderHelpModal()
 	}
-	if m.errorDetail {
-		return m.renderErrorDetail()
-	}
 	if m.warnDetail {
 		return m.renderWarnDetail()
 	}
@@ -2083,7 +2092,7 @@ func (m *Model) moduleBanner() string {
 }
 
 // formatValidateDiagnostics renders validate diagnostics into a multi-line
-// string suitable for the error detail modal.
+// string suitable for the status bar and logs view.
 func formatValidateDiagnostics(vo *tfjson.ValidateOutput) string {
 	if vo == nil || len(vo.Diagnostics) == 0 {
 		return ""
