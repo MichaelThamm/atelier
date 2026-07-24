@@ -112,9 +112,14 @@ type RawAttr struct {
 }
 
 // VariableValue returns the current value for a variable, falling back to
-// the declared default if Atelier has no override for it.
+// the declared default if Atelier has no override for it. SecretValues are
+// checked before the declared default so that sensitive variables stored in
+// secrets.auto.tfvars are picked up by the TUI editor.
 func (s *State) VariableValue(name string) (cty.Value, bool) {
 	if v, ok := s.Values[name]; ok {
+		return v, true
+	}
+	if v, ok := s.SecretValues[name]; ok {
 		return v, true
 	}
 	for _, decl := range s.Vars {

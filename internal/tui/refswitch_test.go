@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
@@ -235,8 +236,8 @@ func TestApplyRefSwitch_newVarsSurfacedAndFocused(t *testing.T) {
 		},
 	})
 
-	if !strings.Contains(m.status, "2 new: region, model") {
-		t.Errorf("status should list new vars, got %q", m.status)
+	if !strings.Contains(m.status, "2 new") || !strings.Contains(m.status, "[D]") {
+		t.Errorf("status should mention count and [D], got %q", m.status)
 	}
 	if got := m.SelectedVariable(); got == nil || got.Name != "model" {
 		t.Errorf("cursor should land on first new required var 'model', got %+v", got)
@@ -322,5 +323,160 @@ func TestRefKey_localModuleIsNoOp(t *testing.T) {
 	m = feed(m, key("R"))
 	if m.refModal {
 		t.Errorf("ref modal should not open for a local-source module")
+	}
+}
+
+// When a ref switch produces orphaned or new vars, applyRefSwitch must populate
+// refDetailText so the [D] modal has content to show.
+func TestApplyRefSwitch_populatesDetailText(t *testing.T) {
+	m := New(sampleState(t), "traefik")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	newState := newRefState(t, "traefik", "git::https://example.com/traefik//mod?ref=rev2")
+	m.refModuleIdx = 0
+	m.applyRefSwitch(&RefSwitchResult{
+		State:       newState,
+		LiteralRef:  "rev2",
+		ResolvedSHA: "abc1234deadbeef",
+		OrphanedVars: []string{"old_var"},
+		NewVars: []tfvars.Variable{
+			{Name: "shiny_new", HasDefault: false},
+			{Name: "optional_one", HasDefault: true},
+		},
+	})
+
+	if m.refDetailText == "" {
+		t.Fatal("refDetailText should be non-empty when there are orphaned/new vars")
+	}
+	if !strings.Contains(m.refDetailText, "Orphaned variables (1)") {
+		t.Errorf("detail missing orphaned header: %s", m.refDetailText)
+	}
+	if !strings.Contains(m.refDetailText, "  • old_var") {
+		t.Errorf("detail missing orphaned var name: %s", m.refDetailText)
+	}
+	if !strings.Contains(m.refDetailText, "New variables (2)") {
+		t.Errorf("detail missing new header: %s", m.refDetailText)
+	}
+	if !strings.Contains(m.refDetailText, "  • shiny_new (required)") {
+		t.Errorf("detail missing required suffix: %s", m.refDetailText)
+	}
+	if !strings.Contains(m.refDetailText, "  • optional_one") {
+		t.Errorf("detail missing optional var: %s", m.refDetailText)
+	}
+}
+
+// A clean ref switch with no orphaned/new vars and all required vars set
+// must leave refDetailText empty so the [D] modal has nothing to show.
+func TestApplyRefSwitch_clearDetailTextOnCleanSwitch(t *testing.T) {
+	m := New(sampleState(t), "traefik")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	// Set all required vars so requiredUnsetCount returns 0.
+	m.State.Values["model_uuid"] = cty.StringVal("test-uuid")
+	m.State.Values["model"] = cty.StringVal("test-model")
+
+	newState := newRefState(t, "traefik", "git::https://example.com/traefik//mod?ref=rev3")
+	// Pre-populate the new state with the required vars too.
+	newState.Values = map[string]cty.Value{
+		"model_uuid": cty.StringVal("test-uuid"),
+		"model":      cty.StringVal("test-model"),
+	}
+	m.refModuleIdx = 0
+	m.applyRefSwitch(&RefSwitchResult{
+		State:      newState,
+		LiteralRef: "rev3",
+	})
+
+	if m.refDetailText != "" {
+		t.Errorf("refDetailText should be empty after a clean switch, got: %s", m.refDetailText)
+	}
+}
+
+// Pressing D when refDetailText is non-empty must set refDetail = true.
+func TestDKey_opensRefDetail(t *testing.T) {
+	m := New(sampleState(t), "traefik")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.refDetailText = "Module: traefik\nRef: rev2 (abc1234)"
+
+	m = feed(m, key("D"))
+	if !m.refDetail {
+		t.Error("D key should set refDetail = true when refDetailText is non-empty")
+	}
+}
+
+// Pressing D when refDetailText is empty must NOT open the modal.
+func TestDKey_noOpWhenNoDetail(t *testing.T) {
+	m := New(sampleState(t), "traefik")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m = feed(m, key("D"))
+	if m.refDetail {
+		t.Error("D key should be a no-op when refDetailText is empty")
+	}
+}
+
+// Pressing Esc while refDetail is true must close the modal.
+func TestEsc_closesRefDetail(t *testing.T) {
+	m := New(sampleState(t), "traefik")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.refDetailText = "Module: traefik\nRef: rev2"
+	m.refDetail = true
+
+	m = feed(m, key("esc"))
+	if m.refDetail {
+		t.Error("Esc should close refDetail modal")
+	}
+}
+
+// Pressing D while refDetail is already true must close it (toggle).
+func TestDKey_togglesRefDetail(t *testing.T) {
+	m := New(sampleState(t), "traefik")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.refDetailText = "Module: traefik\nRef: rev2"
+	m.refDetail = true
+
+	m = feed(m, key("D"))
+	if m.refDetail {
+		t.Error("D key should toggle refDetail off when already open")
+	}
+}
+
+// View() must render the ref detail modal when refDetail is true.
+func TestView_rendersRefDetail(t *testing.T) {
+	m := New(sampleState(t), "traefik")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.refDetailText = "Module: traefik\nRef: rev2 (abc1234)\n\nOrphaned variables (1):\n  • old_var\n"
+	m.refDetail = true
+
+	view := m.View()
+	if !strings.Contains(view, "Ref switch summary") {
+		t.Errorf("view should contain modal title, got:\n%s", view)
+	}
+	if !strings.Contains(view, "old_var") {
+		t.Errorf("view should contain orphaned var name, got:\n%s", view)
+	}
+}
+
+// statusHints must include [D] details when refDetailText is non-empty.
+func TestStatusHints_refDetail(t *testing.T) {
+	m := New(sampleState(t), "traefik")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.refDetailText = "Module: traefik\nRef: rev2"
+	m.statusAt = time.Now()
+
+	hints := m.statusHints()
+	if !strings.Contains(hints, "[D]") {
+		t.Errorf("statusHints should include [D] when refDetailText is non-empty, got: %s", hints)
+	}
+}
+
+// statusHints must NOT include [D] when refDetailText is empty.
+func TestStatusHints_noRefDetail(t *testing.T) {
+	m := New(sampleState(t), "traefik")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.statusAt = time.Now()
+
+	hints := m.statusHints()
+	if strings.Contains(hints, "[D]") {
+		t.Errorf("statusHints should not include [D] when refDetailText is empty, got: %s", hints)
 	}
 }

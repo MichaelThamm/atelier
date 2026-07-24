@@ -285,3 +285,76 @@ func TestAnyToCty_list(t *testing.T) {
 		t.Errorf("list length = %d; want 2", val.LengthInt())
 	}
 }
+
+func TestResolvePresets_sensitiveVariable(t *testing.T) {
+	vars := []tfvars.Variable{
+		{Name: "endpoint", Type: mustParseType(t, "string"), HasDefault: true, Default: cty.StringVal("")},
+		{Name: "password", Type: mustParseType(t, "string"), Sensitive: true},
+	}
+	presets := []manifest.Preset{
+		{
+			Name: "test",
+			Sets: map[string]any{
+				"endpoint": "http://example.com",
+				"password": "secret123",
+			},
+		},
+	}
+	resolved := ResolvePresets(presets, vars)
+	if len(resolved) != 1 {
+		t.Fatalf("expected 1 resolved preset, got %d", len(resolved))
+	}
+	rp := resolved[0]
+	if !rp.Sensitive["password"] {
+		t.Error("password should be marked sensitive")
+	}
+	if rp.Sensitive["endpoint"] {
+		t.Error("endpoint should not be marked sensitive")
+	}
+	if rp.Values["password"].AsString() != "secret123" {
+		t.Errorf("password value = %q; want %q", rp.Values["password"].AsString(), "secret123")
+	}
+}
+
+func TestApplyPreset_routesSensitiveToSecretValues(t *testing.T) {
+	vars := []tfvars.Variable{
+		{Name: "endpoint", Type: mustParseType(t, "string"), HasDefault: true, Default: cty.StringVal("")},
+		{Name: "password", Type: mustParseType(t, "string"), Sensitive: true},
+	}
+	presets := ResolvePresets([]manifest.Preset{
+		{
+			Name: "test",
+			Sets: map[string]any{
+				"endpoint": "http://example.com",
+				"password": "secret123",
+			},
+		},
+	}, vars)
+	state := &wrapper.State{
+		Vars:   vars,
+		Values: map[string]cty.Value{},
+	}
+	m := New(state, "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.SetPresets(presets)
+	m.applyPreset(0)
+
+	// Sensitive value should go to SecretValues, not Values.
+	if _, ok := m.State.Values["password"]; ok {
+		t.Error("sensitive variable must not be in Values")
+	}
+	if m.State.SecretValues == nil {
+		t.Fatal("SecretValues should be initialized")
+	}
+	sv, ok := m.State.SecretValues["password"]
+	if !ok {
+		t.Fatal("sensitive variable must be in SecretValues")
+	}
+	if sv.AsString() != "secret123" {
+		t.Errorf("SecretValues[password] = %q; want %q", sv.AsString(), "secret123")
+	}
+	// Non-sensitive value should go to Values.
+	if m.State.Values["endpoint"].AsString() != "http://example.com" {
+		t.Errorf("non-sensitive variable not in Values")
+	}
+}

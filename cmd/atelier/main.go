@@ -214,6 +214,7 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 			isPrimary:           true,
 			currentVars:         state.Vars,
 			currentValues:       state.Values,
+			currentSecretValues: state.SecretValues,
 			currentUnknownAttrs: state.UnknownAttrs,
 		}
 	}
@@ -418,6 +419,7 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 			isPrimary:           false,
 			currentVars:         state.Vars,
 			currentValues:       state.Values,
+			currentSecretValues: state.SecretValues,
 			currentUnknownAttrs: state.UnknownAttrs,
 		}
 	}
@@ -518,6 +520,10 @@ type prodRefSwitcher struct {
 	isPrimary     bool
 	currentVars   []tfvars.Variable
 	currentValues map[string]cty.Value
+	// currentSecretValues holds sensitive variable values stored in
+	// secrets.auto.tfvars. They must be carried across ref switches so
+	// sensitive values aren't silently lost.
+	currentSecretValues map[string]cty.Value
 	// currentUnknownAttrs holds wired expressions (e.g.
 	// model_uuid = data.juju_model.x.uuid) that live outside Values. They
 	// must be carried into the mid-switch state.Write() below, otherwise the
@@ -576,6 +582,18 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	for name, val := range s.currentValues {
 		if newVarNames[name] {
 			state.Values[name] = val
+		}
+	}
+	// Carry over sensitive values (SecretValues) for variables that still
+	// exist in the new ref.
+	if len(s.currentSecretValues) > 0 {
+		if state.SecretValues == nil {
+			state.SecretValues = make(map[string]cty.Value)
+		}
+		for name, val := range s.currentSecretValues {
+			if newVarNames[name] {
+				state.SecretValues[name] = val
+			}
 		}
 	}
 	// Carry over wired expressions (UnknownAttrs) for variables that still
@@ -641,10 +659,11 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		}
 	}
 
-	// Update the switcher's current vars, values, and wired expressions for
-	// future switches.
+	// Update the switcher's current vars, values, secrets, and wired
+	// expressions for future switches.
 	s.currentVars = state.Vars
 	s.currentValues = state.Values
+	s.currentSecretValues = state.SecretValues
 	s.currentUnknownAttrs = state.UnknownAttrs
 
 	// Save session with new ref. Only the primary module owns session.json;

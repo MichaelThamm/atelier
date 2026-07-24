@@ -208,8 +208,10 @@ On confirmation, Atelier:
 5. Preserves all existing user overrides. Variables that no longer exist in
    the new ref are kept in state as orphaned overrides (recoverable if the
    user switches back).
-6. Displays a status message summarising the switch and listing any orphaned
-   variable names.
+6. Displays a compact status message in the footer (e.g.
+   "Switched cos_lite to ref track/2 (69a6621) · 4 orphaned, 2 new — see [D]
+   for details"). Press `D` to open a detail modal listing every orphaned and
+   new variable name, any required-unset count, and init status.
 
 This enables cross-ref upgrade comparison: the user configures at ref `v1.0`,
 runs a plan, switches to `v2.0`, and plans again to see the infrastructure

@@ -12,11 +12,14 @@ import (
 )
 
 // ResolvedPreset is a preset ready for application: its Sets are already
-// converted to cty.Values keyed by variable name.
+// converted to cty.Values keyed by variable name. Sensitive tracks which
+// values belong to variables declared as sensitive so the caller can route
+// them to SecretValues (secrets.auto.tfvars) instead of Values (main.tf).
 type ResolvedPreset struct {
 	Name        string
 	Description string
 	Values      map[string]cty.Value
+	Sensitive   map[string]bool
 }
 
 // ResolvePresets converts raw manifest presets into resolved presets using
@@ -34,6 +37,7 @@ func ResolvePresets(presets []manifest.Preset, vars []tfvars.Variable) []Resolve
 			Name:        p.Name,
 			Description: p.Description,
 			Values:      make(map[string]cty.Value),
+			Sensitive:   make(map[string]bool),
 		}
 		for name, raw := range p.Sets {
 			v, ok := varMap[name]
@@ -45,6 +49,9 @@ func ResolvePresets(presets []manifest.Preset, vars []tfvars.Variable) []Resolve
 				continue // type mismatch; skip gracefully
 			}
 			rp.Values[name] = val
+			if v.Sensitive {
+				rp.Sensitive[name] = true
+			}
 		}
 		if len(rp.Values) > 0 {
 			out = append(out, rp)

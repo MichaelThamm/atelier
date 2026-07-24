@@ -390,7 +390,7 @@ func (m *Model) renderHeader() string {
 	bar := left + strings.Repeat(" ", gap)
 	// Belt-and-suspenders: never let the content exceed the box width, even if
 	// a terminal disagrees with lipgloss on a glyph's width (see arrowUpDown).
-	bar = ansi.Truncate(bar, contentW, "…")
+	bar = ansi.TruncateWc(bar, contentW, "…")
 	return styleHeaderBar.Width(m.width - 2).Render(bar)
 }
 
@@ -460,7 +460,11 @@ func (m *Model) renderFooter() string {
 	bar := left + strings.Repeat(" ", gap) + hints
 	// Belt-and-suspenders: never let the content exceed the box width, even if
 	// a terminal disagrees with lipgloss on a glyph's width (see arrowUpDown).
-	bar = ansi.Truncate(bar, contentW, "…")
+	// TruncateWc counts ambiguous-width glyphs (like ↑↓) at 2 cells, matching
+	// terminals that ignore the variation selector and render them at emoji
+	// width. This is the only safe clamp; the rest of the width math uses
+	// runewidth (1 cell per arrow) and can undercount.
+	bar = ansi.TruncateWc(bar, contentW, "…")
 	return styleStatusBar.Width(m.width - 2).Render(bar)
 }
 
@@ -564,6 +568,9 @@ func (m *Model) statusHints() string {
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			hints += "  [E] error"
 		}
+		if m.refDetailText != "" {
+			hints += "  [D] details"
+		}
 		hints += "  [Esc] back  [?] help"
 		return hints
 	}
@@ -580,6 +587,9 @@ func (m *Model) statusHints() string {
 	}
 	if m.statusLvl == statusError && m.statusDetail != "" {
 		hints += "  [E] error"
+	}
+	if m.refDetailText != "" {
+		hints += "  [D] details"
 	}
 	hints += "  [Q] quit  [?] help"
 	return hints
@@ -610,6 +620,9 @@ func (m *Model) renderHelpModal() string {
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			fmt.Fprintln(&b, "  E              Show error details")
 		}
+		if m.refDetailText != "" {
+			fmt.Fprintln(&b, "  D              Show ref switch summary")
+		}
 		if m.progress != nil && len(m.progress.Lines()) > 0 {
 			fmt.Fprintln(&b, "  L              View terraform logs")
 		}
@@ -630,6 +643,9 @@ func (m *Model) renderHelpModal() string {
 		}
 		if m.statusLvl == statusError && m.statusDetail != "" {
 			fmt.Fprintln(&b, "  E              Show error details")
+		}
+		if m.refDetailText != "" {
+			fmt.Fprintln(&b, "  D              Show ref switch summary")
 		}
 		if m.progress != nil && len(m.progress.Lines()) > 0 {
 			fmt.Fprintln(&b, "  L              View terraform logs")
@@ -707,6 +723,12 @@ func (m *Model) bodyHeight() int {
 // renderErrorDetail renders a centered modal showing the complete error output.
 func (m *Model) renderErrorDetail() string {
 	return m.renderModalFrame("Error details", m.statusDetail, "[Esc] close")
+}
+
+// renderRefDetail renders a centered modal showing the full ref switch summary
+// (orphaned vars, new vars, init status) that doesn't fit in the footer.
+func (m *Model) renderRefDetail() string {
+	return m.renderModalFrame("Ref switch summary", m.refDetailText, "[Esc] close")
 }
 
 // renderWarnDetail renders a centered modal listing the failed `check` block
