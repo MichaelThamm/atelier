@@ -317,6 +317,12 @@ Atelier persists terraform's diagnostics under the wrapper's
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 | [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` |
 
+### Demos
+
+![alt text](docs/gifs/module-add.gif)
+![alt text](docs/gifs/save-preset.gif)
+![alt text](docs/gifs/apply-preset.gif)
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
