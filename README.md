@@ -101,6 +101,13 @@ atelier
 
 </details>
 
+## Validate on save
+
+Every time you edit a variable, Atelier immediately saves the change to disk
+and debounces a background `terraform validate`. Errors appear inline in the
+status bar; press `E` to see full diagnostics. Validation runs
+`terraform init` automatically if the workspace hasn't been initialised yet.
+
 ## Keyboard shortcuts
 
 | Key | Context | Action |
@@ -278,29 +285,6 @@ unlisted ref) is always accepted. See
 ![Switch module ref](docs/gifs/switch-ref.gif)
 
 </details>
-
-## Outputs
-
-Press `O` in plan view to inspect module outputs. Before apply, Atelier
-shows the planned output values from the plan file. After apply, it fetches
-live values from state. The output view is scrollable — use `j`/`k` or
-`PgUp`/`PgDn` to navigate large outputs.
-
-Atelier generates an `outputs.tf` in the wrapper that forwards all of the
-module's declared outputs:
-
-```hcl
-output "offers" {
-  value = module.cos_lite.offers
-}
-```
-
-## Validate on save
-
-Every time you edit a variable, Atelier immediately saves the change to disk
-and debounces a background `terraform validate`. Errors appear inline in the
-status bar; press `E` to see full diagnostics. Validation runs
-`terraform init` automatically if the workspace hasn't been initialised yet.
 
 ## Tidying a wrapper
 
