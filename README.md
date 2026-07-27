@@ -75,6 +75,59 @@ atelier
 > **Note:** run `atelier --help` for the full command list, including `atelier
 > module add|rm|list`, `atelier tidy`, and `atelier purge`.
 
+## Demos
+
+> **Note:** [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform) is used as the demo module since it encapsulates a lot of the intricacies of working with Terraform modules, using Atelier.
+
+### Adding a module
+
+Summary of steps:
+
+1. `atelier module add https://github.com/canonical/loki-operators.git`
+2. Inspect the module's API via its available variables
+
+![alt text](docs/gifs/module-add.gif)
+
+### Plan a module deployment
+
+Summary of steps:
+
+1. `atelier` or `atelier module add`
+2. Press `[P]` to begin the plan
+3. Investigate the Terraform state changes
+4. Optionally press `[A]` to apply the state
+
+![alt text](docs/gifs/module-add.gif)
+
+### Saving a preset
+
+Summary of steps:
+
+1. `atelier` or `atelier module add`
+2. Fill in all the required variables
+3. Press `[S]` to save the preset
+
+![alt text](docs/gifs/save-preset.gif)
+
+### Applying a preset
+
+Summary of steps:
+
+1. `atelier` or `atelier module add`
+2. `[F]` to select and apply a preset from a parent directory
+
+![alt text](docs/gifs/apply-preset.gif)
+
+### Switch module ref
+
+Summary of steps:
+
+1. `atelier` or `atelier module add`
+2. `[R]` to browse module refs
+3. Apply and inspect module changes with `[D]`
+
+![alt text](docs/gifs/switch-ref.gif)
+
 ## Keyboard shortcuts
 
 | Key | Context | Action |
@@ -316,12 +369,6 @@ Atelier persists terraform's diagnostics under the wrapper's
 | [docs/how-to/](docs/how-to/) | Step-by-step guides |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 | [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` |
-
-### Demos
-
-![alt text](docs/gifs/module-add.gif)
-![alt text](docs/gifs/save-preset.gif)
-![alt text](docs/gifs/apply-preset.gif)
 
 ## License
 
