@@ -97,7 +97,7 @@ Summary of steps:
 3. Investigate the Terraform state changes
 4. Optionally press `[A]` to apply the state
 
-![alt text](docs/gifs/module-add.gif)
+![alt text](docs/gifs/plan.gif)
 
 ### Saving a preset
 
