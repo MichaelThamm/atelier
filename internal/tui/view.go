@@ -51,14 +51,20 @@ func (m *Model) renderModalFrame(title, body, footer string) string {
 	if innerW < 30 {
 		innerW = 30
 	}
-	// Inner height = terminal height minus border (2), padding (2), title (1), blank (1), footer (1).
-	innerH := m.height - 7
+	// Inner height = terminal height minus border (2), padding (2), title (1),
+	// blank×2 (2), footer (1).
+	innerH := m.height - 8
 	if innerH < 3 {
 		innerH = 3
 	}
 
 	// Word-wrap body to the available inner width.
 	body = wrapContent(body, innerW)
+
+	// Trim trailing newlines so that strings.Split doesn't produce a phantom
+	// empty element that inflates the line count by one (causing the frame to
+	// overflow the terminal height and produce a stray line above the modal).
+	body = strings.TrimRight(body, "\n")
 
 	// Truncate body to fit the available height.
 	lines := strings.Split(body, "\n")
@@ -107,11 +113,9 @@ func truncateMiddle(s string, max int) string {
 func (m *Model) renderLeftPane() string {
 	const leftWidth = 32
 	// Max visual chars for line content inside the panel border.
-	// Border takes 2 chars (left+right), leaving leftWidth-2 for content.
+	// Border takes 2 chars (left+right), leaving leftWidth-2 for content
+	// (padding is handled by lipgloss inside this budget).
 	const maxVisualWidth = leftWidth - 2
-	// The marker "[ ]" or "[✓]" is 3 display chars, plus 2 spaces = 5.
-	const prefixWidth = 5
-	const maxNameWidth = maxVisualWidth - prefixWidth
 	var b strings.Builder
 
 	visible := m.leftPaneVisibleRows()
@@ -172,9 +176,16 @@ func (m *Model) renderLeftPane() string {
 		}
 		marker := varMarker(m.moduleStateForRow(r), r.VarName)
 		name := r.VarName
-		// Truncate the variable name to prevent wrapping.
-		if len(name) > maxNameWidth {
-			name = name[:maxNameWidth-1] + "…"
+		// Truncate the variable name to prevent wrapping.  Compute the
+		// budget from the actual marker width so wider markers like [✓10]
+		// don't overflow the panel.
+		markerW := lipgloss.Width(marker) + 2 // marker + separating spaces
+		nameBudget := maxVisualWidth - markerW
+		if nameBudget < 1 {
+			nameBudget = 1
+		}
+		if len(name) > nameBudget {
+			name = name[:nameBudget-1] + "…"
 		}
 		line := fmt.Sprintf("%s  %s", marker, name)
 		if i == m.cursor {
