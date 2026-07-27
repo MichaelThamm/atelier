@@ -75,58 +75,31 @@ atelier
 > **Note:** run `atelier --help` for the full command list, including `atelier
 > module add|rm|list`, `atelier tidy`, and `atelier purge`.
 
-## Demos
+> **Note:** [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform)
+> is used in the demos below since it encapsulates many of the intricacies of
+> working with Terraform modules.
 
-> **Note:** [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform) is used as the demo module since it encapsulates a lot of the intricacies of working with Terraform modules, using Atelier.
-
-### Adding a module
-
-Summary of steps:
+<details>
+<summary>Demo: adding a module</summary>
 
 1. `atelier module add https://github.com/canonical/loki-operators.git`
 2. Inspect the module's API via its available variables
 
-![alt text](docs/gifs/module-add.gif)
+![Adding a module](docs/gifs/module-add.gif)
 
-### Plan a module deployment
+</details>
 
-Summary of steps:
+<details>
+<summary>Demo: plan a module deployment</summary>
 
 1. `atelier` or `atelier module add`
 2. Press `[P]` to begin the plan
 3. Investigate the Terraform state changes
 4. Optionally press `[A]` to apply the state
 
-![alt text](docs/gifs/plan.gif)
+![Plan a module deployment](docs/gifs/plan.gif)
 
-### Saving a preset
-
-Summary of steps:
-
-1. `atelier` or `atelier module add`
-2. Fill in all the required variables
-3. Press `[S]` to save the preset
-
-![alt text](docs/gifs/save-preset.gif)
-
-### Applying a preset
-
-Summary of steps:
-
-1. `atelier` or `atelier module add`
-2. `[F]` to select and apply a preset from a parent directory
-
-![alt text](docs/gifs/apply-preset.gif)
-
-### Switch module ref
-
-Summary of steps:
-
-1. `atelier` or `atelier module add`
-2. `[R]` to browse module refs
-3. Apply and inspect module changes with `[D]`
-
-![alt text](docs/gifs/switch-ref.gif)
+</details>
 
 ## Keyboard shortcuts
 
@@ -251,16 +224,33 @@ See [docs/examples/atelier.local.yaml](docs/examples/atelier.local.yaml)
 for a full example, and [ADR-0022](docs/adr/0022-local-presets.md) for the
 rationale.
 
+<details>
+<summary>Demo: saving a preset</summary>
+
+1. `atelier` or `atelier module add`
+2. Fill in all the required variables
+3. Press `[S]` to save the preset
+
+![Saving a preset](docs/gifs/save-preset.gif)
+
+</details>
+
+<details>
+<summary>Demo: applying a preset</summary>
+
+1. `atelier` or `atelier module add`
+2. `[F]` to select and apply a preset from a parent directory
+
+![Applying a preset](docs/gifs/apply-preset.gif)
+
+</details>
+
 ## Comparing versions
 
 Press `R` to switch the module ref without leaving the TUI. Atelier
 re-clones the module, carries your values forward, runs
 `terraform init -upgrade`, and flags any orphaned or newly required
 variables.
-
-1. Configure and plan at `v1.0`.
-2. Press `R`, type `v2.0`, confirm.
-3. Plan again — the diff shows what the version bump changes.
 
 The ref field filters the remote's branches and tags as you type
 (case-insensitive substring match, prefix hits first), so a big repo's
@@ -277,6 +267,17 @@ unlisted ref) is always accepted. See
 | `Tab` | Fill the field with the highlighted ref |
 | `Enter` | Switch to the typed ref (free text accepted) |
 | `Esc` | Cancel |
+
+<details>
+<summary>Demo: switch module ref</summary>
+
+1. `atelier` or `atelier module add`
+2. `[R]` to browse module refs
+3. Apply and inspect module changes with `[D]`
+
+![Switch module ref](docs/gifs/switch-ref.gif)
+
+</details>
 
 ## Outputs
 
