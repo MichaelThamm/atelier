@@ -203,6 +203,11 @@ func runImport(args []string) error {
 	// represent complex types correctly).
 	if wrapperState != nil {
 		applyVarOverrides(wrapperState, config)
+		// Propagate preset values back into config so that downstream
+		// consumers (e.g. JujuBuildImportID which looks up model_uuid
+		// in opts.Config) can see values supplied via --preset, not just
+		// --var flags.
+		mergeWrapperStateIntoConfig(wrapperState, config)
 		if err := wrapperState.Write(); err != nil {
 			return fmt.Errorf("write values to main.tf: %w", err)
 		}
@@ -384,6 +389,30 @@ func applyVarOverrides(state *wrapper.State, config map[string]string) {
 		if val != cty.NilVal {
 			state.Values[varName] = val
 		}
+	}
+}
+
+// mergeWrapperStateIntoConfig propagates string-typed values from the wrapper
+// state back into the flat config map. This ensures that values supplied via
+// --preset (which only update wrapperState.Values) are visible to downstream
+// consumers that look up keys in opts.Config — e.g. JujuBuildImportID needs
+// model_uuid to construct import IDs for juju_application and juju_secret.
+// Keys already present in config (--var flags) take precedence.
+func mergeWrapperStateIntoConfig(state *wrapper.State, config map[string]string) {
+	if state == nil {
+		return
+	}
+	for k, v := range state.Values {
+		if v.IsNull() || v == cty.NilVal {
+			continue
+		}
+		if v.Type() != cty.String {
+			continue
+		}
+		if _, exists := config[k]; exists {
+			continue // --var flag already set; don't override
+		}
+		config[k] = v.AsString()
 	}
 }
 

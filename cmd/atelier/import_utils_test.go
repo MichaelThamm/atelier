@@ -472,3 +472,89 @@ func containsSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+// --- mergeWrapperStateIntoConfig ---
+
+func TestMergeWrapperStateIntoConfig_Basic(t *testing.T) {
+	state := &wrapper.State{
+		Values: map[string]cty.Value{
+			"model_uuid":  cty.StringVal("uuid-from-preset"),
+			"s3_endpoint": cty.StringVal("http://minio:9000"),
+		},
+	}
+	config := map[string]string{}
+
+	mergeWrapperStateIntoConfig(state, config)
+
+	if config["model_uuid"] != "uuid-from-preset" {
+		t.Errorf("model_uuid = %q, want %q", config["model_uuid"], "uuid-from-preset")
+	}
+	if config["s3_endpoint"] != "http://minio:9000" {
+		t.Errorf("s3_endpoint = %q, want %q", config["s3_endpoint"], "http://minio:9000")
+	}
+}
+
+func TestMergeWrapperStateIntoConfig_VarFlagTakesPrecedence(t *testing.T) {
+	state := &wrapper.State{
+		Values: map[string]cty.Value{
+			"model_uuid": cty.StringVal("uuid-from-preset"),
+		},
+	}
+	config := map[string]string{
+		"model_uuid": "uuid-from-var",
+	}
+
+	mergeWrapperStateIntoConfig(state, config)
+
+	if config["model_uuid"] != "uuid-from-var" {
+		t.Errorf("model_uuid = %q, want --var value %q", config["model_uuid"], "uuid-from-var")
+	}
+}
+
+func TestMergeWrapperStateIntoConfig_SkipsNonString(t *testing.T) {
+	state := &wrapper.State{
+		Values: map[string]cty.Value{
+			"model_uuid": cty.StringVal("valid"),
+			"units":      cty.NumberIntVal(3),
+			"config":     cty.MapValEmpty(cty.String),
+		},
+	}
+	config := map[string]string{}
+
+	mergeWrapperStateIntoConfig(state, config)
+
+	if len(config) != 1 {
+		t.Fatalf("config has %d entries, want 1", len(config))
+	}
+	if config["model_uuid"] != "valid" {
+		t.Errorf("model_uuid = %q, want %q", config["model_uuid"], "valid")
+	}
+}
+
+func TestMergeWrapperStateIntoConfig_SkipsNull(t *testing.T) {
+	state := &wrapper.State{
+		Values: map[string]cty.Value{
+			"model_uuid": cty.NullVal(cty.String),
+			"channel":    cty.StringVal("dev/edge"),
+		},
+	}
+	config := map[string]string{}
+
+	mergeWrapperStateIntoConfig(state, config)
+
+	if _, ok := config["model_uuid"]; ok {
+		t.Error("null model_uuid should not be propagated")
+	}
+	if config["channel"] != "dev/edge" {
+		t.Errorf("channel = %q, want %q", config["channel"], "dev/edge")
+	}
+}
+
+func TestMergeWrapperStateIntoConfig_NilState(t *testing.T) {
+	config := map[string]string{"existing": "value"}
+	mergeWrapperStateIntoConfig(nil, config)
+
+	if len(config) != 1 || config["existing"] != "value" {
+		t.Errorf("config should be unchanged, got %v", config)
+	}
+}
