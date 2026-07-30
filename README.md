@@ -328,6 +328,16 @@ them to the module's resource addresses, and runs `terraform import` for each
 match. See [docs/how-to/import-juju.md](docs/how-to/import-juju.md) for a
 step-by-step Juju walkthrough.
 
+<details>
+<summary>Demo: importing a live deployment</summary>
+
+1. `atelier import`
+2. `atelier` or `atelier module add`
+
+![Importing a live deployment](docs/gifs/import.gif)
+
+</details>
+
 ## Troubleshooting
 
 Atelier persists terraform's diagnostics under the wrapper's
