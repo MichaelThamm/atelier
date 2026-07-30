@@ -51,9 +51,7 @@ module (typically a public git repository), and Atelier:
 
 - Authenticated git access. Public repositories only; private repositories are
   not yet supported.
-- Sensitive secret handling beyond variable-indirection with a gitignored
-  tfvars file. Atelier assumes a development trust model; see
-  [ADR-0009](adr/0009-secrets-handling.md).
+
 - Terraform Registry sources (`namespace/name/provider` form) — not yet
   supported.
 - `any` and `tuple([...])` variable types as first-class widgets. Rendered as
@@ -114,9 +112,6 @@ or owns are listed below; the user may add their own (`.git/`, additional
 ├── versions.tf          # terraform { required_providers {...} } block
 ├── providers.tf         # provider "X" {...} blocks
 ├── outputs.tf           # re-exports all module outputs (auto-generated)
-├── variables.tf         # only if the wrapper declares its own variables
-│                        #   (e.g., for sensitive value indirection)
-├── secrets.auto.tfvars  # values for sensitive variables (gitignored)
 ├── README.md            # one-time auto-generated; user may edit freely
 ├── .gitignore           # one-time auto-generated; user may add to it
 └── .atelier/            # internal state; gitignored
@@ -729,7 +724,6 @@ When `atelier module add` bootstraps a new wrapper, it writes:
   terraform.tfstate.backup
   *.tfstate
   *.tfstate.backup
-  secrets.auto.tfvars
   ```
 - `README.md` — minimal scaffolding: what this directory is, how to apply
   (`terraform init && terraform apply`), and a note that `.atelier/` is
@@ -807,8 +801,8 @@ the DSL by hand (see [ADR-0026](adr/0026-save-preset.md)).
 - The generated `sets:` captures exactly the non-default arguments Atelier would
   write to `main.tf` (the sparse-plus-required rule, [ADR-0007](adr/0007-sparse-wrapper-write-rule.md)),
   so the preset mirrors what you see in the file.
-- **Secrets are excluded** from generation: sensitive variables are never
-  serialised, so a shared preset file cannot leak credentials. (Hand-authored
+- **Sensitive variables are omitted** from generation: they are written directly
+  to `main.tf` and are not duplicated into the preset YAML. (Hand-authored
   secrets in the file still load via `F`; only generation omits them.) Wired
   reference expressions (`var.`/`module.`/`data.`/`local.`) are also omitted —
   the `sets:` DSL holds concrete values only.
@@ -831,41 +825,20 @@ as a top-level pseudo-group in the left pane (`Provider: <name>`).
 
 ### 12.1 Sensitive provider attributes
 
-Attributes flagged `sensitive: true` in the schema are handled via variable
-indirection:
-
-```hcl
-# providers.tf
-provider "juju" {
-  controller_addresses = var.juju_controller_addresses
-  username             = var.juju_username
-  password             = var.juju_password
-  ca_certificate       = var.juju_ca_certificate
-}
-
-# variables.tf (in the wrapper)
-variable "juju_password" {
-  type      = string
-  sensitive = true
-}
-
-# secrets.auto.tfvars (gitignored)
-juju_password = "..."
-```
+Attributes flagged `sensitive: true` in the schema are handled transparently:
+their values are written directly into `providers.tf` as literal arguments (or
+into `main.tf` via `Values`), just like any other variable. No separate secrets
+file or variable indirection is used.
 
 The TUI shows sensitive fields as masked (`***`) with a temporary reveal
-toggle. Values round-trip via the gitignored `secrets.auto.tfvars` file.
-
-See [ADR-0009](adr/0009-secrets-handling.md) for the security posture
-and its explicit limitations.
+toggle.
 
 ## 13. Operational details
 
 ### 13.1 Auto-save
 
-Every variable edit triggers a write to `main.tf` (and to `secrets.auto.tfvars`
-if the field is sensitive). There is no draft / published distinction. The
-file on disk always reflects what the user sees in the TUI.
+Every variable edit triggers a write to `main.tf`. There is no draft / published
+distinction. The file on disk always reflects what the user sees in the TUI.
 
 ### 13.2 Undo
 

@@ -60,9 +60,10 @@ as-is. Two ergonomic adjustments for local files:
 
 - **No `preset save` command.** Snapshotting current wrapper values into a
   preset was considered and rejected for now; users hand-write the YAML.
-  *(Amended by [ADR-0026](0026-save-preset.md): a create-only, secrets-excluded,
-  wrapper-local generator — the `S` key — is now in scope. Merging into an
-  existing file remains rejected.)*
+  *(Amended by [ADR-0026](0026-save-preset.md): a create-only, wrapper-local
+  generator — the `S` key — is now in scope. Sensitive values are omitted from
+  generated presets and written directly to `main.tf`. Merging into an existing
+  file remains rejected.)*
 - **No local override of candidate names/descriptions.** Presets only.
 - **No global (`~/.config`) presets store.** Walk-up local files cover the
   stated need; a global store may be revisited later.

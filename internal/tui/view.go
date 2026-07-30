@@ -832,7 +832,7 @@ func (m *Model) renderSavePresetModal() string {
 	fmt.Fprintf(&b, "Name:         %s\n", m.savePresetName.ViewInline())
 	fmt.Fprintf(&b, "Description:  %s\n", m.savePresetDesc.ViewInline())
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, styleDescription.Render(fmt.Sprintf("Writes a new %s in this wrapper (secrets excluded).",
+	fmt.Fprintln(&b, styleDescription.Render(fmt.Sprintf("Writes a new %s for the current configuration.",
 		"atelier.local.yaml")))
 
 	return m.renderModalFrame("Save preset", b.String(),

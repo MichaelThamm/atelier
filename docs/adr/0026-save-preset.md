@@ -51,11 +51,11 @@ not `1.0`); an explicit `null` is preserved (it is a meaningful preset value).
 Two things are deliberately **not** captured, because they cannot round-trip
 through the DSL or must never land in a shared file:
 
-- **Sensitive variables (secrets).** Never serialised, so a committed or shared
-  `atelier.local.yaml` cannot leak credentials. This governs *generation only*:
-  secrets remain hand-authorable in the file and still load via `F` — the load
-  path is unchanged. The asymmetry is intentional: writing a secret into a
-  preset must be a deliberate human act, never an automatic side effect of `S`.
+- **Sensitive variables.** Never serialised in generated presets. Sensitive
+  values are written directly to `main.tf`; omitting them from the preset YAML
+  avoids duplication and prevents accidental credential leakage in a shared
+  file. Hand-authored secrets in the file still load via `F` — the load path
+  is unchanged.
 - **Wired reference expressions** (`var.`, `module.`, `data.`, `local.`,
   preserved verbatim in `UnknownAttrs` per ADR-0007 §10.2). The `sets:` DSL
   holds concrete values only; there is no faithful serialisation of an
@@ -124,12 +124,13 @@ that shared file from a single wrapper's `S` is exactly the merge-into-someone-
 else's-file hazard above, amplified across siblings. Always writing wrapper-
 local, create-only, keeps the blast radius to the current wrapper.
 
-### Include secrets, or offer a toggle
+### Include secrets in generated presets
 
-Rejected for generation. A preset file is meant to be committed/shared; an
-automatic path that can serialise credentials into it is a footgun. Deliberate
-hand-authoring of a secret in the file (which still loads) is the safe,
-explicit alternative.
+Rejected for generation. Sensitive values are written to `main.tf` alongside all
+other variable values; duplicating them into a preset YAML file that is meant to
+be committed or shared would introduce an unnecessary second copy. Hand-authoring
+a secret in the file (which still loads via `F`) is available for cases where it
+is needed.
 
 ### `atelier preset save` CLI subcommand instead of a TUI key
 
@@ -152,7 +153,7 @@ as a non-interactive supplement.
   DSL by example" path.
 - SPEC §11.3 no longer lists `preset save` as unsupported; §11 documents `S`.
 - ADR-0022's "No `preset save` command" out-of-scope item is amended: the
-  create-only, secrets-excluded, wrapper-local generator is now in scope; the
+  create-only, wrapper-local generator (with sensitive values omitted) is now in scope; the
   rejection of *merging* and of a *global store* stands.
 
 ## Out of scope

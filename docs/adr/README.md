@@ -16,7 +16,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0006 | [Two-pane TUI layout](0006-two-pane-ui-layout.md)                                           | Accepted |
 | 0007 | [Sparse-plus-required wrapper-write rule](0007-sparse-wrapper-write-rule.md)                | Accepted |
 | 0008 | [Provider schema via `terraform providers schema -json`](0008-provider-schema-discovery.md) | Accepted |
-| 0009 | [Secrets handling](0009-secrets-handling.md)                                                | Accepted |
+| 0009 | [Secrets handling](0009-secrets-handling.md)                                                | Superseded |
 | 0010 | [Manifest format: `atelier.yaml`](0010-manifest-format.md)                                  | Superseded by ADR-0022 |
 | 0011 | [Plan output as module-path tree](0011-plan-output-tree.md)                                 | Accepted |
 | 0012 | [Validation via `terraform validate`](0012-validation-via-terraform-validate.md)            | Accepted |

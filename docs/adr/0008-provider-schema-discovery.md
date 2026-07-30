@@ -78,8 +78,9 @@ because:
   `<provider-source>@<version>`. Cache invalidation happens on version
   change (which requires `terraform init -upgrade` anyway).
 - Sensitive provider attributes (flagged `sensitive: true` in the schema)
-  are rendered with masking in the TUI and handled by the secrets-handling
-  rules; see [ADR-0009](0009-secrets-handling.md).
+  are rendered with masking in the TUI. (The separate secrets-handling
+  mechanism described in ADR-0009 has been removed; sensitive values are
+  now written directly to `main.tf` like any other variable.)
 - The TUI surfaces the provider as a top-level pseudo-group `Provider:
   <name>` in the left pane. Its fields are edited identically to module
   variables; the wrapper-write rule from [ADR-0007](0007-sparse-wrapper-write-rule.md)

@@ -221,34 +221,4 @@ func ReadMainForBlock(dir string, blockName string, vars []tfvars.Variable) (*Pa
 	return nil, nil
 }
 
-// ReadSecrets parses secrets.auto.tfvars and returns a map of
-// variable-name to cty.Value. Returns an empty map if the file doesn't exist
-// (no secrets configured yet).
-func ReadSecrets(dir string) (map[string]cty.Value, error) {
-	path := filepath.Join(dir, SecretsAuto)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return map[string]cty.Value{}, nil
-		}
-		return nil, fmt.Errorf("read secrets.auto.tfvars: %w", err)
-	}
-	parser := hclparse.NewParser()
-	f, diags := parser.ParseHCL(data, path)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("parse secrets.auto.tfvars: %s", diags.Error())
-	}
-	body, ok := f.Body.(*hclsyntax.Body)
-	if !ok {
-		return nil, fmt.Errorf("parse secrets.auto.tfvars: unexpected body type")
-	}
-	out := map[string]cty.Value{}
-	for name, attr := range body.Attributes {
-		val, dd := attr.Expr.Value(nil)
-		if dd.HasErrors() {
-			continue
-		}
-		out[name] = val
-	}
-	return out, nil
-}
+

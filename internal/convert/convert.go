@@ -406,9 +406,9 @@ func listTFFiles(dir string) ([]string, error) {
 }
 
 // relocateFiles moves .tf files and related Terraform artifacts from src to
-// dst. It moves: *.tf files, *.tfvars files (except secrets.auto.tfvars),
-// terraform.tfstate*, .terraform.lock.hcl. It does NOT move: .terraform/,
-// .atelier/, .git/, .gitignore.
+// dst. It moves: *.tf files, *.tfvars files, terraform.tfstate*,
+// .terraform.lock.hcl. It does NOT move: .terraform/, .atelier/, .git/,
+// .gitignore.
 func relocateFiles(src, dst string) ([]string, error) {
 	entries, err := os.ReadDir(src)
 	if err != nil {

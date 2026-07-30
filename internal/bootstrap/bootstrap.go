@@ -470,11 +470,6 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		}
 		state.UnknownAttrs = pm.UnknownAttrs
 	}
-	// Overlay secrets.
-	if secrets, err := wrapper.ReadSecrets(wrapperDir); err == nil {
-		state.SecretValues = secrets
-	}
-
 	res := &Result{
 		State:       state,
 		ResolvedSHA: currentSHA,
@@ -518,11 +513,6 @@ func loadDegraded(wrapperDir string, prev *session.Session, unresolved *RefUnres
 		}
 		state.UnknownAttrs = pm.UnknownAttrs
 	}
-	// Overlay secrets (best-effort).
-	if secrets, err := wrapper.ReadSecrets(wrapperDir); err == nil {
-		state.SecretValues = secrets
-	}
-
 	return &Result{
 		State:         state,
 		LiteralRef:    prev.LiteralRef,

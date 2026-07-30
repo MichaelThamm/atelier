@@ -4,7 +4,6 @@ terraform.tfstate
 terraform.tfstate.backup
 *.tfstate
 *.tfstate.backup
-secrets.auto.tfvars
 *.snap
 /atelier
 /atelier_dev

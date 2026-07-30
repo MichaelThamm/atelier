@@ -12,14 +12,11 @@ import (
 )
 
 // ResolvedPreset is a preset ready for application: its Sets are already
-// converted to cty.Values keyed by variable name. Sensitive tracks which
-// values belong to variables declared as sensitive so the caller can route
-// them to SecretValues (secrets.auto.tfvars) instead of Values (main.tf).
+// converted to cty.Values keyed by variable name.
 type ResolvedPreset struct {
 	Name        string
 	Description string
 	Values      map[string]cty.Value
-	Sensitive   map[string]bool
 }
 
 // ResolvePresets converts raw manifest presets into resolved presets using
@@ -37,7 +34,6 @@ func ResolvePresets(presets []manifest.Preset, vars []tfvars.Variable) []Resolve
 			Name:        p.Name,
 			Description: p.Description,
 			Values:      make(map[string]cty.Value),
-			Sensitive:   make(map[string]bool),
 		}
 		for name, raw := range p.Sets {
 			v, ok := varMap[name]
@@ -49,9 +45,6 @@ func ResolvePresets(presets []manifest.Preset, vars []tfvars.Variable) []Resolve
 				continue // type mismatch; skip gracefully
 			}
 			rp.Values[name] = val
-			if v.Sensitive {
-				rp.Sensitive[name] = true
-			}
 		}
 		if len(rp.Values) > 0 {
 			out = append(out, rp)
@@ -216,15 +209,9 @@ func ctyToAny(v cty.Value) any {
 // the "generate a preset from what you have" path: it lets users bootstrap an
 // atelier.local.yaml without hand-writing the DSL.
 //
-// It deliberately excludes two things that cannot round-trip through the
-// preset DSL, or should never land in a shared file:
-//
-//   - Sensitive variables (secrets): never serialised, so a committed preset
-//     can't leak credentials. Secrets remain hand-authorable in the file and
-//     still load via [F] — this only governs generation.
-//   - Wired reference expressions (var./module./data./local., preserved in
-//     UnknownAttrs): the DSL holds concrete values only, so there is nothing
-//     faithful to write.
+// It deliberately excludes wired reference expressions (var./module./data./local.,
+// preserved in UnknownAttrs) because the DSL holds concrete values only, so there
+// is nothing faithful to write.
 //
 // The returned int is the number of variables captured; the caller uses it to
 // refuse saving an empty preset.
@@ -237,7 +224,7 @@ func snapshotPreset(s *wrapper.State, name, description string) (manifest.Preset
 	sets := make(map[string]any)
 	for i := range s.Vars {
 		v := &s.Vars[i]
-		if v.Sensitive || raw[v.Name] {
+		if raw[v.Name] {
 			continue
 		}
 		current, _ := s.VariableValue(v.Name)

@@ -1,6 +1,6 @@
 // Package wrapper manages the Terraform wrapper Atelier writes to the user's
 // current working directory: main.tf, versions.tf, providers.tf,
-// secrets.auto.tfvars, .gitignore, README.md, plus the .atelier/ internal
+// .gitignore, README.md, plus the .atelier/ internal
 // state directory.
 //
 // The package's responsibilities split into three areas:
@@ -44,11 +44,6 @@ type State struct {
 	// entries mean "use the declared default" (or "unset" for required vars).
 	Values map[string]cty.Value
 
-	// SecretValues holds values for sensitive wrapper-declared variables —
-	// the ones that back sensitive provider attributes via the variable
-	// indirection described in SPEC §12.1.
-	SecretValues map[string]cty.Value
-
 	// Providers is the list of provider blocks Atelier renders into
 	// providers.tf. Populated from the chosen module's required_providers.
 	Providers []ProviderBlock
@@ -86,10 +81,6 @@ type ProviderAttr struct {
 	Sensitive bool
 	Required  bool
 	Value     cty.Value // The current value (may be NilVal if unset).
-	// VariableRef, when non-empty, indicates the attribute is rendered as
-	// `<name> = var.<VariableRef>` rather than an inline value. Used for
-	// sensitive attributes (ADR-0009).
-	VariableRef string
 }
 
 // RequiredProvider mirrors a Terraform required_providers entry.
@@ -112,14 +103,9 @@ type RawAttr struct {
 }
 
 // VariableValue returns the current value for a variable, falling back to
-// the declared default if Atelier has no override for it. SecretValues are
-// checked before the declared default so that sensitive variables stored in
-// secrets.auto.tfvars are picked up by the TUI editor.
+// the declared default if Atelier has no override for it.
 func (s *State) VariableValue(name string) (cty.Value, bool) {
 	if v, ok := s.Values[name]; ok {
-		return v, true
-	}
-	if v, ok := s.SecretValues[name]; ok {
 		return v, true
 	}
 	for _, decl := range s.Vars {
