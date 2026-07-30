@@ -445,7 +445,7 @@ elements (panel borders, summary lines) subtract from this budget.
 - Logs view: `[↑↓] scroll  [L/Tab/Esc] back  [?] help`
 - Plan loading: `[L] logs  [Esc] cancel  [?] help`
 - Small terminal (`height < 15`): `[?] help` only.
-- Hints for `[F]`, `[R]`, `[O]`, `[A]` appear only when the
+- Hints for `[F]`, `[R]`, `[A]` appear only when the
   corresponding feature is available.
 - In multi-module wrappers, the footer shows the active module context
   (e.g. `[cos_lite]`) so the user always knows which module `R` and `F`
