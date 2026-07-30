@@ -219,8 +219,7 @@ with `Esc`.
 
 You don't have to hand-write the YAML: configure a wrapper in the TUI, then
 press `S` to generate a preset from the current configuration. Atelier
-captures exactly the non-default values it would write to `main.tf`
-(secrets excluded), prompts for a name and optional description, and writes
+captures the current configuration (non-default values only), prompts for a name and optional description, and writes
 a new `atelier.local.yaml` in the wrapper directory. It never overwrites an
 existing one — if a file is already present, `S` tells you to edit it
 directly or move it to a parent. The generated file doubles as a worked

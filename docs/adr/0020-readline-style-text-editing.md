@@ -3,7 +3,7 @@
 ## Status
 
 Proposed — relates to [ADR-0006](0006-two-pane-ui-layout.md) (two-pane TUI
-layout) and [ADR-0009](0009-secrets-handling.md) (sensitive rendering).
+layout). Sensitive fields are rendered with masked input (see §4).
 Touches every variable widget defined in `internal/tui/editor.go`.
 
 ## Context
@@ -110,7 +110,8 @@ implementations.
 Affected editors:
 
 - `stringEditor`  — wraps a single textinput; `Sensitive` toggles
-  `EchoMode = EchoPassword`.
+  `EchoMode = EchoPassword`. (Secrets indirection per ADR-0009 has been
+  removed; sensitive values are written directly to `main.tf`.)
 - `numberEditor`  — wraps a textinput with a `Validate` function that
   rejects characters outside `0-9 . - + e E`; the rune-filter currently
   done by string concatenation moves into the validator.

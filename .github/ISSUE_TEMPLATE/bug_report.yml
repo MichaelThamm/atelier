@@ -10,8 +10,7 @@ body:
 
         Before filing, please:
         - Search existing issues to avoid duplicates.
-        - Redact any secrets from logs and config (Atelier stores sensitive
-          values in a gitignored `secrets.auto.tfvars`, but paste carefully).
+        - Redact any secrets from logs and config before pasting.
 
   - type: textarea
     id: what-happened

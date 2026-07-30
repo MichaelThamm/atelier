@@ -401,40 +401,6 @@ func TestReadMain_missing_returnsNil(t *testing.T) {
 	}
 }
 
-func TestSecrets_roundTrip(t *testing.T) {
-	dir := t.TempDir()
-	s := &State{
-		Dir: dir,
-		SecretValues: map[string]cty.Value{
-			"juju_password": cty.StringVal("hunter2"),
-			"juju_username": cty.StringVal("admin"),
-		},
-	}
-	if err := s.writeSecrets(); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadSecrets(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got["juju_password"].AsString() != "hunter2" {
-		t.Errorf("juju_password not round-tripped: %v", got["juju_password"].GoString())
-	}
-	if got["juju_username"].AsString() != "admin" {
-		t.Errorf("juju_username: %v", got["juju_username"].GoString())
-	}
-}
-
-func TestReadSecrets_missing_returnsEmpty(t *testing.T) {
-	got, err := ReadSecrets(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 0 {
-		t.Errorf("expected empty map, got %d entries", len(got))
-	}
-}
-
 func TestIsExpressionRef(t *testing.T) {
 	cases := []struct {
 		in   string

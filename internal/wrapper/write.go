@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -20,23 +19,18 @@ const (
 	VersionsTF    = "versions.tf"
 	ProvidersTF   = "providers.tf"
 	VariablesTF   = "variables.tf"
-	SecretsAuto   = "secrets.auto.tfvars"
 	GitignoreFile = ".gitignore"
 	ReadmeFile    = "README.md"
 	AtelierDir    = ".atelier"
 )
 
 // Write reflects the State to disk. It writes main.tf using the
-// sparse-plus-required rule, and refreshes secrets.auto.tfvars from
-// SecretValues. providers.tf, versions.tf, and the housekeeping files are
-// only generated at bootstrap time; subsequent writes leave them alone (the
-// user may have edited them).
+// sparse-plus-required rule. providers.tf, versions.tf, and the housekeeping
+// files are only generated at bootstrap time; subsequent writes leave them
+// alone (the user may have edited them).
 func (s *State) Write() error {
 	if err := s.writeMain(); err != nil {
 		return fmt.Errorf("write main.tf: %w", err)
-	}
-	if err := s.writeSecrets(); err != nil {
-		return fmt.Errorf("write secrets.auto.tfvars: %w", err)
 	}
 	return nil
 }
@@ -284,33 +278,6 @@ func writeAtomic(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return nil
-}
-
-// writeSecrets writes secrets.auto.tfvars containing one assignment per
-// sensitive variable backing a sensitive provider attribute. Order is
-// alphabetical for stable output.
-func (s *State) writeSecrets() error {
-	if len(s.SecretValues) == 0 {
-		// Nothing to write; if a stale file exists, leave it alone (the user
-		// may have hand-added entries).
-		return nil
-	}
-	file := hclwrite.NewEmptyFile()
-	body := file.Body()
-
-	names := make([]string, 0, len(s.SecretValues))
-	for n := range s.SecretValues {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, n := range names {
-		v := s.SecretValues[n]
-		if v.IsNull() {
-			continue
-		}
-		body.SetAttributeValue(n, v)
-	}
-	return writeAtomic(filepath.Join(s.Dir, SecretsAuto), file.Bytes(), 0o600)
 }
 
 // VariableDeclByName is a tiny helper exposing State's variable slice as a

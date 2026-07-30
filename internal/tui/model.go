@@ -1331,25 +1331,14 @@ func (m *Model) handlePresetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // applyPreset applies the preset at index i: merges its values into
-// state.Values (or state.SecretValues for sensitive variables), refreshes the
-// editor, and flashes a status message.
+// state.Values, refreshes the editor, and flashes a status message.
 func (m *Model) applyPreset(i int) {
 	if i < 0 || i >= len(m.presets) {
 		return
 	}
 	p := m.presets[i]
 	for name, val := range p.Values {
-		if p.Sensitive[name] {
-			// Sensitive variables go to secrets.auto.tfvars via SecretValues,
-			// not main.tf via Values.
-			if m.State.SecretValues == nil {
-				m.State.SecretValues = make(map[string]cty.Value)
-			}
-			m.State.SecretValues[name] = val
-			delete(m.State.Values, name)
-		} else {
-			m.State.Values[name] = val
-		}
+		m.State.Values[name] = val
 		// The preset value supersedes any reference expression on this var,
 		// but we keep the preserved raw form so a later reset can restore it.
 	}
@@ -1622,18 +1611,6 @@ func (m *Model) applyRefSwitch(result *RefSwitchResult) {
 			newState.Values[name] = val
 		}
 	}
-	// Carry over sensitive values (stored in SecretValues, written to
-	// secrets.auto.tfvars) for variables that still exist in the new ref.
-	if len(oldState.SecretValues) > 0 {
-		if newState.SecretValues == nil {
-			newState.SecretValues = make(map[string]cty.Value)
-		}
-		for name, val := range oldState.SecretValues {
-			if newVarNames[name] {
-				newState.SecretValues[name] = val
-			}
-		}
-	}
 	if len(oldState.UnknownAttrs) > 0 {
 		carried := make([]wrapper.RawAttr, 0, len(oldState.UnknownAttrs))
 		for _, ra := range oldState.UnknownAttrs {
@@ -1885,32 +1862,18 @@ func (m *Model) leftPaneVisibleRows() int {
 
 func (m *Model) applyEditorValue(v *tfvars.Variable, val cty.Value) {
 	st := m.ActiveModuleState()
-	if v.Sensitive {
-		// Sensitive variables go to secrets.auto.tfvars via SecretValues,
-		// not main.tf via Values.
-		if st.SecretValues == nil {
-			st.SecretValues = map[string]cty.Value{}
-		}
-		if val == cty.NilVal {
-			delete(st.SecretValues, v.Name)
-		} else {
-			st.SecretValues[v.Name] = val
-		}
+	if st.Values == nil {
+		st.Values = map[string]cty.Value{}
+	}
+	if val == cty.NilVal {
 		delete(st.Values, v.Name)
 	} else {
-		if st.Values == nil {
-			st.Values = map[string]cty.Value{}
-		}
-		if val == cty.NilVal {
-			delete(st.Values, v.Name)
-		} else {
-			st.Values[v.Name] = val
-			// A concrete value supersedes any reference expression the variable
-			// was originally wired to (both the [→] display and the writer prefer
-			// Values when present), but we deliberately KEEP the preserved raw
-			// form so a later Ctrl+R can restore the original reference instead of
-			// leaving the variable empty.
-		}
+		st.Values[v.Name] = val
+		// A concrete value supersedes any reference expression the variable
+		// was originally wired to (both the [→] display and the writer prefer
+		// Values when present), but we deliberately KEEP the preserved raw
+		// form so a later Ctrl+R can restore the original reference instead of
+		// leaving the variable empty.
 	}
 	m.dirty = true
 }
@@ -1947,7 +1910,6 @@ func (m *Model) resetCurrent() {
 	// Whole-variable reset.
 	st := m.ActiveModuleState()
 	delete(st.Values, v.Name)
-	delete(st.SecretValues, v.Name)
 	// We do NOT drop any preserved reference expression here. Removing the
 	// concrete override lets the original wiring resurface, so a variable that
 	// was read as e.g. `data.vault_generic_secret.s3.data["..."]` returns to

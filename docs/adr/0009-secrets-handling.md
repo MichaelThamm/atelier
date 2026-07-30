@@ -1,8 +1,10 @@
 # ADR-0009: Secrets handling
 
+> **This ADR is superseded** — the secrets indirection mechanism has been removed.
+
 ## Status
 
-Accepted
+Superseded
 
 ## Context
 

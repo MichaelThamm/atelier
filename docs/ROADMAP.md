@@ -30,9 +30,7 @@ Concretely:
   `atelier.local.yaml` (walk-up discovery), applied in bulk via the `F` key,
   then customised per-variable. The upstream module repo is never read for
   Atelier files.
-- Provider configuration via `terraform providers schema -json`, including
-  sensitive-attribute handling via variable indirection and gitignored
-  `secrets.auto.tfvars`.
+- Provider configuration via `terraform providers schema -json`.
 - Debounced `terraform validate` for inline validation feedback.
 - `terraform plan -json` rendering as a module-path tree with attribute diffs
   in a side pane.

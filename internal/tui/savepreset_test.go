@@ -98,14 +98,17 @@ func TestSnapshotPreset_capturesNonDefaultOnly(t *testing.T) {
 	}
 }
 
-func TestSnapshotPreset_excludesSecrets(t *testing.T) {
+func TestSnapshotPreset_capturesSensitiveVars(t *testing.T) {
 	s := saveTestState(t, t.TempDir())
 	s.Values["internal_tls"] = cty.True
 	s.Values["password"] = cty.StringVal("hunter2") // sensitive
 
 	p, _ := snapshotPreset(s, "x", "")
-	if _, has := p.Sets["password"]; has {
-		t.Error("sensitive variable must never be serialised into a preset")
+	if _, has := p.Sets["password"]; !has {
+		t.Error("sensitive variable should be captured in presets")
+	}
+	if p.Sets["password"] != "hunter2" {
+		t.Errorf("password = %#v; want %q", p.Sets["password"], "hunter2")
 	}
 	if _, has := p.Sets["internal_tls"]; !has {
 		t.Error("non-sensitive var should still be captured")
