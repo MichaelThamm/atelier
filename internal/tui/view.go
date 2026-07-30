@@ -502,7 +502,7 @@ func (m *Model) renderLogsView() string {
 		formattedLines[i] = l.Content
 	}
 
-	h := m.panelHeight()
+	h := m.panelHeight() - 1 // tab bar takes one line
 	if h < 1 {
 		h = 1
 	}
@@ -514,6 +514,8 @@ func (m *Model) renderLogsView() string {
 	} else if len(formattedLines) <= h {
 		m.logScroll = 0
 		h = len(formattedLines)
+	} else if m.logAutoScroll {
+		m.logScroll = len(formattedLines) - h
 	} else if m.logScroll > len(formattedLines)-h {
 		m.logScroll = len(formattedLines) - h
 	}
@@ -536,7 +538,7 @@ func (m *Model) renderLogsView() string {
 			content = styleDescription.Render("No logs captured.")
 		}
 	}
-	content = clampToLines(content, m.panelHeight())
+	content = clampToLines(content, h)
 
 	// Build tab bar with action start time
 	errorCount := len(m.progress.StderrLines())
@@ -749,14 +751,13 @@ func (m *Model) renderHelpModal() string {
 }
 
 // contentHeight returns the vertical space available between the bordered
-// header (3 lines) and bordered footer (3 lines), minus 1 safety line for
-// terminals that report height inclusive of the cursor row. All screens
-// must use this as the single source of truth for their body budget.
+// header (3 lines) and bordered footer (3 lines). All screens must use
+// this as the single source of truth for their body budget.
 func (m *Model) contentHeight() int {
-	if m.height < 9 {
+	if m.height < 7 {
 		return 1
 	}
-	return m.height - 7
+	return m.height - 6
 }
 
 // bodyHeight is an alias for contentHeight (used by the editor screen).

@@ -61,6 +61,10 @@ type Model struct {
 	activeView viewMode
 	logScroll  int // scroll offset for the logs view
 
+	// logAutoScroll is true while the logs view should follow new output.
+	// Disabled when the user scrolls up, re-enabled on G/end or re-entering.
+	logAutoScroll bool
+
 	// logsTab tracks which tab is active in the unified logs view
 	logsTab logsTabMode
 
@@ -891,8 +895,15 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "l", "L":
 			if m.progress != nil {
 				m.activeView = viewLogs
-				lines := m.progress.Lines()
-				h := m.panelHeight()
+				m.logAutoScroll = true
+				var lines []LogLine
+				switch m.logsTab {
+				case logsTabErrors:
+					lines = m.progress.StderrLines()
+				case logsTabLogs:
+					lines = m.progress.StdoutLines()
+				}
+				h := m.panelHeight() - 1
 				if h < 1 {
 					h = 1
 				}
@@ -935,10 +946,21 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case "l", "L":
-		if m.progress != nil && len(m.progress.Lines()) > 0 {
+		if m.progress != nil {
 			m.activeView = viewLogs
-			lines := m.progress.Lines()
-			h := m.panelHeight()
+			m.logAutoScroll = true
+			var lines []LogLine
+			switch m.logsTab {
+			case logsTabErrors:
+				lines = m.progress.StderrLines()
+			case logsTabLogs:
+				lines = m.progress.StdoutLines()
+			}
+			if len(lines) == 0 {
+				m.logScroll = 0
+				return m, nil
+			}
+			h := m.panelHeight() - 1
 			if h < 1 {
 				h = 1
 			}
@@ -1065,7 +1087,7 @@ func (m *Model) handleLogsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		lines = m.progress.StdoutLines()
 	}
 
-	h := m.panelHeight()
+	h := m.panelHeight() - 1 // tab bar takes one line
 	if h < 1 {
 		h = 1
 	}
@@ -1082,20 +1104,32 @@ func (m *Model) handleLogsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.logsTab = logsTabErrors
 		}
+		// Re-fetch lines for the new tab
+		switch m.logsTab {
+		case logsTabErrors:
+			lines = m.progress.StderrLines()
+		case logsTabLogs:
+			lines = m.progress.StdoutLines()
+		}
 		// Reset scroll to bottom when switching tabs
 		m.logScroll = len(lines) - h
 		if m.logScroll < 0 {
 			m.logScroll = 0
 		}
+		m.logAutoScroll = true
 		return m, nil
 	case "up", "k":
 		if m.logScroll > 0 {
 			m.logScroll--
 		}
+		m.logAutoScroll = false
 		return m, nil
 	case "down", "j":
 		if m.logScroll < len(lines)-h {
 			m.logScroll++
+		}
+		if m.logScroll >= len(lines)-h {
+			m.logAutoScroll = true
 		}
 		return m, nil
 	case "pgup":
@@ -1103,6 +1137,7 @@ func (m *Model) handleLogsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.logScroll < 0 {
 			m.logScroll = 0
 		}
+		m.logAutoScroll = false
 		return m, nil
 	case "pgdown":
 		m.logScroll += h
@@ -1112,15 +1147,20 @@ func (m *Model) handleLogsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.logScroll = 0
 			}
 		}
+		if m.logScroll >= len(lines)-h {
+			m.logAutoScroll = true
+		}
 		return m, nil
 	case "home", "g":
 		m.logScroll = 0
+		m.logAutoScroll = false
 		return m, nil
 	case "end", "G":
 		m.logScroll = len(lines) - h
 		if m.logScroll < 0 {
 			m.logScroll = 0
 		}
+		m.logAutoScroll = true
 		return m, nil
 	}
 	return m, nil
@@ -1164,11 +1204,18 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Switch focus to the diff pane.
 		m.planDiffFocus = true
 		return m, nil
-	case "L":
+	case "l", "L":
 		if m.progress != nil {
 			m.activeView = viewLogs
-			lines := m.progress.Lines()
-			h := m.panelHeight()
+			m.logAutoScroll = true
+			var lines []LogLine
+			switch m.logsTab {
+			case logsTabErrors:
+				lines = m.progress.StderrLines()
+			case logsTabLogs:
+				lines = m.progress.StdoutLines()
+			}
+			h := m.panelHeight() - 1
 			if h < 1 {
 				h = 1
 			}
@@ -1227,7 +1274,7 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "G":
 		m.movePlanCursor(maxInt)
 		m.planDiffScroll = 0
-	case "enter", " ", "space", "right", "left", "l", "h":
+	case "enter", " ", "space", "right", "left", "h":
 		// Toggle collapse on the focused row when it has children.
 		rows := flattenedRows(m.activeTree())
 		if m.planCursor >= 0 && m.planCursor < len(rows) {
