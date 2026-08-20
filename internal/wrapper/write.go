@@ -117,15 +117,16 @@ func (s *State) RenderMain() ([]byte, error) {
 			body.RemoveAttribute(v.Name)
 			continue
 		}
+		// A required-but-unset variable renders as nothing: SparseValue returns
+		// NilVal for an unset value, so the argument is omitted from the module
+		// block entirely. That is deliberate, and better than the alternatives.
+		// Terraform then reports `The argument "x" is required, but no definition
+		// was found`, naming every missing variable at once — whereas emitting an
+		// explicit `x = null` placeholder makes Terraform accept the null and fail
+		// later, deep inside the module, at whatever used the value.
 		writeVal := SparseValue(v, current)
 		if writeVal == cty.NilVal {
 			body.RemoveAttribute(v.Name)
-			continue
-		}
-		// For required-but-unset variables we emit a placeholder with a
-		// loud TODO comment so the user can see in the file what's missing.
-		if !v.HasDefault && current == cty.NilVal {
-			body.SetAttributeRaw(v.Name, todoTokens(v.Type.String()))
 			continue
 		}
 		// If the value is a string that looks like an HCL expression
@@ -184,18 +185,6 @@ func (s *State) findOrCreateModuleBlock(file *hclwrite.File) *hclwrite.Block {
 		}
 	}
 	return file.Body().AppendNewBlock("module", []string{s.ModuleBlockName})
-}
-
-// todoTokens returns a token sequence representing a TODO placeholder for a
-// required variable the user hasn't filled in yet. The placeholder is an
-// invalid HCL expression (a bare identifier `TODO`) followed by a comment;
-// Terraform plan will error helpfully, and the user sees in main.tf exactly
-// which variable is missing.
-func todoTokens(typeHint string) hclwrite.Tokens {
-	return hclwrite.Tokens{
-		{Type: hclsyntax.TokenIdent, Bytes: []byte("null")},
-		{Type: hclsyntax.TokenComment, Bytes: []byte(" # TODO: required (" + typeHint + ")\n"), SpacesBefore: 1},
-	}
 }
 
 // isExpressionRef reports whether a string value should be emitted as an

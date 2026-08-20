@@ -6,12 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/zclconf/go-cty/cty"
-
 	"github.com/MichaelThamm/atelier/internal/state"
-	"github.com/MichaelThamm/atelier/internal/tftypes"
-	"github.com/MichaelThamm/atelier/internal/tfvars"
-	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 func writeTestState(t *testing.T, dir string, data []byte) {
@@ -250,70 +245,6 @@ func TestNormalizeNullAttributes_IndexedResource(t *testing.T) {
 	}
 }
 
-func TestComputeNullDefaults(t *testing.T) {
-	ws := &wrapper.State{
-		Vars: []tfvars.Variable{
-			{
-				Name: "alertmanager",
-				Type: &tftypes.Type{
-					Kind: tftypes.KindObject,
-					Attributes: map[string]*tftypes.ObjectAttr{
-						"config": {
-							Type:       &tftypes.Type{Kind: tftypes.KindMap, Element: &tftypes.Type{Kind: tftypes.KindString}},
-							Optional:   true,
-							HasDefault: true,
-							Default:    cty.MapValEmpty(cty.String),
-						},
-						"constraints": {
-							Type:       &tftypes.Type{Kind: tftypes.KindString},
-							Optional:   true,
-							HasDefault: true,
-							Default:    cty.StringVal("arch=amd64"),
-						},
-						"storage_directives": {
-							Type:       &tftypes.Type{Kind: tftypes.KindMap, Element: &tftypes.Type{Kind: tftypes.KindString}},
-							Optional:   true,
-							HasDefault: true,
-							Default:    cty.MapValEmpty(cty.String),
-						},
-					},
-					AttrOrder: []string{"config", "constraints", "storage_directives"},
-				},
-			},
-			{
-				Name: "model_uuid",
-				Type: &tftypes.Type{Kind: tftypes.KindString},
-			},
-		},
-	}
-
-	defaults := state.ComputeNullDefaults(ws)
-	if defaults == nil {
-		t.Fatal("expected non-nil defaults")
-	}
-
-	if _, ok := defaults["config"]; !ok {
-		t.Error("config default missing")
-	}
-	if _, ok := defaults["storage_directives"]; !ok {
-		t.Error("storage_directives default missing")
-	}
-	if v, ok := defaults["constraints"]; !ok {
-		t.Error("constraints default missing")
-	} else if v != "arch=amd64" {
-		t.Errorf("constraints default = %v", v)
-	}
-	if _, ok := defaults["model_uuid"]; ok {
-		t.Error("model_uuid should not be in defaults")
-	}
-}
-
-func TestComputeNullDefaults_NilState(t *testing.T) {
-	if d := state.ComputeNullDefaults(nil); d != nil {
-		t.Errorf("expected nil, got %v", d)
-	}
-}
-
 func TestEnsureSchemaVersions_SetsVersion(t *testing.T) {
 	dir := t.TempDir()
 	writeTestState(t, dir, []byte(`{
@@ -400,5 +331,131 @@ func TestEnsureSchemaVersions_EmptyVersions(t *testing.T) {
 	err := state.EnsureSchemaVersions(dir, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// --- SetAttributes ---
+
+func setAttrsFixture(t *testing.T, dir string) {
+	t.Helper()
+	writeTestState(t, dir, []byte(`{
+  "version": 4,
+  "resources": [
+    {
+      "module": "module.cos_lite.module.ssc[0]",
+      "mode": "managed",
+      "type": "juju_application",
+      "name": "self-signed-certificates",
+      "instances": [
+        {"attributes": {"name": "ca", "resources": {}, "storage_directives": {}}}
+      ]
+    },
+    {
+      "module": "module.cos_lite.module.grafana",
+      "mode": "managed",
+      "type": "juju_application",
+      "name": "grafana",
+      "instances": [
+        {"attributes": {"name": "grafana", "resources": {}}}
+      ]
+    }
+  ]
+}`))
+}
+
+// The direction NormalizeNullAttributes cannot do: overwrite a non-null value
+// with null, which is what the ssc regression required.
+func TestSetAttributes_WritesNull(t *testing.T) {
+	dir := t.TempDir()
+	setAttrsFixture(t, dir)
+	const addr = "module.cos_lite.module.ssc[0].juju_application.self-signed-certificates"
+
+	n, err := state.SetAttributes(dir, map[string]map[string]interface{}{
+		addr: {"resources": nil, "storage_directives": nil},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("changed = %d, want 2", n)
+	}
+	got := readTestState(t, dir)
+	attrs := got["resources"].([]interface{})[0].(map[string]interface{})["instances"].([]interface{})[0].(map[string]interface{})["attributes"].(map[string]interface{})
+	for _, k := range []string{"resources", "storage_directives"} {
+		v, present := attrs[k]
+		if !present {
+			t.Errorf("%s should still be present", k)
+		}
+		if v != nil {
+			t.Errorf("%s = %v, want null", k, v)
+		}
+	}
+	// The other resource must be untouched.
+	other := got["resources"].([]interface{})[1].(map[string]interface{})["instances"].([]interface{})[0].(map[string]interface{})["attributes"].(map[string]interface{})
+	if m, ok := other["resources"].(map[string]interface{}); !ok || m == nil {
+		t.Errorf("unrelated resource was modified: %#v", other["resources"])
+	}
+}
+
+// Per-address targeting is the whole point: the old approach applied one flat
+// default map to every imported resource.
+func TestSetAttributes_IsPerAddress(t *testing.T) {
+	dir := t.TempDir()
+	setAttrsFixture(t, dir)
+	n, err := state.SetAttributes(dir, map[string]map[string]interface{}{
+		"module.cos_lite.module.grafana.juju_application.grafana": {"resources": nil},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("changed = %d, want 1 (only the addressed resource)", n)
+	}
+}
+
+// Attributes absent from an instance, and addresses absent from state, are
+// ignored rather than invented.
+func TestSetAttributes_IgnoresAbsent(t *testing.T) {
+	dir := t.TempDir()
+	setAttrsFixture(t, dir)
+	n, err := state.SetAttributes(dir, map[string]map[string]interface{}{
+		"module.cos_lite.module.grafana.juju_application.grafana": {"no_such_attr": nil},
+		"juju_application.does_not_exist":                         {"resources": nil},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("changed = %d, want 0", n)
+	}
+}
+
+// A value already equal to the target is not a change, so the state file is not
+// rewritten needlessly.
+func TestSetAttributes_NoOpWhenAlreadyEqual(t *testing.T) {
+	dir := t.TempDir()
+	setAttrsFixture(t, dir)
+	n, err := state.SetAttributes(dir, map[string]map[string]interface{}{
+		"module.cos_lite.module.grafana.juju_application.grafana": {
+			"resources": map[string]interface{}{},
+			"name":      "grafana",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("changed = %d, want 0", n)
+	}
+}
+
+func TestSetAttributes_EmptyAndMissingState(t *testing.T) {
+	if n, err := state.SetAttributes(t.TempDir(), nil); err != nil || n != 0 {
+		t.Errorf("nil overrides: n=%d err=%v", n, err)
+	}
+	if n, err := state.SetAttributes(t.TempDir(), map[string]map[string]interface{}{
+		"a": {"b": nil},
+	}); err != nil || n != 0 {
+		t.Errorf("missing state file should be a no-op: n=%d err=%v", n, err)
 	}
 }

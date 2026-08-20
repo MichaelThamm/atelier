@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	tfjson "github.com/hashicorp/terraform-json"
+
 	"github.com/MichaelThamm/atelier/internal/tfexec"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
@@ -20,6 +22,9 @@ type PlanResult struct {
 	// Used for matching live objects to module addresses even when the state
 	// is partially populated.
 	AllModuleResources []PlannedResource
+	// Plan is the raw parsed plan, for callers that need the full action
+	// breakdown (e.g. the dry-run preview via SummarizePlan).
+	Plan *tfjson.Plan
 }
 
 // PlanCreates runs `terraform plan` against the target module *before* any
@@ -69,8 +74,9 @@ func PlanCreates(ctx context.Context, opts Options) (*PlanResult, error) {
 		return nil, err
 	}
 	return &PlanResult{
-		Creates:           PlannedCreates(plan, false),
+		Creates:            PlannedCreates(plan, false),
 		AllModuleResources: PlannedCreates(plan, true),
+		Plan:               plan,
 	}, nil
 }
 

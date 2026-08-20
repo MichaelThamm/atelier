@@ -6,33 +6,33 @@ import (
 
 func TestClassifyError_MissingRequiredArgument(t *testing.T) {
 	cases := []struct {
-		name     string
-		errMsg   string
-		wantHint bool
+		name        string
+		errMsg      string
+		wantHint    bool
 		wantSummary string
 	}{
 		{
-			name:     "missing s3_endpoint",
-			errMsg:   `Error: Missing required argument; The argument "s3_endpoint" is required, but no definition was found.`,
-			wantHint: true,
+			name:        "missing s3_endpoint",
+			errMsg:      `Error: Missing required argument; The argument "s3_endpoint" is required, but no definition was found.`,
+			wantHint:    true,
 			wantSummary: "Required variable not set: s3_endpoint",
 		},
 		{
-			name:     "missing model_uuid",
-			errMsg:   `Error: Missing required argument; The argument "model_uuid" is required, but no definition was found.`,
-			wantHint: true,
+			name:        "missing model_uuid",
+			errMsg:      `Error: Missing required argument; The argument "model_uuid" is required, but no definition was found.`,
+			wantHint:    true,
 			wantSummary: "Required variable not set: model_uuid",
 		},
 		{
-			name:     "missing generic variable",
-			errMsg:   `Error: Missing required argument; The argument "my_var" is required, but no definition was found.`,
-			wantHint: true,
+			name:        "missing generic variable",
+			errMsg:      `Error: Missing required argument; The argument "my_var" is required, but no definition was found.`,
+			wantHint:    true,
 			wantSummary: "Required variable not set: my_var",
 		},
 		{
-			name:     "missing without variable name",
-			errMsg:   `Error: Missing required argument; A required argument is missing.`,
-			wantHint: true,
+			name:        "missing without variable name",
+			errMsg:      `Error: Missing required argument; A required argument is missing.`,
+			wantHint:    true,
 			wantSummary: "A required variable is not set",
 		},
 	}
@@ -190,28 +190,28 @@ func TestClassifyError_InvalidInputError(t *testing.T) {
 
 func TestClassifyError_TransientGitError(t *testing.T) {
 	cases := []struct {
-		name        string
-		errMsg      string
+		name          string
+		errMsg        string
 		wantRetryable bool
 	}{
 		{
-			name:        "could not lock config file",
-			errMsg:      `Error: Failed to download module; Could not download module "loki_operators" (main.tf:1) source code from "git::https://github.com/canonical/loki-operators.git": error downloading 'https://github.com/canonical/loki-operators.git': /usr/bin/git exited with 128: Cloning into '.terraform/modules/loki_operators'...error: could not lock config file .terraform/modules/loki_operators/.git/config: No such file or directory`,
+			name:          "could not lock config file",
+			errMsg:        `Error: Failed to download module; Could not download module "loki_operators" (main.tf:1) source code from "git::https://github.com/canonical/loki-operators.git": error downloading 'https://github.com/canonical/loki-operators.git': /usr/bin/git exited with 128: Cloning into '.terraform/modules/loki_operators'...error: could not lock config file .terraform/modules/loki_operators/.git/config: No such file or directory`,
 			wantRetryable: true,
 		},
 		{
-			name:        "already exists and is not an empty directory",
-			errMsg:      `Error: Failed to download module; Could not download module "loki_operators" (main.tf:1) source code from "git::https://github.com/canonical/loki-operators.git": error downloading 'https://github.com/canonical/loki-operators.git': /usr/bin/git exited with 128: fatal: destination path '.terraform/modules/loki_operators' already exists and is not an empty directory.`,
+			name:          "already exists and is not an empty directory",
+			errMsg:        `Error: Failed to download module; Could not download module "loki_operators" (main.tf:1) source code from "git::https://github.com/canonical/loki-operators.git": error downloading 'https://github.com/canonical/loki-operators.git': /usr/bin/git exited with 128: fatal: destination path '.terraform/modules/loki_operators' already exists and is not an empty directory.`,
 			wantRetryable: true,
 		},
 		{
-			name:        "could not open for reading",
-			errMsg:      `Error: Failed to download module; Could not download module "loki_operators" (main.tf:1) source code from "git::https://github.com/canonical/loki-operators.git": error downloading 'https://github.com/canonical/loki-operators.git': /usr/bin/git exited with 128: Cloning into '.terraform/modules/loki_operators'...fatal: could not open '.terraform/modules/loki_operators/.git/objects/pack/tmp_pack_SBUT7X' for reading: No such file or directory`,
+			name:          "could not open for reading",
+			errMsg:        `Error: Failed to download module; Could not download module "loki_operators" (main.tf:1) source code from "git::https://github.com/canonical/loki-operators.git": error downloading 'https://github.com/canonical/loki-operators.git': /usr/bin/git exited with 128: Cloning into '.terraform/modules/loki_operators'...fatal: could not open '.terraform/modules/loki_operators/.git/objects/pack/tmp_pack_SBUT7X' for reading: No such file or directory`,
 			wantRetryable: true,
 		},
 		{
-			name:        "invalid index-pack output",
-			errMsg:      `Error: Failed to download module; Could not download module "loki_operators" (main.tf:1) source code from "git::https://github.com/canonical/loki-operators.git": error downloading 'https://github.com/canonical/loki-operators.git': /usr/bin/git exited with 128: fatal: fetch-pack: invalid index-pack output`,
+			name:          "invalid index-pack output",
+			errMsg:        `Error: Failed to download module; Could not download module "loki_operators" (main.tf:1) source code from "git::https://github.com/canonical/loki-operators.git": error downloading 'https://github.com/canonical/loki-operators.git': /usr/bin/git exited with 128: fatal: fetch-pack: invalid index-pack output`,
 			wantRetryable: true,
 		},
 	}
@@ -410,4 +410,107 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// Terraform reports every missing required argument at once, which is exactly
+// what a module with several required inputs produces. The hint must name them
+// all rather than only the first.
+func TestCheckMissingRequiredArgument_ReportsAllVariables(t *testing.T) {
+	errMsg := `Missing required argument: The argument "s3_endpoint" is required, but no definition was found. (at main.tf:1)
+Missing required argument: The argument "channel" is required, but no definition was found. (at main.tf:1)
+Missing required argument: The argument "s3_secret_key" is required, but no definition was found. (at main.tf:1)
+Missing required argument: The argument "model_uuid" is required, but no definition was found. (at main.tf:1)
+Missing required argument: The argument "s3_access_key" is required, but no definition was found. (at main.tf:1)`
+
+	hint := ClassifyError(errMsg)
+	if hint == nil {
+		t.Fatal("expected a hint")
+	}
+	if !hint.IsUserConfig {
+		t.Error("missing required variables is a user configuration issue")
+	}
+	for _, want := range []string{"channel", "model_uuid", "s3_access_key", "s3_endpoint", "s3_secret_key"} {
+		if !contains(hint.Summary, want) {
+			t.Errorf("summary should name %q, got %q", want, hint.Summary)
+		}
+	}
+	if !contains(hint.Details, "--var") {
+		t.Errorf("details should show how to supply them, got %q", hint.Details)
+	}
+}
+
+// A single missing variable keeps the targeted per-variable guidance.
+func TestCheckMissingRequiredArgument_SingleKeepsSpecificGuidance(t *testing.T) {
+	hint := ClassifyError(`Missing required argument: The argument "s3_endpoint" is required, but no definition was found.`)
+	if hint == nil {
+		t.Fatal("expected a hint")
+	}
+	if !contains(hint.Summary, "s3_endpoint") {
+		t.Errorf("got %q", hint.Summary)
+	}
+	if !contains(hint.Details, "S3 configuration") {
+		t.Errorf("should keep the S3-specific guidance, got %q", hint.Details)
+	}
+}
+
+// A missing *module* input must never be blamed on --query-var: that flag
+// configures the query engine, not the module. Suggesting it sends the user to a
+// flag they may well have already passed.
+func TestCheckMissingRequiredArgument_ModuleInputDoesNotSuggestQueryVar(t *testing.T) {
+	errMsg := `Missing required argument: The argument "model_uuid" is required, but no definition was found. (at main.tf:1)`
+	hint := ClassifyError(errMsg)
+	if hint == nil {
+		t.Fatal("expected a hint")
+	}
+	if contains(hint.Details, "--query-var") {
+		t.Errorf("a missing module input must not advise --query-var:\n%s", hint.Details)
+	}
+	for _, want := range []string{"--var model_uuid=<value>", "--preset"} {
+		if !contains(hint.Details, want) {
+			t.Errorf("details should mention %q, got:\n%s", want, hint.Details)
+		}
+	}
+}
+
+// The mirror case: a required config attribute missing from a list block in the
+// generated query file *is* fixed with --query-var.
+func TestCheckMissingRequiredArgument_QueryEngineInputSuggestsQueryVar(t *testing.T) {
+	errMsg := `Missing required argument: The argument "model_uuid" is required, but no definition was found. (at ` + DefaultQueryFile + `:5)`
+	hint := ClassifyError(errMsg)
+	if hint == nil {
+		t.Fatal("expected a hint")
+	}
+	if !contains(hint.Details, "--query-var model_uuid=<value>") {
+		t.Errorf("should advise --query-var, got:\n%s", hint.Details)
+	}
+	if contains(hint.Details, "--preset") {
+		t.Errorf("a query-engine input is not a module input:\n%s", hint.Details)
+	}
+}
+
+// Multiple module inputs keep the module remedy, not the query one.
+func TestCheckMissingRequiredArgument_MultipleModuleInputs(t *testing.T) {
+	errMsg := `Missing required argument: The argument "s3_endpoint" is required, but no definition was found. (at main.tf:1)
+Missing required argument: The argument "channel" is required, but no definition was found. (at main.tf:1)`
+	hint := ClassifyError(errMsg)
+	if hint == nil {
+		t.Fatal("expected a hint")
+	}
+	if contains(hint.Details, "--query-var") {
+		t.Errorf("must not advise --query-var:\n%s", hint.Details)
+	}
+	for _, want := range []string{"channel", "s3_endpoint", "--preset"} {
+		if !contains(hint.Summary+hint.Details, want) {
+			t.Errorf("should mention %q", want)
+		}
+	}
+}
+
+func TestPlural(t *testing.T) {
+	if got := plural(1, "it", "them"); got != "it" {
+		t.Errorf("got %q", got)
+	}
+	if got := plural(2, "it", "them"); got != "them" {
+		t.Errorf("got %q", got)
+	}
 }

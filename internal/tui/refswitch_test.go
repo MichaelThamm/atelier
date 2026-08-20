@@ -335,9 +335,9 @@ func TestApplyRefSwitch_populatesDetailText(t *testing.T) {
 	newState := newRefState(t, "traefik", "git::https://example.com/traefik//mod?ref=rev2")
 	m.refModuleIdx = 0
 	m.applyRefSwitch(&RefSwitchResult{
-		State:       newState,
-		LiteralRef:  "rev2",
-		ResolvedSHA: "abc1234deadbeef",
+		State:        newState,
+		LiteralRef:   "rev2",
+		ResolvedSHA:  "abc1234deadbeef",
 		OrphanedVars: []string{"old_var"},
 		NewVars: []tfvars.Variable{
 			{Name: "shiny_new", HasDefault: false},

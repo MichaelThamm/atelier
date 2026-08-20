@@ -267,10 +267,18 @@ Outputs are viewable from within the TUI (see §7.6); a standalone
 ### 6.1 Import subcommand
 
 `atelier import [PROVIDER] [flags]` imports a running deployment into Terraform
-state. Provider-specific import steps (currently Juju only — see ADR-0028)
-handle null normalisation, schema version injection, offer defaults, and model
-UUID injection. The importer package itself remains provider-agnostic; all
-provider-specific logic lives in the CLI layer.
+state. It discovers live resources with `terraform query`, matches them to the
+module's resource addresses, and runs `terraform import` for each match — a
+state-only operation that cannot alter infrastructure.
+
+Provider-specific behaviour (currently Juju only — see ADR-0028) is reached
+through four extension points: a pre-plan preflight step, a post-plan safety
+check, post-import normalisation steps, and an import-ID builder. Provider
+*detection and wiring* live in the CLI layer; the provider-specific code itself
+lives in dedicated files (`internal/importer/juju_steps.go`,
+`internal/wrapper/juju.go`, `internal/state/juju.go`), plus the third matching
+phase in `internal/importer/match.go` and the error hints in
+`internal/importer/hints.go`. See ADR-0028 for the full inventory.
 
 Flags:
 
@@ -282,14 +290,30 @@ Flags:
 - `--type <T>` — restrict discovery to the given list-resource type(s).
 - `--var <K=V>` — supply a module variable value (repeatable). Written to
   `main.tf`.
-- `--query-var <K=V>` — supply a query-engine-only value (repeatable). Used
-  by `terraform query` but never written to `main.tf` (e.g. `model_uuid`
-  for the Juju provider).
+- `--query-var <K=V>` — supply a value for the query engine's list blocks
+  (repeatable), e.g. `model_uuid` for the Juju provider. Not a module input in
+  general, so not written to `main.tf` — except that when the module declares a
+  variable of the same name and leaves it unset, that input is seeded from it,
+  so the same value never has to be given twice.
+- `--preset <name>` — apply a named preset from `atelier.local.yaml`
+  (repeatable).
+- `--dry-run` — write an `imports.tf` artifact of the matched resources, plan
+  with it in place, report the preview, and stop. Terraform state is untouched.
 - `--provider-version <ver>` — pin the provider version constraint.
-- `--list` — discover and print live resources without importing.
+- `--list` — print the provider's importable list-resource types and exit.
 - `--no-init` — skip `terraform init` before importing.
 - `--strict` — treat list-resource query errors as fatal (no automatic retry with fewer types).
-- `--verbose` — print per-resource match scoring.
+- `--verbose` — print the full match trace, including every live object.
+
+Variables the module declares without a default must be supplied (via `--var`,
+a `--preset`, or the wrapper): Terraform cannot plan without them, and
+`terraform query` — which loads the root module — rejects the run first.
+Identity values such as the Juju model UUID are not among them; Atelier seeds or
+derives those itself.
+
+Generated inputs (`atelier-import.tfquery.hcl`, `imports.tf`,
+`atelier-import.auto.tfvars`) are removed when a run succeeds and kept only when
+they would help the user retry.
 
 See [docs/how-to/import-juju.md](../docs/how-to/import-juju.md) for a
 worked Juju example.
