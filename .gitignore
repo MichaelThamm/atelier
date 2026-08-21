@@ -5,7 +5,5 @@ terraform.tfstate.backup
 *.tfstate
 *.tfstate.backup
 *.snap
-atelier-import.tfquery.hcl
-atelier-import.auto.tfvars
 /atelier
 /atelier_dev
