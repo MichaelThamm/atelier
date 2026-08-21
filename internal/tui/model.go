@@ -232,7 +232,7 @@ type logsTabMode int
 
 const (
 	logsTabErrors logsTabMode = iota // default: show stderr
-	logsTabLogs                       // show stdout
+	logsTabLogs                      // show stdout
 )
 
 type statusLevel int
@@ -1036,16 +1036,16 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refsLoading = true
 			return m, m.startListRefs()
 		}
-		case "d", "D":
-			// Open ref-switch detail modal when a ref switch summary is available.
-			if m.focus == focusLeft && m.refDetailText != "" {
-				m.refDetail = true
-				return m, nil
-			}
-		case "ctrl+r":
-			m.resetCurrent()
-			return m, m.scheduleValidate()
+	case "d", "D":
+		// Open ref-switch detail modal when a ref switch summary is available.
+		if m.focus == focusLeft && m.refDetailText != "" {
+			m.refDetail = true
+			return m, nil
 		}
+	case "ctrl+r":
+		m.resetCurrent()
+		return m, m.scheduleValidate()
+	}
 
 	if m.focus == focusLeft {
 		return m.handleListKey(msg)

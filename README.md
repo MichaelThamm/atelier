@@ -92,7 +92,7 @@ atelier
 <details>
 <summary>Demo: plan a module deployment</summary>
 
-1. `atelier` or `atelier module add`
+1. `atelier`
 2. Press `[P]` to begin the plan
 3. Investigate the Terraform state changes
 4. Optionally press `[A]` to apply the state
@@ -233,7 +233,7 @@ rationale.
 <details>
 <summary>Demo: saving a preset</summary>
 
-1. `atelier` or `atelier module add`
+1. `atelier`
 2. Fill in all the required variables
 3. Press `[S]` to save the preset
 
@@ -244,7 +244,7 @@ rationale.
 <details>
 <summary>Demo: applying a preset</summary>
 
-1. `atelier` or `atelier module add`
+1. `atelier`
 2. `[F]` to select and apply a preset from a parent directory
 
 ![Applying a preset](docs/gifs/apply-preset.gif)
@@ -277,7 +277,7 @@ unlisted ref) is always accepted. See
 <details>
 <summary>Demo: switch module ref</summary>
 
-1. `atelier` or `atelier module add`
+1. `atelier`
 2. `[R]` to browse module refs
 3. Apply and inspect module changes with `[D]`
 
@@ -325,14 +325,17 @@ See [ADR-0021](docs/adr/0021-tidy-command.md) for the design.
 `atelier import` reconstructs Terraform state for an existing module from a
 running deployment. It discovers live resources via `terraform query`, matches
 them to the module's resource addresses, and runs `terraform import` for each
-match. See [docs/how-to/import-juju.md](docs/how-to/import-juju.md) for a
-step-by-step Juju walkthrough.
+match — a state-only operation that cannot change your infrastructure. Use
+`--dry-run` to review what would be imported, and what the module would still
+create, without touching state. See
+[docs/how-to/import-juju.md](docs/how-to/import-juju.md) for a step-by-step Juju
+walkthrough.
 
 <details>
 <summary>Demo: importing a live deployment</summary>
 
 1. `atelier import`
-2. `atelier` or `atelier module add`
+2. `atelier`
 
 ![Importing a live deployment](docs/gifs/import.gif)
 

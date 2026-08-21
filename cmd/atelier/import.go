@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -60,6 +61,7 @@ func runImport(args []string) error {
 		strict      bool
 		verbose     bool
 		listOnly    bool
+		dryRun      bool
 		config      = map[string]string{}
 		queryConfig = map[string]string{}
 	)
@@ -74,6 +76,8 @@ func runImport(args []string) error {
 			strict = true
 		case a == "--verbose":
 			verbose = true
+		case a == "--dry-run":
+			dryRun = true
 		case a == "--source" || a == "--module" || a == "--ref" || a == "--type" || a == "--var" || a == "--query-var" || a == "--dir" || a == "--provider-version" || a == "--preset":
 			if i+1 >= len(args) {
 				return fmt.Errorf("flag %q requires a value", a)
@@ -202,6 +206,19 @@ func runImport(args []string) error {
 	// terraform plan via main.tf (not just the temp .auto.tfvars, which can't
 	// represent complex types correctly).
 	if wrapperState != nil {
+		// Seed unset module variables from like-named query variables, before
+		// anything runs. `terraform query` loads the root module, so it is the
+		// first command to reject a module argument the wrapper omits — and a
+		// value the user already supplied for the query engine should not have
+		// to be supplied a second time as a module input.
+		//
+		// This cannot be left to the preflight step: preflight runs after the
+		// query, so it is too late to stop the query failing. Nor does it need
+		// to be, since the value is already in hand.
+		if seeded := seedFromQueryVars(wrapperState, queryConfig); len(seeded) > 0 {
+			fmt.Fprintf(os.Stderr, "Using query variable(s) for module input(s): %s\n",
+				strings.Join(seeded, ", "))
+		}
 		applyVarOverrides(wrapperState, config)
 		// Propagate preset values back into config so that downstream
 		// consumers (e.g. JujuBuildImportID which looks up model_uuid
@@ -229,25 +246,51 @@ func runImport(args []string) error {
 		SkipInit:        noInit,
 		Strict:          strict,
 		Verbose:         verbose,
+		DryRun:          dryRun,
 		Types:           types,
 		Config:          config,
 		QueryConfig:     queryConfig,
 		WrapperState:    wrapperState,
 	}
 
-	// Wire provider-specific post-import steps and import ID builder.
-	// Provider detection is in the CLI layer; the importer package itself
-	// remains provider-agnostic.
-	if strings.Contains(provider, "juju") {
+	// Wire provider-specific steps and the import ID builder. Provider detection
+	// lives in the CLI layer; the importer package itself stays
+	// provider-agnostic.
+	//
+	// Detection considers the directory's own declarations as well as the
+	// PROVIDER argument: that argument is only given when Atelier has to
+	// scaffold provider config, so a directory that already declares its
+	// providers would otherwise wire nothing and import nothing.
+	detected := append([]string{provider}, importer.DeclaredProviderSources(dir)...)
+	if hasJujuProvider(detected) {
+		opts.PreflightSteps = []importer.PreflightStep{
+			&importer.JujuModelIdentity{},
+		}
+		opts.PlanChecks = []importer.PlanCheck{
+			&importer.JujuModelConsistency{},
+		}
 		opts.PostImportSteps = []importer.PostImportStep{
-			&importer.JujuNullNormalization{},
+			// Generic: null-versus-empty is a provider-SDK quirk, not a Juju one.
+			&importer.NullEmptyNormalization{},
 			&importer.JujuSchemaVersions{},
 			&importer.JujuOfferDefaults{},
 			&importer.JujuModelUUIDInjection{},
 		}
 		opts.BuildImportID = importer.JujuBuildImportID
+	} else {
+		// Be explicit rather than letting the run reach the end and report every
+		// resource as "could not build an import ID" with no reason given.
+		// Import IDs are provider-specific and not derivable from the schema
+		// (ADR-0028), so support is an explicit per-provider allow-list.
+		fmt.Fprintf(os.Stderr,
+			"note: `atelier import` currently implements import IDs for the Juju provider only.\n"+
+				"  Detected: %s\n"+
+				"  Discovery and matching still run, and every match is reported with the\n"+
+				"  address it belongs to — but nothing will be imported, because Atelier\n"+
+				"  cannot construct import IDs for this provider. You can use the reported\n"+
+				"  matches to run `terraform import` yourself.\n\n",
+			describeProviders(detected))
 	}
-
 	if listOnly {
 		stop := startSpinner("Preparing provider and reading schema…")
 		res, err := importer.Discover(ctx, opts)
@@ -273,37 +316,43 @@ func runImport(args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "Wrote query file:  %s\n", res.QueryFilePath)
 	fmt.Fprintf(os.Stderr, "Queried types:     %s\n", strings.Join(typeList(res.Selected), ", "))
 	if len(res.Skipped) > 0 {
 		fmt.Fprintf(os.Stderr, "Skipped types:     %s\n", strings.Join(res.Skipped, ", "))
 		fmt.Fprintln(os.Stderr, "  (these errored during the query — e.g. a facade unsupported on this")
 		fmt.Fprintln(os.Stderr, "  model kind. Re-run with --strict to make such errors fatal instead.)")
 	}
+	if res.QueryFileRetainedReason != "" {
+		fmt.Fprintf(os.Stderr, "Kept query file:   %s\n", res.QueryFilePath)
+		fmt.Fprintf(os.Stderr, "  (%s — re-run it by hand to reproduce.)\n", res.QueryFileRetainedReason)
+	}
 
-	if len(res.IDs) == 0 {
+	// One linear report. Earlier this had an early return for the zero-import
+	// case, which skipped the unmatched-planned list and the dry-run preview —
+	// precisely the runs where both matter most.
+	switch {
+	case len(res.IDs) > 0:
+		fmt.Fprintf(os.Stderr, "Matched %d resource(s):\n", len(res.IDs))
+		for _, addr := range sortedKeys(res.IDs) {
+			fmt.Fprintf(os.Stderr, "  %s  (import ID: %s)\n", addr, res.IDs[addr])
+		}
+	case res.MatchedCount > 0:
+		// Distinguish "already done" from "could not match anything" — these
+		// look identical in the shape of the run but mean opposite things.
+		fmt.Fprintf(os.Stderr, "\nNothing to import: all %d matched resource(s) are already in state.\n", res.MatchedCount)
+	default:
 		fmt.Fprintln(os.Stderr, "\nNo live resources matched a resource your module wants to create.")
-		if len(res.UnmatchedLive) > 0 {
-			fmt.Fprintf(os.Stderr, "(%d live resource(s) found but none map to an unmanaged module address.)\n", len(res.UnmatchedLive))
-		}
-		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Matched %d resource(s):\n", len(res.IDs))
-	for addr := range res.IDs {
-		fmt.Fprintf(os.Stderr, "  %s  (import ID: %s)\n", addr, res.IDs[addr])
-	}
-
-	if len(res.UnmatchedPlanned) > 0 {
-		fmt.Fprintf(os.Stderr, "\nUnmatched module resources (no single live object identified): %d\n", len(res.UnmatchedPlanned))
-		for _, p := range res.UnmatchedPlanned {
-			fmt.Fprintf(os.Stderr, "  ? %s\n", p.Address)
-		}
-		fmt.Fprintln(os.Stderr, "  (zero or ambiguous live matches — import these manually if needed.)")
-	}
+	reportUnmatchedPlanned(res)
 	if len(res.UnmatchedLive) > 0 {
-		fmt.Fprintf(os.Stderr, "\nUnmatched live resources (not declared by your module): %d\n", len(res.UnmatchedLive))
-		fmt.Fprintln(os.Stderr, "  (e.g. implicit/default resources; left alone.)")
+		reportUnmatchedLive(res)
+	}
+	reportUnresolvedIDs(res)
+
+	if res.Preview != nil {
+		reportDryRun(res)
+		return nil
 	}
 
 	if len(res.Imported) > 0 {
@@ -314,6 +363,164 @@ func runImport(args []string) error {
 	}
 
 	return nil
+}
+
+// reportDryRun summarises a dry run. The number that matters is Add: those are
+// resources the module declares that the import set does *not* cover, so they
+// would be created — duplicating live infrastructure — if the artifact were
+// applied as-is. Terraform-internal types that can never be imported are
+// counted separately because they are expected.
+func reportDryRun(res *importer.Result) {
+	p := res.Preview
+	fmt.Fprintf(os.Stderr, "\nDry run — nothing was imported. Terraform state is untouched.\n")
+	if res.ImportsFilePath != "" {
+		fmt.Fprintf(os.Stderr, "Wrote import artifact: %s\n", res.ImportsFilePath)
+	} else {
+		fmt.Fprintln(os.Stderr, "No import artifact written (nothing to import).")
+	}
+	fmt.Fprintf(os.Stderr, "\nPreview: %d to import, %d to add, %d to change, %d to destroy.\n",
+		p.Import, p.Add, p.Change, p.Destroy)
+	if p.UnimportableAdds > 0 {
+		fmt.Fprintf(os.Stderr, "  %d of those %d additions are Terraform-internal types with no live\n", p.UnimportableAdds, p.Add)
+		fmt.Fprintln(os.Stderr, "  counterpart (e.g. terraform_data), and are expected.")
+	}
+	if len(p.AddAddresses) > 0 {
+		fmt.Fprintf(os.Stderr, "\n  %d resource(s) would be CREATED, not imported:\n", len(p.AddAddresses))
+		for _, a := range p.AddAddresses {
+			fmt.Fprintf(os.Stderr, "    + %s\n", a)
+		}
+		fmt.Fprintln(os.Stderr, "  If these already exist, applying the artifact as-is would duplicate")
+		fmt.Fprintln(os.Stderr, "  them. Resolve them before importing.")
+	} else {
+		fmt.Fprintln(os.Stderr, "\n  Every importable resource the module declares is covered.")
+	}
+	fmt.Fprintf(os.Stderr, "\nTo perform the import, re-run without --dry-run (uses `terraform import`,\n")
+	fmt.Fprintln(os.Stderr, "which only writes state and cannot change infrastructure).")
+	if res.ImportsFilePath != "" {
+		fmt.Fprintf(os.Stderr, "%s is cleared automatically before the next run's plan.\n",
+			importer.DefaultImportsFile)
+	}
+}
+
+// maxLiveNamesShown caps the per-type sample so a deployment with dozens of
+// auto-created secrets does not bury the rest of the report.
+const maxLiveNamesShown = 3
+
+// maxLiveNameLen bounds each name so a line stays readable. Juju identities
+// carry a 36-character model UUID prefix and certificate secrets carry a
+// 64-character hash, either of which would wrap the terminal.
+const maxLiveNameLen = 44
+
+// elide shortens s to at most maxLiveNameLen characters, keeping both ends. The
+// distinguishing part of a generated identifier can be at either end — a
+// prefixed model UUID puts it at the tail, a hashed suffix puts it at the head —
+// so trimming the middle is the only choice that does not depend on knowing the
+// provider's ID format.
+func elide(s string) string {
+	if len(s) <= maxLiveNameLen {
+		return s
+	}
+	const head, tail = 10, 30
+	return s[:head] + "…" + s[len(s)-tail:]
+}
+
+// reportUnmatchedLive lists live objects that map to no module address, grouped
+// by resource type. These are left alone, and most are genuinely implicit —
+// peer relations, auto-created secrets, default storage pools. But an object
+// here that you expected the module to manage means the module is not declaring
+// it, usually because a count or for_each is disabled by a variable, so the
+// address it would occupy does not exist in the plan. Showing them makes that
+// diagnosable instead of invisible.
+func reportUnmatchedLive(res *importer.Result) {
+	fmt.Fprintf(os.Stderr, "\nUnmatched live resources (not declared by your module): %d\n", len(res.UnmatchedLive))
+	for _, g := range importer.GroupUnmatchedLive(res.UnmatchedLive) {
+		shown := g.Names
+		suffix := ""
+		if len(shown) > maxLiveNamesShown {
+			shown = shown[:maxLiveNamesShown]
+			suffix = fmt.Sprintf(", … (+%d more)", g.Count-maxLiveNamesShown)
+		}
+		elided := make([]string, len(shown))
+		for i, n := range shown {
+			elided[i] = elide(n)
+		}
+		fmt.Fprintf(os.Stderr, "  %-18s %3d  %s%s\n", g.Type, g.Count, strings.Join(elided, ", "), suffix)
+	}
+	fmt.Fprintln(os.Stderr, "  Left alone. If your module should be managing one of these, it is not")
+	fmt.Fprintln(os.Stderr, "  declaring it — check for a count/for_each disabled by a variable.")
+	fmt.Fprintln(os.Stderr, "  (--verbose lists every live object in full.)")
+}
+
+// sortedKeys returns a map's keys in sorted order, so reports are stable across
+// runs rather than following Go's randomised map iteration.
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// reportUnmatchedPlanned lists module resources for which no single live object
+// could be identified. Reported on every run, including those that imported
+// nothing: a run where nothing resolved is exactly when this list is the whole
+// story.
+func reportUnmatchedPlanned(res *importer.Result) {
+	if len(res.UnmatchedPlanned) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\nUnmatched module resources (no single live object identified): %d\n", len(res.UnmatchedPlanned))
+	for _, p := range res.UnmatchedPlanned {
+		fmt.Fprintf(os.Stderr, "  ? %s (%s)\n", p.Address, p.Type)
+	}
+	fmt.Fprintln(os.Stderr, "  (zero or ambiguous live matches — import these manually if needed.)")
+}
+
+// reportUnresolvedIDs surfaces resources that were matched to a live object but
+// could not be imported because no import ID could be constructed. Without this
+// they appear in neither the matched nor the unmatched list, so the module ends
+// up silently missing resources that a later apply would try to create.
+func reportUnresolvedIDs(res *importer.Result) {
+	if len(res.UnresolvedIDs) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\nMatched but NOT imported (could not build an import ID): %d\n", len(res.UnresolvedIDs))
+	for _, m := range res.UnresolvedIDs {
+		fmt.Fprintf(os.Stderr, "  ! %s (%s)\n", m.Address, m.ResourceType)
+	}
+	fmt.Fprintln(os.Stderr, "  A later apply would try to CREATE these, duplicating live resources —")
+	fmt.Fprintln(os.Stderr, "  import them manually first. Each was matched to a live object, so the")
+	fmt.Fprintln(os.Stderr, "  address is right; only the provider-specific ID could not be built.")
+}
+
+// hasJujuProvider reports whether any of the given provider source addresses is
+// the Juju provider.
+func hasJujuProvider(sources []string) bool {
+	for _, s := range sources {
+		if strings.Contains(s, "juju") {
+			return true
+		}
+	}
+	return false
+}
+
+// describeProviders renders the detected provider sources for a diagnostic,
+// falling back to a clear phrase when none could be determined.
+func describeProviders(sources []string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range sources {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return "no provider could be determined from the arguments or the directory"
+	}
+	return strings.Join(out, ", ")
 }
 
 // setupSourceModule clones a remote module source, writes an Atelier wrapper,
@@ -375,6 +582,44 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	}
 
 	return dir, res.State, nil
+}
+
+// seedFromQueryVars fills module variables the wrapper leaves unset with
+// like-named --query-var values, returning the names it set.
+//
+// The two flag families are deliberately separate: --query-var configures the
+// query engine's list blocks and is not in general a module input. But when the
+// module happens to declare a variable of the same name, the user has already
+// stated the value, and requiring it twice is friction with no purpose. The Juju
+// provider makes this the common case: model_uuid is a required config attribute
+// on most of its list resources, so every real import supplies it — and a module
+// such as loki-operators also declares model_uuid as a required input.
+//
+// Only unset variables are seeded. A value the user chose is never overwritten,
+// even when it disagrees; a genuine disagreement is caught later by a plan check
+// and refused, which is better than silently rewriting their configuration.
+func seedFromQueryVars(state *wrapper.State, queryConfig map[string]string) []string {
+	if state == nil || len(queryConfig) == 0 {
+		return nil
+	}
+	var seeded []string
+	for _, name := range sortedKeys(queryConfig) {
+		v := state.FindVar(name)
+		if v == nil {
+			continue // not a module input; nothing to do
+		}
+		if cur, ok := state.VariableValue(name); ok && cur != cty.NilVal && !cur.IsNull() {
+			continue // already set — leave the user's value alone
+		}
+		val := convertStringToCty(queryConfig[name], v)
+		if val == cty.NilVal {
+			continue
+		}
+		state.EnsureValues()
+		state.Values[name] = val
+		seeded = append(seeded, name)
+	}
+	return seeded
 }
 
 // applyVarOverrides merges --var flag values into the wrapper state, converting
