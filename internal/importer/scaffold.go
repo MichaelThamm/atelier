@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
@@ -73,28 +72,4 @@ func writeIfAbsent(path string, data []byte) error {
 		return nil // already present; leave it untouched
 	}
 	return os.WriteFile(path, data, 0o644)
-}
-
-// DeclaredProviderSources returns the provider source addresses the directory
-// already declares in its required_providers blocks, sorted.
-//
-// Import needs this for feature detection. The PROVIDER positional argument is
-// only supplied when Atelier has to scaffold provider configuration; a directory
-// that already declares its providers (the no-`--source` mode, or a wrapper
-// Atelier authored earlier) passes nothing, and without reading the declarations
-// back the run cannot tell which provider it is importing — so it would silently
-// wire no provider support and import nothing.
-func DeclaredProviderSources(dir string) []string {
-	rp, err := bootstrap.ReadRequiredProviders(dir)
-	if err != nil {
-		return nil
-	}
-	out := make([]string, 0, len(rp))
-	for _, p := range rp {
-		if p.Source != "" {
-			out = append(out, p.Source)
-		}
-	}
-	sort.Strings(out)
-	return out
 }

@@ -53,21 +53,16 @@ Usage:
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
   atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
-        [--dir PATH] [--type T] [--var K=V] [--query-var K=V] [--dry-run] [--list]
+        [--dir PATH] [--type T] [--var K=V] [--query-var K=V] [--list]
                                                 Import a running deployment into Terraform state. With --source,
                                                 clones a remote module, writes an Atelier wrapper, and imports
                                                 live resources into it. Without --source, imports into an
                                                 already-initialised directory. Discovers live resources via
                                                 'terraform query' (requires terraform >= 1.14), matches them to
                                                 your module's resource addresses by name, and runs
-                                                'terraform import' for each — a state-only operation that
-                                                cannot change infrastructure. PROVIDER (e.g. juju) sets which
-                                                list-resource types to query. For Juju the model UUID is
-                                                derived from the live deployment, so it need not be passed
-                                                as a --var. Variables the module declares without a default
-                                                must still be supplied via --var or --preset.
-                                                --dry-run writes an imports.tf artifact and previews the plan
-                                                without touching state.
+                                                'terraform import' for each. PROVIDER (e.g. juju) sets which
+                                                list-resource types to query. Use --query-var model_uuid=<uuid>
+                                                to supply the model UUID for the Juju query engine.
   atelier --version                            Print the version and exit.
   atelier --help                               Print this help.
 
@@ -688,37 +683,10 @@ func (s *prodRefSwitcher) ListRefs(ctx context.Context) ([]string, error) {
 	return gitops.AvailableRefNames(refs), nil
 }
 
-// isTerminal reports whether f is an interactive terminal.
-//
-// Terminals are character devices; a regular file, a pipe, or a CI log capture
-// is not. This is the whole test needed here, and it avoids a dependency on
-// golang.org/x/term for one predicate.
-func isTerminal(f *os.File) bool {
-	if f == nil {
-		return false
-	}
-	st, err := f.Stat()
-	return err == nil && st.Mode()&os.ModeCharDevice != 0
-}
-
-// startSpinner prints a progress message to stderr and returns a stop function.
-//
-// On a terminal it animates a braille spinner in place and clears the line when
-// stopped. Otherwise it prints the message once and does nothing further.
-//
-// The distinction matters because the animation depends on the carriage return
-// in "\r<frame> <msg>" moving the cursor back to column 0, so each write
-// overwrites the previous one. Nothing interprets \r when stderr is a file or a
-// pipe, so every 100ms tick appends another full copy of the line instead: a
-// single `atelier import` run emitted 1344 of them, burying the actual output.
-// The line-clearing escape sequence has the same problem, appearing as literal
-// "[K" in captured logs.
+// startSpinner launches a background goroutine that prints a braille spinner
+// animation to stderr. It returns a stop function that clears the spinner
+// line and waits for the goroutine to exit.
 func startSpinner(msg string) func() {
-	if !isTerminal(os.Stderr) {
-		fmt.Fprintln(os.Stderr, msg)
-		return func() {}
-	}
-
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	var once sync.Once
 	done := make(chan struct{})

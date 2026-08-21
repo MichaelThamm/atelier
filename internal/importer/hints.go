@@ -2,7 +2,6 @@ package importer
 
 import (
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -92,8 +91,8 @@ func checkTransientGitError(errMsg string) *ErrorHint {
 	// "could not lock config file" - stale git state from parallel runs
 	if strings.Contains(errLower, "could not lock config file") {
 		return &ErrorHint{
-			Summary: "Module download failed (transient git error)",
-			Details: "A parallel terraform process may have left stale git state.\n" +
+			Summary:      "Module download failed (transient git error)",
+			Details:      "A parallel terraform process may have left stale git state.\n" +
 				"This is a transient issue — retry the operation.\n\n" +
 				"To fix this:\n" +
 				"  1. Wait a moment and retry the operation\n" +
@@ -107,8 +106,8 @@ func checkTransientGitError(errMsg string) *ErrorHint {
 	// "already exists and is not an empty directory" - race condition
 	if strings.Contains(errLower, "already exists and is not an empty directory") {
 		return &ErrorHint{
-			Summary: "Module download failed (race condition)",
-			Details: "Another terraform process is currently downloading this module.\n" +
+			Summary:      "Module download failed (race condition)",
+			Details:      "Another terraform process is currently downloading this module.\n" +
 				"This is a transient issue — retry the operation.\n\n" +
 				"To fix this:\n" +
 				"  1. Wait for the other terraform process to complete\n" +
@@ -123,8 +122,8 @@ func checkTransientGitError(errMsg string) *ErrorHint {
 	if strings.Contains(errLower, "could not open") &&
 		strings.Contains(errLower, "for reading: no such file or directory") {
 		return &ErrorHint{
-			Summary: "Module download failed (corrupted clone)",
-			Details: "The module clone appears incomplete or corrupted.\n" +
+			Summary:      "Module download failed (corrupted clone)",
+			Details:      "The module clone appears incomplete or corrupted.\n" +
 				"This is a transient issue — retry the operation.\n\n" +
 				"To fix this:\n" +
 				"  1. Remove the corrupted module: rm -rf .terraform/modules/<module_name>\n" +
@@ -138,8 +137,8 @@ func checkTransientGitError(errMsg string) *ErrorHint {
 	// "invalid index-pack output" - corrupted download
 	if strings.Contains(errLower, "invalid index-pack output") {
 		return &ErrorHint{
-			Summary: "Module download failed (corrupted download)",
-			Details: "The git pack file appears corrupted.\n" +
+			Summary:      "Module download failed (corrupted download)",
+			Details:      "The git pack file appears corrupted.\n" +
 				"This is a transient issue — retry the operation.\n\n" +
 				"To fix this:\n" +
 				"  1. Remove the module: rm -rf .terraform/modules/<module_name>\n" +
@@ -154,8 +153,8 @@ func checkTransientGitError(errMsg string) *ErrorHint {
 	if strings.Contains(errLower, "error downloading") ||
 		strings.Contains(errLower, "/usr/bin/git exited with") {
 		return &ErrorHint{
-			Summary: "Module download failed (git error)",
-			Details: "Git encountered an error while downloading the module.\n" +
+			Summary:      "Module download failed (git error)",
+			Details:      "Git encountered an error while downloading the module.\n" +
 				"This is often a transient issue — retry the operation.\n\n" +
 				"To fix this:\n" +
 				"  1. Wait a moment and retry\n" +
@@ -178,8 +177,8 @@ func checkStalePlanError(errMsg string) *ErrorHint {
 	}
 
 	return &ErrorHint{
-		Summary: "Plan is stale (state changed)",
-		Details: "The plan file is no longer valid because the state was changed\n" +
+		Summary:      "Plan is stale (state changed)",
+		Details:      "The plan file is no longer valid because the state was changed\n" +
 			"by another operation (e.g., another terraform run or external modification).\n\n" +
 			"This is a transient issue — re-run the operation:\n" +
 			"  1. Run: terraform plan\n" +
@@ -203,8 +202,8 @@ func checkProviderInternalError(errMsg string) *ErrorHint {
 	// Check if it's a null value error (user config issue)
 	if strings.Contains(errMsg, "Received null value") {
 		return &ErrorHint{
-			Summary: "Provider received null value (configuration issue)",
-			Details: "The provider received a null value where it expected a concrete value.\n" +
+			Summary:      "Provider received null value (configuration issue)",
+			Details:      "The provider received a null value where it expected a concrete value.\n" +
 				"This is NOT a provider bug — it's a configuration issue.\n\n" +
 				"To fix this:\n" +
 				"  1. Check that all required variables are set (especially sensitive ones)\n" +
@@ -227,8 +226,8 @@ func checkModelError(errMsg string) *ErrorHint {
 	if strings.Contains(errMsg, "unknown model:") ||
 		strings.Contains(errMsg, "model not found") {
 		return &ErrorHint{
-			Summary: "Model not found (incorrect UUID)",
-			Details: "The specified Juju model was not found.\n" +
+			Summary:      "Model not found (incorrect UUID)",
+			Details:      "The specified Juju model was not found.\n" +
 				"This is NOT a provider issue — the model UUID is incorrect or the model doesn't exist.\n\n" +
 				"To fix this:\n" +
 				"  1. Verify the model exists: juju models\n" +
@@ -247,8 +246,8 @@ func checkModelError(errMsg string) *ErrorHint {
 		strings.Contains(errMsg, "got error:") &&
 		strings.Contains(errMsg, "unknown model") {
 		return &ErrorHint{
-			Summary: "Model not found (incorrect UUID)",
-			Details: "The operation failed because the Juju model was not found.\n" +
+			Summary:      "Model not found (incorrect UUID)",
+			Details:      "The operation failed because the Juju model was not found.\n" +
 				"This is NOT a provider issue — the model UUID is incorrect.\n\n" +
 				"To fix this:\n" +
 				"  1. Verify the model exists: juju models\n" +
@@ -268,12 +267,10 @@ func checkMissingRequiredArgument(errMsg string) *ErrorHint {
 		return nil
 	}
 
-	// Collect every missing variable, not just the first: Terraform reports all
-	// of them in one go, and a module with several required inputs is exactly
-	// when this hint is most useful.
+	// Extract the variable name from the error
 	varPattern := regexp.MustCompile(`Missing required argument.*?["'](\w+)["']`)
-	all := varPattern.FindAllStringSubmatch(errMsg, -1)
-	if len(all) == 0 {
+	matches := varPattern.FindStringSubmatch(errMsg)
+	if len(matches) < 2 {
 		return &ErrorHint{
 			Summary:      "A required variable is not set",
 			Details:      "The module requires a variable that hasn't been provided.\nCheck the module's variables.tf to see which variables are required.",
@@ -281,79 +278,37 @@ func checkMissingRequiredArgument(errMsg string) *ErrorHint {
 		}
 	}
 
-	seen := map[string]bool{}
-	var names []string
-	for _, m := range all {
-		if !seen[m[1]] {
-			seen[m[1]] = true
-			names = append(names, m[1])
-		}
-	}
-	sort.Strings(names)
-
-	// The remedy depends on *which block* is missing the argument, and the two
-	// are not interchangeable:
-	//
-	//   - the wrapper's module {} block is missing a module input, fixed with
-	//     --var, a --preset, or by editing the wrapper;
-	//   - a list {} block in the generated query file is missing a required
-	//     config attribute, fixed with --query-var.
-	//
-	// Both produce the identical "Missing required argument" text, so the
-	// diagnostic's file reference is what tells them apart. Getting this wrong
-	// sends the user to the flag they already passed.
-	if strings.Contains(errMsg, DefaultQueryFile) {
-		return &ErrorHint{
-			Summary: "Query engine input not set: " + strings.Join(names, ", "),
-			Details: "The provider's list resources require " + plural(len(names), "this argument", "these arguments") + "\n" +
-				"to know what to enumerate. This is NOT a provider issue.\n\n" +
-				"To fix this, supply " + plural(len(names), "it", "them") + " to the query engine and re-run:\n" +
-				"  --query-var " + strings.Join(names, "=<value> --query-var ") + "=<value>",
-			IsUserConfig: true,
-		}
-	}
-
-	// A module input. Note that --query-var is deliberately *not* offered here:
-	// it configures the query engine, not the module, so suggesting it when the
-	// module block is what lacks a value is actively misleading.
+	varName := matches[1]
 	hint := &ErrorHint{
-		Summary:      "Required variable not set: " + strings.Join(names, ", "),
+		Summary:      "Required variable not set: " + varName,
 		IsUserConfig: true,
 	}
-	fix := "To fix this, supply " + plural(len(names), "it", "them") + " and re-run:\n" +
-		"  --var " + strings.Join(names, "=<value> --var ") + "=<value>\n" +
-		"or set " + plural(len(names), "it", "them") + " in the wrapper, or apply a --preset that covers " +
-		plural(len(names), "it", "them") + "."
 
+	// Provide specific guidance for common variables
 	switch {
-	case len(names) > 1:
-		hint.Details = "The module declares " + plural(len(names), "this variable", "these variables") +
-			" without a default, so Terraform\ncannot plan until every one has a value. This is a configuration issue,\n" +
-			"not a provider bug.\n\n" + fix
-	case strings.Contains(names[0], "s3"):
-		hint.Details = "The module needs S3 configuration. This is NOT a provider issue.\n\n" + fix +
-			"\n\nRelated variables are usually set together: s3_endpoint, s3_access_key, s3_secret_key."
-	case strings.Contains(names[0], "model") && strings.Contains(names[0], "uuid"):
-		hint.Details = "This module takes the model UUID as an input variable, so it has to be\n" +
-			"set on the module itself. A query variable configures only the discovery\n" +
-			"step and is not passed through to the module. Atelier seeds the module\n" +
-			"input automatically when a query variable of the same name exists, so\n" +
-			"seeing this means none was supplied either.\n\n" + fix +
-			"\n\nFind your model UUID with: juju models --format yaml | grep uuid"
+	case strings.Contains(varName, "s3"):
+		hint.Details = "The " + varName + " variable is required but not set.\n" +
+			"This is NOT a provider issue — the module needs S3 configuration.\n\n" +
+			"To fix this:\n" +
+			"  1. Set the variable in your wrapper: " + varName + " = \"<value>\"\n" +
+			"  2. Or provide it via --var " + varName + "=<value>\n\n" +
+			"Common S3 variables: s3_endpoint, s3_access_key, s3_secret_key"
+	case strings.Contains(varName, "model") && strings.Contains(varName, "uuid"):
+		hint.Details = "The model UUID variable is required but not set.\n" +
+			"This is NOT a provider issue — you need to specify which Juju model to target.\n\n" +
+			"To fix this:\n" +
+			"  1. Set model_uuid in your wrapper\n" +
+			"  2. Or provide it via --query-var model_uuid=<uuid>\n\n" +
+			"Find your model UUID with: juju models --format yaml | grep uuid"
 	default:
-		hint.Details = "The module requires '" + names[0] + "' to be set.\n" +
-			"This is a configuration issue, not a provider bug.\n\n" + fix
+		hint.Details = "The module requires '" + varName + "' to be set.\n" +
+			"This is a configuration issue, not a provider bug.\n\n" +
+			"To fix this:\n" +
+			"  1. Set the variable in your wrapper\n" +
+			"  2. Or provide it via --var " + varName + "=<value>"
 	}
 
 	return hint
-}
-
-// plural picks between a singular and a plural phrasing.
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
 }
 
 // checkProviderConfigError detects provider configuration errors that are
@@ -367,8 +322,8 @@ func checkProviderConfigError(errMsg string) *ErrorHint {
 	}
 
 	return &ErrorHint{
-		Summary: "Provider configuration mismatch",
-		Details: "The module requires a provider configuration that isn't available.\n" +
+		Summary:      "Provider configuration mismatch",
+		Details:      "The module requires a provider configuration that isn't available.\n" +
 			"This is NOT a provider bug — it's a configuration issue.\n\n" +
 			"To fix this:\n" +
 			"  1. Ensure your wrapper has a providers.tf with the required provider\n" +
@@ -418,8 +373,8 @@ func checkConnectionError(errMsg string) *ErrorHint {
 		strings.Contains(errLower, "dial tcp") ||
 		strings.Contains(errLower, "no route to host") {
 		return &ErrorHint{
-			Summary: "Connection failed",
-			Details: "Cannot connect to the target service.\n" +
+			Summary:      "Connection failed",
+			Details:      "Cannot connect to the target service.\n" +
 				"This is NOT a provider issue — it's a network/connectivity problem.\n\n" +
 				"To fix this:\n" +
 				"  1. Check that the target service is running\n" +
@@ -435,8 +390,8 @@ func checkConnectionError(errMsg string) *ErrorHint {
 		strings.Contains(errLower, "permission denied") ||
 		strings.Contains(errLower, "access denied") {
 		return &ErrorHint{
-			Summary: "Authentication failed",
-			Details: "Authentication or authorization failed.\n" +
+			Summary:      "Authentication failed",
+			Details:      "Authentication or authorization failed.\n" +
 				"This is NOT a provider issue — check your credentials.\n\n" +
 				"To fix this:\n" +
 				"  1. Verify your credentials are correct\n" +
@@ -456,8 +411,8 @@ func checkInvalidInputError(errMsg string) *ErrorHint {
 	// Invalid model UUID patterns
 	if strings.Contains(errLower, "invalid") && strings.Contains(errLower, "uuid") {
 		return &ErrorHint{
-			Summary: "Invalid UUID format",
-			Details: "The provided UUID is not in a valid format.\n" +
+			Summary:      "Invalid UUID format",
+			Details:      "The provided UUID is not in a valid format.\n" +
 				"This is NOT a provider issue — check your input.\n\n" +
 				"To fix this:\n" +
 				"  1. Verify the UUID is in the correct format (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)\n" +
@@ -471,8 +426,8 @@ func checkInvalidInputError(errMsg string) *ErrorHint {
 	if strings.Contains(errLower, "invalid") && strings.Contains(errLower, "url") ||
 		strings.Contains(errLower, "invalid") && strings.Contains(errLower, "endpoint") {
 		return &ErrorHint{
-			Summary: "Invalid URL or endpoint",
-			Details: "The provided URL or endpoint is not valid.\n" +
+			Summary:      "Invalid URL or endpoint",
+			Details:      "The provided URL or endpoint is not valid.\n" +
 				"This is NOT a provider issue — check your configuration.\n\n" +
 				"To fix this:\n" +
 				"  1. Verify the URL format (include https:// if needed)\n" +
