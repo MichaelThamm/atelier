@@ -63,8 +63,8 @@ func Locate() (string, error) {
 // opaque: it exists primarily so tests can substitute a stub via the
 // Operations interface.
 type Terraform struct {
-	tf          *tfexec.Terraform
-	stderrFile  *os.File // log file handle for .atelier/logs/tf-stderr.log
+	tf         *tfexec.Terraform
+	stderrFile *os.File // log file handle for .atelier/logs/tf-stderr.log
 }
 
 // New returns a Terraform pinned to the wrapper directory `workdir`. If

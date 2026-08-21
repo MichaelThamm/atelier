@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zclconf/go-cty/cty"
@@ -557,4 +558,132 @@ func TestMergeWrapperStateIntoConfig_NilState(t *testing.T) {
 	if len(config) != 1 || config["existing"] != "value" {
 		t.Errorf("config should be unchanged, got %v", config)
 	}
+}
+
+// --- elide (unmatched-live report) ---
+
+func TestElidePassesShortNamesThrough(t *testing.T) {
+	for _, s := range []string{"kubernetes", "admin-password", ""} {
+		if got := elide(s); got != s {
+			t.Errorf("elide(%q) = %q, want unchanged", s, got)
+		}
+	}
+}
+
+// Both ends of a long identifier must survive: a prefixed model UUID puts the
+// distinguishing part at the tail, a hashed suffix puts it at the head.
+func TestElideKeepsBothEnds(t *testing.T) {
+	long := "b62cdacf-9e9b-4e35-8c5e-e334930e2b02:alertmanager:replicas"
+	got := elide(long)
+	if len([]rune(got)) > maxLiveNameLen {
+		t.Errorf("elided to %d runes, want <= %d: %q", len([]rune(got)), maxLiveNameLen, got)
+	}
+	if got[:10] != long[:10] {
+		t.Errorf("head not preserved: %q", got)
+	}
+	if got[len(got)-30:] != long[len(long)-30:] {
+		t.Errorf("tail not preserved: %q", got)
+	}
+}
+
+// --- provider detection for feature wiring ---
+
+// The PROVIDER positional is only supplied when Atelier must scaffold provider
+// config. A directory that already declares its providers passes nothing, so
+// detection has to consider the directory's own declarations or the run silently
+// wires no provider support and imports nothing.
+func TestHasJujuProvider(t *testing.T) {
+	cases := []struct {
+		name    string
+		sources []string
+		want    bool
+	}{
+		{"from positional", []string{"juju/juju"}, true},
+		{"fully qualified", []string{"registry.terraform.io/juju/juju"}, true},
+		{"empty positional, declared in dir", []string{"", "juju/juju"}, true},
+		{"alongside other providers", []string{"", "hashicorp/null", "juju/juju"}, true},
+		{"non-juju only", []string{"", "hashicorp/aws"}, false},
+		{"nothing detected", []string{""}, false},
+		{"nil", nil, false},
+	}
+	for _, c := range cases {
+		if got := hasJujuProvider(c.sources); got != c.want {
+			t.Errorf("%s: hasJujuProvider(%v) = %v, want %v", c.name, c.sources, got, c.want)
+		}
+	}
+}
+
+func TestDescribeProviders(t *testing.T) {
+	if got := describeProviders([]string{"", "juju/juju", "juju/juju"}); got != "juju/juju" {
+		t.Errorf("duplicates and blanks should collapse, got %q", got)
+	}
+	if got := describeProviders([]string{"", ""}); !strings.Contains(got, "no provider could be determined") {
+		t.Errorf("got %q, want the undetermined phrase", got)
+	}
+}
+
+// --- seedFromQueryVars ---
+
+func seedState(t *testing.T, vars ...tfvars.Variable) *wrapper.State {
+	t.Helper()
+	return &wrapper.State{Vars: vars, Values: map[string]cty.Value{}}
+}
+
+// The reported friction: loki-operators declares model_uuid as a required input,
+// and the Juju provider requires it as a query config attribute, so the user had
+// to pass the same value twice. Seeding removes the second.
+func TestSeedFromQueryVars_FillsUnsetDeclaredVariable(t *testing.T) {
+	s := seedState(t, mustVarT(t, "model_uuid", "string", cty.NilVal, false))
+	got := seedFromQueryVars(s, map[string]string{"model_uuid": "d91636be-bb4c-46fe-8691-a3aee6f07ef6"})
+	if len(got) != 1 || got[0] != "model_uuid" {
+		t.Fatalf("seeded = %v, want [model_uuid]", got)
+	}
+	if v := s.Values["model_uuid"]; v.AsString() != "d91636be-bb4c-46fe-8691-a3aee6f07ef6" {
+		t.Errorf("model_uuid = %v", v)
+	}
+}
+
+// A query variable that is not a module input must not be injected — the two
+// flag families stay separate except where the names genuinely coincide.
+func TestSeedFromQueryVars_IgnoresUndeclaredNames(t *testing.T) {
+	s := seedState(t, mustVarT(t, "channel", "string", cty.NilVal, false))
+	if got := seedFromQueryVars(s, map[string]string{"offer_url": "admin/m.o"}); len(got) != 0 {
+		t.Errorf("seeded = %v, want none", got)
+	}
+	if _, ok := s.Values["offer_url"]; ok {
+		t.Error("offer_url must not be written to the wrapper")
+	}
+}
+
+// A value the user chose is never overwritten, even when it disagrees. A genuine
+// disagreement is refused later by the model-consistency plan check, which is
+// better than silently rewriting their configuration.
+func TestSeedFromQueryVars_NeverOverwritesUserValue(t *testing.T) {
+	s := seedState(t, mustVarT(t, "model_uuid", "string", cty.NilVal, false))
+	s.Values["model_uuid"] = cty.StringVal("chosen-by-user")
+	if got := seedFromQueryVars(s, map[string]string{"model_uuid": "from-query"}); len(got) != 0 {
+		t.Errorf("seeded = %v, want none", got)
+	}
+	if s.Values["model_uuid"].AsString() != "chosen-by-user" {
+		t.Errorf("user value was overwritten: %v", s.Values["model_uuid"])
+	}
+}
+
+func TestSeedFromQueryVars_NilInputs(t *testing.T) {
+	if got := seedFromQueryVars(nil, map[string]string{"a": "b"}); got != nil {
+		t.Errorf("nil state: got %v", got)
+	}
+	if got := seedFromQueryVars(seedState(t), nil); got != nil {
+		t.Errorf("no query vars: got %v", got)
+	}
+}
+
+// mustVarT builds a variable declaration from a type expression.
+func mustVarT(t *testing.T, name, typeSrc string, def cty.Value, hasDef bool) tfvars.Variable {
+	t.Helper()
+	tp, err := tftypes.ParseTypeExpr(typeSrc)
+	if err != nil {
+		t.Fatalf("parse type %q: %v", typeSrc, err)
+	}
+	return tfvars.Variable{Name: name, Type: tp, HasDefault: hasDef, Default: def, Nullable: true}
 }
