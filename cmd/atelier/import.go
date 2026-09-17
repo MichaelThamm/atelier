@@ -62,6 +62,7 @@ func runImport(args []string) error {
 		verbose     bool
 		listOnly    bool
 		dryRun      bool
+		yes         bool
 		config      = map[string]string{}
 		queryConfig = map[string]string{}
 	)
@@ -70,6 +71,8 @@ func runImport(args []string) error {
 		switch {
 		case a == "--list":
 			listOnly = true
+		case a == "--yes" || a == "-y":
+			yes = true
 		case a == "--no-init":
 			noInit = true
 		case a == "--strict":
@@ -178,6 +181,21 @@ func runImport(args []string) error {
 	}
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return fmt.Errorf("directory does not exist: %s", dir)
+	}
+
+	// When --source is given, import bootstraps a wrapper in dir, so it needs
+	// the same target-directory confirmation as `module add` — the failure mode
+	// is identical, and `--dir` makes it easier to hit by accident. Without
+	// --source the directory is expected to be an existing Terraform root and
+	// nothing is scaffolded, so there is nothing to warn about.
+	if sourceArg != "" && !isWrapperDir(dir) {
+		ok, err := confirmTargetDir(dir, "Bootstrap an Atelier wrapper in", yes)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
 	}
 
 	// When --source is given, clone the module and write an Atelier wrapper
@@ -552,6 +570,20 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
+	// As in `module add`, a bootstrap that fails partway must not leave a clone
+	// behind in a directory that never became a wrapper — but only remove
+	// .atelier/ if this run is what created it.
+	atelierDir := filepath.Join(dir, wrapper.AtelierDir)
+	createdAtelierDir := false
+	if _, err := os.Stat(atelierDir); os.IsNotExist(err) {
+		createdAtelierDir = true
+	}
+	cleanup := func() {
+		if createdAtelierDir {
+			_ = os.RemoveAll(atelierDir)
+		}
+	}
+
 	stop := startSpinner("Cloning and preparing module…")
 	res, err := bootstrap.InitNew(ctx, bootstrap.InitOptions{
 		WrapperDir: dir,
@@ -561,11 +593,13 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	})
 	stop()
 	if err != nil {
+		cleanup()
 		return "", nil, err
 	}
 
 	if res.State == nil {
 		// Multiple candidates — user needs --module.
+		cleanup()
 		fmt.Fprintln(os.Stderr, "Multiple module candidates found. Re-run with --module <path>:")
 		for _, c := range res.Candidates {
 			label := c.Path

@@ -343,7 +343,7 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 	for i := range state.Vars {
 		tfvarsLike[i] = state.Vars[i]
 	}
-	if err := wrapper.Bootstrap(wrapper.BootstrapOptions{
+	report, err := wrapper.Bootstrap(wrapper.BootstrapOptions{
 		Dir:               opts.WrapperDir,
 		ModuleBlockName:   state.ModuleBlockName,
 		Source:            state.Source,
@@ -351,9 +351,17 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		RequiredProviders: state.RequiredProviders,
 		Providers:         state.Providers,
 		Variables:         ConvertVariables(state.Vars),
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, fmt.Errorf("wrapper bootstrap: %w", err)
 	}
+	// Surface partial writes (e.g. a required_providers block Atelier could
+	// not add because the directory already had one) — a bootstrap that
+	// silently omits provider requirements produces a root `terraform init`
+	// rejects, and the user needs to know which file to fix.
+	warnings := make([]string, 0, len(prep.Warnings)+len(report.Notes))
+	warnings = append(warnings, prep.Warnings...)
+	warnings = append(warnings, report.Notes...)
 
 	// Save session.json.
 	now := time.Now().UTC()
@@ -373,7 +381,7 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		Candidates:  prep.Candidates,
 		ResolvedSHA: sha,
 		LiteralRef:  opts.Ref,
-		Warnings:    prep.Warnings,
+		Warnings:    warnings,
 	}, nil
 }
 

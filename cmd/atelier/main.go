@@ -3,7 +3,7 @@
 // Surface (SPEC §6):
 //
 //	atelier                                     open the wrapper in CWD
-//	atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
+//	atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--yes]
 //	                                            add a module (bootstraps if needed)
 //	atelier module rm <name> [--force]          remove a module from the wrapper
 //	atelier module list                         list modules in the wrapper
@@ -28,6 +28,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-isatty"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
@@ -45,15 +46,17 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 
 Usage:
   atelier                                      Open the wrapper in the current directory.
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
+  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--yes]
                                                Add a module to the wrapper (bootstraps if needed).
+                                               Warns and asks before scaffolding into a directory that
+                                               already holds other files; --yes skips the prompt.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
   atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
-        [--dir PATH] [--type T] [--var K=V] [--query-var K=V] [--dry-run] [--list]
+        [--dir PATH] [--type T] [--var K=V] [--query-var K=V] [--dry-run] [--list] [--yes]
                                                 Import a running deployment into Terraform state. With --source,
                                                 clones a remote module, writes an Atelier wrapper, and imports
                                                 live resources into it. Without --source, imports into an
@@ -690,15 +693,16 @@ func (s *prodRefSwitcher) ListRefs(ctx context.Context) ([]string, error) {
 
 // isTerminal reports whether f is an interactive terminal.
 //
-// Terminals are character devices; a regular file, a pipe, or a CI log capture
-// is not. This is the whole test needed here, and it avoids a dependency on
-// golang.org/x/term for one predicate.
+// This delegates to an isatty(3) check rather than testing os.ModeCharDevice,
+// which was the previous implementation and was wrong: /dev/null is a character
+// device, so `atelier module add < /dev/null` was treated as interactive and the
+// confirmation prompt read an immediate EOF instead of failing with a message
+// telling the user to pass --yes.
 func isTerminal(f *os.File) bool {
 	if f == nil {
 		return false
 	}
-	st, err := f.Stat()
-	return err == nil && st.Mode()&os.ModeCharDevice != 0
+	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
 }
 
 // startSpinner prints a progress message to stderr and returns a stop function.
