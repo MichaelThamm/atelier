@@ -72,6 +72,12 @@ Re-open an existing wrapper (run with no arguments in the wrapper dir):
 atelier
 ```
 
+`module add` writes into the current directory, so it checks the directory first
+and asks before scaffolding into one that already holds other files, sits inside
+another wrapper, or looks like the root of a different project. Pass `--yes` to
+skip the prompt in scripts; without a terminal the command fails rather than
+proceeding.
+
 > **Note:** run `atelier --help` for the full command list, including `atelier
 > module add|rm|list`, `atelier tidy`, and `atelier purge`.
 

@@ -15,7 +15,7 @@ import (
 )
 
 const moduleUsage = `Usage:
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
+  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--yes]
                                                Add a module to the wrapper.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
@@ -45,6 +45,7 @@ type moduleAddOpts struct {
 	As         string // --as: explicit HCL block name
 	Ref        string // --ref: git ref
 	ModulePath string // --module: candidate subdir
+	Yes        bool   // --yes/-y: skip the target-directory confirmation
 }
 
 func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
@@ -53,6 +54,8 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch a {
+		case "--yes", "-y":
+			opts.Yes = true
 		case "--as":
 			i++
 			if i >= len(args) {
@@ -102,15 +105,43 @@ func runModuleAdd(args []string) error {
 		return err
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-
 	// Determine if this is a fresh bootstrap or an additive operation.
 	mainPath := filepath.Join(cwd, wrapper.MainTF)
 	wrapperExists := false
 	if _, err := os.Stat(mainPath); err == nil {
 		wrapperExists = true
 	}
+
+	// Confirm the target directory before writing anything into it. `module
+	// add` has no path argument, so the only thing standing between a
+	// mistyped `cd` and a main.tf in the user's home directory is this check.
+	// An established wrapper (main.tf plus .atelier/) is skipped: the user has
+	// already told us this directory is a wrapper.
+	//
+	// This runs BEFORE the SIGINT handler below is installed, deliberately.
+	// signal.NotifyContext converts Ctrl-C into a context cancellation instead
+	// of terminating the process, so with the handler in place a Ctrl-C at this
+	// prompt is swallowed: the read keeps waiting for a line, and answering `y`
+	// afterwards proceeds with an already-cancelled context and fails with a
+	// bare "context canceled". While the only thing running is a prompt, the
+	// default SIGINT behaviour — exit immediately — is exactly what the user is
+	// asking for.
+	if !isWrapperDir(cwd) {
+		action := "Bootstrap an Atelier wrapper in"
+		if wrapperExists {
+			action = "Add a module block to main.tf in"
+		}
+		ok, err := confirmTargetDir(cwd, action, opts.Yes)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
 
 	if !wrapperExists {
 		// Fresh bootstrap of a new wrapper from the given module URL.
@@ -121,16 +152,32 @@ func runModuleAdd(args []string) error {
 			ModulePath: opts.ModulePath,
 		}
 
+		// A bootstrap that fails partway leaves a clone under .atelier/ in a
+		// directory the user may not have wanted touched at all. Remove it —
+		// but only if this run is what created it, so a retry in a wrapper
+		// that already had state doesn't destroy that state.
+		atelierDir := filepath.Join(cwd, wrapper.AtelierDir)
+		createdAtelierDir := false
+		if _, err := os.Stat(atelierDir); os.IsNotExist(err) {
+			createdAtelierDir = true
+		}
+		cleanup := func() {
+			if createdAtelierDir {
+				_ = os.RemoveAll(atelierDir)
+			}
+		}
+
 		stop := startSpinner("Cloning and preparing module…")
 		defer stop()
 		res, err := bootstrap.InitNew(ctx, initOpts)
 		stop()
 		if err != nil {
+			cleanup()
 			return err
 		}
 		if res.State == nil {
 			// Multiple candidates — user needs --module.
-			_ = os.RemoveAll(filepath.Join(cwd, wrapper.AtelierDir))
+			cleanup()
 			fmt.Println("Multiple module candidates found. Re-run with --module <path>:")
 			for _, c := range res.Candidates {
 				label := c.Path
@@ -146,6 +193,7 @@ func runModuleAdd(args []string) error {
 		if opts.As != "" {
 			res.State.ModuleBlockName = sanitizeBlockName(opts.As)
 			if err := res.State.Write(); err != nil {
+				cleanup()
 				return err
 			}
 		}
@@ -189,15 +237,56 @@ func runModuleAdd(args []string) error {
 	}
 	state := prep.State
 
-	// Determine the block name.
+	existingBlocks, _ := wrapper.ReadModuleBlocks(cwd)
+
+	// Refuse to add a module the wrapper already has at the same ref.
+	//
+	// Without this, uniqueBlockName silently renamed the collision to
+	// `mimir_2` and appended a second block with an identical source, so
+	// running the same `module add` twice quietly declared two copies of the
+	// module. Terraform accepts that config and fails much later, at apply,
+	// with colliding resource names.
+	//
+	// This is an error rather than a prompt because there is a precise way to
+	// say "yes, I really want another instance" — naming it with --as — and
+	// that is better than a yes/no on an ambiguous question. --yes does not
+	// bypass it: the flag means "don't ask me", not "let me build a wrapper
+	// that cannot apply".
+	sameModule, otherRef := findExistingInstances(existingBlocks, state.Source)
+
+	// Determine the block name. An explicit --as that does not collide is the
+	// user distinguishing this instance from the existing one, which is exactly
+	// the signal needed to allow a second copy.
 	blockName := state.ModuleBlockName
+	namedDistinctly := false
 	if opts.As != "" {
 		blockName = sanitizeBlockName(opts.As)
+		namedDistinctly = !blockNameTaken(blockName, existingBlocks)
+	}
+
+	if len(sameModule) > 0 && !namedDistinctly {
+		return duplicateModuleError(sameModule, state.Source, opts.Source)
+	}
+	if len(sameModule) > 0 {
+		fmt.Fprintf(os.Stderr,
+			"warning: %q already references this module at the same ref; adding %q as a second instance.\n"+
+				"         Both blocks must be configured so their resources do not collide.\n",
+			sameModule[0].Name, blockName)
+	}
+	// The same module at a different ref is a supported configuration, but it is
+	// worth saying out loud — an accidental re-add with a different --ref looks
+	// identical to a deliberate two-revision setup.
+	if len(otherRef) > 0 && len(sameModule) == 0 {
+		fmt.Fprintf(os.Stderr, "note: %q already references this module at a different ref (%s).\n",
+			otherRef[0].Name, otherRef[0].Source)
 	}
 
 	// Ensure uniqueness against existing blocks.
-	existingBlocks, _ := wrapper.ReadModuleBlocks(cwd)
-	blockName = uniqueBlockName(blockName, existingBlocks)
+	if taken := blockNameTaken(blockName, existingBlocks); taken {
+		unique := uniqueBlockName(blockName, existingBlocks)
+		fmt.Fprintf(os.Stderr, "note: block name %q is taken; using %q.\n", blockName, unique)
+		blockName = unique
+	}
 	state.ModuleBlockName = blockName
 
 	// Write the new module block to main.tf.
@@ -220,7 +309,7 @@ func runModuleRm(args []string) error {
 	var force bool
 	var name string
 	for _, a := range args {
-		if a == "--force" || a == "-f" {
+		if a == "--force" || a == "-f" || a == "--yes" || a == "-y" {
 			force = true
 		} else if strings.HasPrefix(a, "-") {
 			return fmt.Errorf("unknown flag %q for module rm", a)
@@ -258,12 +347,14 @@ func runModuleRm(args []string) error {
 	}
 
 	if !force {
-		fmt.Fprintf(os.Stderr, "Remove module %q from the wrapper? This removes the module block from main.tf.\n", name)
+		fmt.Fprintf(os.Stderr, "Removing module %q deletes its block from main.tf.\n", name)
 		fmt.Fprintf(os.Stderr, "Note: existing Terraform state for this module is NOT destroyed. Run 'terraform destroy -target=module.%s' first if needed.\n", name)
-		fmt.Fprint(os.Stderr, "Proceed? [y/N] ")
-		var answer string
-		fmt.Scanln(&answer)
-		if answer != "y" && answer != "Y" {
+		ok, err := confirm("Proceed?")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Fprintln(os.Stderr, "aborted")
 			return nil
 		}
 	}
@@ -361,4 +452,113 @@ func uniqueBlockName(blockName string, existing []wrapper.ModuleBlockInfo) strin
 			return candidate
 		}
 	}
+}
+
+// blockNameTaken reports whether any existing block already uses name.
+func blockNameTaken(name string, existing []wrapper.ModuleBlockInfo) bool {
+	for _, blk := range existing {
+		if blk.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// moduleSourceIdentity is the comparable identity of a module reference: which
+// repository, which sub-directory within it, and which ref.
+type moduleSourceIdentity struct {
+	remote string
+	path   string
+	ref    string
+}
+
+// moduleIdentity parses a Terraform module source string into its identity.
+//
+// The comparison is on the parsed parts rather than the raw string because the
+// same module can be written several ways — with or without the `git::` prefix,
+// with or without the `.git` suffix, with a trailing slash — and a raw string
+// compare would call those different modules.
+func moduleIdentity(source string) moduleSourceIdentity {
+	remote, ref := decomposeModuleSource(source)
+	return moduleSourceIdentity{
+		remote: normaliseRemote(remote),
+		path:   strings.Trim(modulePathFromSource(source), "/"),
+		ref:    ref,
+	}
+}
+
+// normaliseRemote reduces a git remote URL to a comparable form. Host names are
+// case-insensitive and the `.git` suffix is optional, so neither should make two
+// references to one repository look distinct.
+func normaliseRemote(remote string) string {
+	s := strings.ToLower(strings.TrimSpace(remote))
+	s = strings.TrimSuffix(s, "/")
+	s = strings.TrimSuffix(s, ".git")
+	return strings.TrimSuffix(s, "/")
+}
+
+// sameModule reports whether two identities name the same module at the same
+// revision.
+func (a moduleSourceIdentity) sameModule(b moduleSourceIdentity) bool {
+	return a.remote == b.remote && a.path == b.path && a.ref == b.ref
+}
+
+// sameModuleDifferentRef reports whether two identities name the same module in
+// the same repository sub-directory, but pinned at different refs. That is a
+// supported configuration — two blocks of one module at two revisions — so it is
+// reported rather than refused.
+func (a moduleSourceIdentity) sameModuleDifferentRef(b moduleSourceIdentity) bool {
+	return a.remote == b.remote && a.path == b.path && a.ref != b.ref
+}
+
+// findExistingInstances splits the wrapper's module blocks into those that
+// already reference exactly the module being added, and those that reference the
+// same module at a different ref.
+//
+// Refs are compared literally, as they are written in main.tf. Resolving each
+// existing block's ref to a SHA would catch `--ref main` duplicating an
+// unpinned block whose HEAD is also main, but it would cost a network round trip
+// per block on every add. The literal compare catches the case that actually
+// happens — the same command run twice — and never blocks a distinct revision.
+func findExistingInstances(existing []wrapper.ModuleBlockInfo, source string) (same, otherRef []wrapper.ModuleBlockInfo) {
+	want := moduleIdentity(source)
+	for _, blk := range existing {
+		if blk.Source == "" {
+			continue
+		}
+		got := moduleIdentity(blk.Source)
+		switch {
+		case want.sameModule(got):
+			same = append(same, blk)
+		case want.sameModuleDifferentRef(got):
+			otherRef = append(otherRef, blk)
+		}
+	}
+	return same, otherRef
+}
+
+// duplicateModuleError explains why an add was refused and how to get what the
+// user probably wanted.
+func duplicateModuleError(dups []wrapper.ModuleBlockInfo, source, sourceArg string) error {
+	names := make([]string, len(dups))
+	for i, blk := range dups {
+		names[i] = fmt.Sprintf("%q", blk.Name)
+	}
+	subject := "module " + names[0]
+	if len(names) > 1 {
+		subject = "modules " + strings.Join(names, ", ")
+	}
+	return fmt.Errorf(`%s already references this module at the same ref:
+  %s
+
+Adding it again would declare a second copy of the same resources, which
+Terraform will try to create alongside the first — usually failing at apply
+with name collisions rather than here.
+
+  configure the existing one:  atelier
+  add a genuinely separate instance:
+                               atelier module add %s --as <name>
+  add it at a different revision:
+                               atelier module add %s --ref <ref>`,
+		subject, source, sourceArg, sourceArg)
 }

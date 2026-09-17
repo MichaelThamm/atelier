@@ -34,12 +34,14 @@ func TestIsTerminal(t *testing.T) {
 		t.Error("nil must not be treated as a terminal")
 	}
 
-	// Documents what the check actually detects: /dev/null is a character
-	// device, so it reads as a terminal. Harmless, since the output is discarded.
+	// /dev/null is a character device, so the old ModeCharDevice check called it
+	// a terminal. That mattered once confirm() started gating on isTerminal:
+	// `atelier module add < /dev/null` was treated as interactive and read an
+	// instant EOF instead of failing with a message naming --yes.
 	if devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
 		defer devNull.Close()
-		if !isTerminal(devNull) {
-			t.Error("expected a character device to read as a terminal")
+		if isTerminal(devNull) {
+			t.Error("/dev/null must not be treated as a terminal")
 		}
 	}
 }

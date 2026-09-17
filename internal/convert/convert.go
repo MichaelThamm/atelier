@@ -191,7 +191,7 @@ func runRelocate(ctx context.Context, opts Options) (*Result, error) {
 
 	// Generate wrapper files.
 	providers := bootstrap.DefaultProviderBlocks(reqProviders)
-	if err := wrapper.Bootstrap(wrapper.BootstrapOptions{
+	if _, err := wrapper.Bootstrap(wrapper.BootstrapOptions{
 		Dir:               opts.Dir,
 		ModuleBlockName:   blockName,
 		Source:            source,

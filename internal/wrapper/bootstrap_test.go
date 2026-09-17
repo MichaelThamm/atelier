@@ -36,7 +36,7 @@ func TestBootstrap_freshWrapper(t *testing.T) {
 		},
 		Variables: []TFVar{required, optional},
 	}
-	if err := Bootstrap(opts); err != nil {
+	if _, err := Bootstrap(opts); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
 
@@ -92,7 +92,7 @@ func TestBootstrap_doesNotOverwriteExistingFiles(t *testing.T) {
 		ModuleBlockName: "x",
 		Source:          "git::https://example.com/m.git?ref=v1",
 	}
-	if err := Bootstrap(opts); err != nil {
+	if _, err := Bootstrap(opts); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(filepath.Join(dir, ReadmeFile))
@@ -112,7 +112,7 @@ func TestBootstrap_validatesOptions(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if err := Bootstrap(c.opts); err == nil {
+			if _, err := Bootstrap(c.opts); err == nil {
 				t.Error("expected error")
 			}
 		})

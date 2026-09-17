@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,7 +16,7 @@ func runPurge(args []string) error {
 	var target string
 
 	for _, a := range args {
-		if a == "--force" || a == "-f" {
+		if a == "--force" || a == "-f" || a == "--yes" || a == "-y" {
 			force = true
 		} else if strings.HasPrefix(a, "-") {
 			return fmt.Errorf("unknown flag %q for purge", a)
@@ -59,16 +58,16 @@ func runPurge(args []string) error {
 
 	// Confirm unless --force.
 	if !force {
-		fmt.Println("The following directories will be removed:")
+		fmt.Fprintln(os.Stderr, "The following directories will be removed:")
 		for _, d := range found {
-			fmt.Printf("  %s\n", d)
+			fmt.Fprintf(os.Stderr, "  %s\n", d)
 		}
-		fmt.Print("Continue? [y/N] ")
-		reader := bufio.NewReader(os.Stdin)
-		answer, _ := reader.ReadString('\n')
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
-			fmt.Println("aborted")
+		ok, err := confirm("Continue?")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Fprintln(os.Stderr, "aborted")
 			return nil
 		}
 	}

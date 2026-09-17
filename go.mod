@@ -11,6 +11,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/hashicorp/terraform-exec v0.25.2
 	github.com/hashicorp/terraform-json v0.27.2
+	github.com/mattn/go-isatty v0.0.20
 	github.com/muesli/termenv v0.16.0
 	github.com/zclconf/go-cty v1.18.1
 	gopkg.in/yaml.v3 v3.0.1
@@ -30,7 +31,6 @@ require (
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect

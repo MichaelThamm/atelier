@@ -148,6 +148,8 @@ Terraform Registry sources are not yet supported.
 
 `atelier module add <git-url>` performs the following sequence:
 
+0. Preflight the target directory (§6.5) and confirm with the user if anything
+   about it looks unintended. Nothing is written before this passes.
 1. Resolve the ref (defaults to the remote's HEAD; overridable via `--ref`).
 2. `git clone --depth 1 --branch <ref>` (or `--depth 1` + `git checkout <sha>`
    for SHA refs) into `.atelier/clone/`.
@@ -241,6 +243,7 @@ atelier module add <git-url>               # add a module to the wrapper (bootst
 atelier module add <git-url> --as <name>   # add with explicit HCL block name
 atelier module add <git-url> --ref <ref>   # add at a specific ref
 atelier module add <git-url> --module <subdir>  # skip the candidate picker
+atelier module add <git-url> --yes         # skip the target-directory confirmation (§6.5)
 atelier module rm <name> [--force]         # remove a module from the wrapper
 atelier module list                        # list modules in the wrapper
 atelier import [PROVIDER] [flags]          # import live resources into Terraform state
@@ -302,6 +305,8 @@ Flags:
 - `--provider-version <ver>` — pin the provider version constraint.
 - `--list` — print the provider's importable list-resource types and exit.
 - `--no-init` — skip `terraform init` before importing.
+- `--yes` / `-y` — skip the target-directory confirmation (§6.5). Only relevant
+  with `--source`, which is the mode that scaffolds a wrapper.
 - `--strict` — treat list-resource query errors as fatal (no automatic retry with fewer types).
 - `--verbose` — print the full match trace, including every live object.
 
@@ -326,7 +331,11 @@ worked Juju example.
 - If a wrapper exists, appends a `module {}` block to `main.tf`.
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
+- Runs the target-directory preflight (§6.5) before writing anything.
+- Refuses to add a module the wrapper already references at the same ref (§6.7).
 - Runs `terraform init` and launches the TUI with the new module focused.
+- If the bootstrap fails partway, removes the `.atelier/` directory it created,
+  leaving the target as it was found.
 
 `atelier module rm <name>` removes a module block, its outputs, and its
 clone. Does not run `terraform apply -destroy` — state cleanup is the user's
@@ -359,12 +368,93 @@ re-introspection on next open.
 | Has wrapper files **and** `.atelier/` | `atelier`          | Open TUI normally.                                                                         |
 | Has wrapper files, missing `.atelier/` | `atelier`          | Auto-rehydrate: parse `main.tf`, re-clone module, repopulate `.atelier/`, open TUI.        |
 | Empty                              | `atelier module add <url>` | Bootstrap wrapper + add module.                                                    |
-| Non-empty, no `main.tf`            | `atelier module add <url>` | Bootstrap; preserve existing files (`.gitignore`, `README.md`, etc.).               |
-| Has existing wrapper               | `atelier module add <url>` | Append module block to existing `main.tf`.                                         |
+| Non-empty, no `main.tf`            | `atelier module add <url>` | Preflight warning + confirmation (§6.5); then bootstrap, preserving existing files.  |
+| Non-empty, hand-authored `.tf` files | `atelier module add <url>` | Preflight warning + confirmation (§6.5); then append, preserving existing blocks.  |
+| Has existing wrapper (`main.tf` + `.atelier/`) | `atelier module add <url>` | Append module block to existing `main.tf`. No prompt.                  |
+| Wrapper already has this module at this ref | `atelier module add <url>` | Error naming the existing block; nothing written (§6.7).                |
 | Any (has `.atelier/` or `.clone/`)  | `atelier purge`    | Prompt, then remove `.atelier/` and `.clone/`. Wrapper files untouched.                    |
 | Any (neither exists)               | `atelier purge`    | Print "nothing to purge".                                                                  |
 
 See [ADR-0002](adr/0002-author-and-plan-scope.md).
+
+### 6.5 Target-directory preflight
+
+`atelier module add` has no path argument and `atelier import --source` defaults
+to the current directory, so both write a wrapper into wherever the shell
+happens to be. Before writing anything, they inspect the target and — if
+anything looks wrong — print the findings and ask for confirmation.
+
+Findings are one of two levels:
+
+- **warning** — prompts. The directory holds files Atelier did not put there,
+  contains Terraform files, sits inside another wrapper, looks like the root of
+  a project of another kind (`go.mod`, `package.json`, `charmcraft.yaml`, …), or
+  is the user's home/config directory or the filesystem root.
+- **note** — printed but never prompts. Describes a write Atelier is about to
+  skip, e.g. an existing `required_providers` block or provider configuration.
+
+Rules:
+
+- A directory that is already a wrapper (`main.tf` **and** `.atelier/`) is never
+  preflighted: the user has already declared its purpose.
+- Files Atelier authors itself (`README.md`, `.gitignore`, `LICENSE`, `.git/`,
+  `.terraform/`, state files) do not count as clutter. A warning users learn to
+  dismiss unread is worse than no warning.
+- `--yes` / `-y` skips the prompt. Findings are still printed.
+- Without a terminal on stdin the command **fails** rather than proceeding,
+  naming `--yes` in the error. Silence is not consent.
+
+The same confirmation path serves `purge` and `module rm`.
+
+See [ADR-0030](adr/0030-target-directory-preflight.md).
+
+### 6.6 Declaration collisions
+
+Bootstrap decides what to write by reading the directory's existing
+declarations, not by checking filenames:
+
+- `versions.tf` is skipped entirely if any `.tf` file already contains a
+  `terraform { required_providers {} }` block, because Terraform permits only
+  one per module. The provider requirements Atelier could not add are reported
+  so the user can add them to their own block.
+- `providers.tf` omits any provider whose local name is already configured,
+  which would otherwise be a "Duplicate provider configuration" error.
+- `main.tf` is never overwritten; a module block is appended to it.
+- An existing `.gitignore` has only the *missing* Atelier patterns appended
+  under a marker comment, so `.atelier/` and `.terraform/` do not show up as
+  untracked files in the user's repository.
+
+See [ADR-0030](adr/0030-target-directory-preflight.md).
+
+### 6.7 Duplicate modules
+
+`module add` compares the module being added against the wrapper's existing
+module blocks by *identity* — remote URL, sub-directory, and literal ref — not by
+block name. Block names are derived, so a duplicate frequently gets a
+non-colliding name and would otherwise pass unnoticed.
+
+| Existing block vs. the add | Behaviour |
+|----------------------------|-----------|
+| Same repo, same sub-dir, same ref | **Error.** Nothing is written. |
+| Same repo, same sub-dir, same ref, plus a free `--as NAME` | Allowed, with a warning. |
+| Same repo, same sub-dir, different ref | Allowed, with a note. |
+| Different repo or different sub-dir | Allowed silently. |
+
+Two blocks of one module at one ref declare two copies of the same resources.
+Terraform accepts the configuration and fails later at apply, on colliding
+resource names — far from the cause. The error is therefore a refusal, not a
+prompt: `--as NAME` is a precise way to say "I do want a separate instance", and
+`--yes` does **not** bypass it.
+
+URL comparison normalises the `git::` prefix, a `.git` suffix, a trailing slash,
+and case. Refs are compared as literally written in `main.tf`: resolving each
+existing block's ref to a SHA would catch `--ref main` duplicating an unpinned
+block already tracking `main`, but at the cost of a network round trip per block
+on every add. The literal compare catches the case that actually occurs — the
+same command run twice — and never blocks a genuinely distinct revision. The
+different-ref note covers the residual gap.
+
+See [ADR-0030](adr/0030-target-directory-preflight.md).
 
 ## 7. TUI layout
 

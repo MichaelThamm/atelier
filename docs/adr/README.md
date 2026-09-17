@@ -37,6 +37,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0027 | [`atelier import` — import live infrastructure into an existing module](0027-atelier-import.md) | Accepted |
 | 0028 | [Provider-specific import IDs — scoped to Juju for v1](0028-provider-specific-import-ids.md) | Accepted |
 | 0029 | [Live logs view (`L`)](0029-live-logs-view.md)                                              | Accepted |
+| 0030 | [Target-directory preflight and duplicate-module refusal](0030-target-directory-preflight.md) | Accepted |
 
 ## Conventions
 
