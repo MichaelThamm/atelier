@@ -1,8 +1,15 @@
 # Atelier integration tests
 
-These tests exercise Atelier end-to-end against a live Juju controller and
-Terraform: Atelier bootstraps a wrapper from a real upstream module, applies a
-preset non-interactively, and Terraform deploys it.
+These tests exercise Atelier end-to-end. They are split into two tiers:
+
+- **`wrapper/`** — feature tests against a real upstream module
+  (`canonical/prometheus-k8s-operator`). They assert what `atelier module add`
+  writes (`--module`, `--ref`, `--preset`, `--as`, `module list`/`rm`, duplicate
+  refusal, non-interactive exit) and run `terraform init`/`validate` to prove
+  the wrapper is deployable. **No Juju model is needed.**
+- **`prometheus/`** — a deployment smoke test: create a model (Jubilant), let
+  Atelier author the wrapper from a preset, then `terraform init` + `apply` and
+  wait for the application to become active. Marked `cloud`.
 
 They are **not** run by `go test`. Locally:
 
@@ -11,34 +18,31 @@ They are **not** run by `go test`. Locally:
 go build -o /tmp/atelier ./cmd/atelier
 export ATELIER_BIN=/tmp/atelier
 
-# Run against your current Juju controller. The tests create their own model
-# and deploy seaweedfs-k8s into it for S3, so no S3 configuration is needed.
-uv run --project tests/integration pytest tests/integration/loki -m cloud -vv --capture=no
+# Feature tests only — no Juju model required.
+uv run --project tests/integration pytest tests/integration -m "not cloud" -vv --capture=no
+
+# Everything, including the deployment, against your current Juju controller.
+uv run --project tests/integration pytest tests/integration -vv --capture=no
 ```
 
 Useful flags and environment variables:
 
 - `--keep-models` (or `KEEP_MODELS=1`) — keep the temporary model for inspection.
 - `INTEGRATION_TIMEOUT` — override the settle timeout in seconds.
-- `SEAWEEDFS_APP` — application name to deploy/reuse for seaweedfs-k8s
-  (default `swfs`). The backend is found by charm name, so an existing app
-  under any label is reused.
-- `SEAWEEDFS_CHANNEL` — charm channel (default `latest/edge`).
-- `SEAWEEDFS_S3_PORT` — S3 port (default `8333`).
+- `PROMETHEUS_CHANNEL` — charm channel for the deployment test (default `dev/edge`).
+- `PROMETHEUS_UNITS` — unit count for the deployment test (default `1`).
 
-## S3 test backend
+## Why prometheus-k8s-operator
 
-The loki workload needs an S3 endpoint. The `s3_endpoint` fixture deploys
-`seaweedfs-k8s` into the test model and derives the endpoint from the model
-status — the equivalent of:
+It is a **real** module that keeps CI fast and simple: a single Terraform root
+under `terraform/`, one application, and no relations or object storage. That
+makes it ideal for documenting the CLI surface without the settle time and
+external dependencies (S3, many charms) of a full product module.
 
-```shell
-juju status --format=yaml | yq -r '"http://" + .applications.<app>.units."<app>/0".address + ":8333"'
-```
-
-but resolved through Jubilant, so the application label and model name do not
-matter. seaweedfs-k8s runs without auth here, so the preset uses placeholder
-credentials.
+Candidate-discovery semantics — multiple Terraform roots, directory exclusions,
+child-module detection — are covered by Go unit tests in `internal/candidate`
+and `internal/bootstrap`, so the integration suite here focuses on the
+end-to-end CLI behaviour.
 
 ## How the wrapper is tested
 
@@ -49,5 +53,5 @@ directory, runs `atelier module add … --preset … --yes` in it (with
 `terraform apply` in that same directory.
 
 See [`.github/workflows/integration.yml`](../../.github/workflows/integration.yml)
-for the CI setup (Juju/Canonical K8s via Concierge; S3 from the seaweedfs-k8s
-application the tests deploy).
+for the CI setup (Juju/Canonical K8s via Concierge; the deployment test deploys
+`prometheus-k8s` into its own model).
