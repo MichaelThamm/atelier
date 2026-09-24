@@ -35,5 +35,6 @@ ATELIER_BIN=/tmp/atelier \
 Set `KEEP_MODELS=true` (or pass `--keep-models`) to keep the temporary Juju
 models when a test fails, so you can inspect them.
 
-CI runs these in [`.github/workflows/integration.yml`](../../.github/workflows/integration.yml)
-against Juju + Canonical K8s prepared by [Concierge](https://github.com/canonical/concierge).
+CI runs these in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) —
+after the `build · vet · test` job passes — against Juju + Canonical K8s
+prepared by [Concierge](https://github.com/canonical/concierge).
