@@ -1,5 +1,5 @@
-name: Test Atelier against Juju and Terraform
-run-name: Atelier integration (${{ inputs.juju-channel }})
+name: Integration
+run-name: Atelier integration (${{ inputs.juju-channel || '3.6/stable' }})
 
 on:
   workflow_dispatch:
@@ -8,18 +8,41 @@ on:
         description: 'The Juju snap channel to prepare the controller with.'
         type: string
         default: 3.6/stable
-  workflow_call:
-    inputs:
-      juju-channel:
-        type: string
-        default: 3.6/stable
+  pull_request:
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "tests/integration/**"
+      - "docs/examples/**"
+      - "go.mod"
+      - "go.sum"
+      - "concierge-k8s.yaml"
+      - ".github/workflows/integration.yml"
+  # Enable to run on merges to main as well:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - "cmd/**"
+  #     - "internal/**"
+  #     - "tests/integration/**"
+  #     - "docs/examples/**"
+  #     - "go.mod"
+  #     - "go.sum"
+  #     - "concierge-k8s.yaml"
+  #     - ".github/workflows/integration.yml"
 
 permissions:
   contents: read
 
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   integration:
     name: Deploy loki-operators with Atelier + Terraform
+    # Swap for a Canonical self-hosted runner if available, e.g.
+    # self-hosted-linux-amd64-noble-large.
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -38,7 +61,7 @@ jobs:
           sudo snap install concierge --classic
           sudo concierge prepare \
             --config concierge-k8s.yaml \
-            --juju-channel ${{ inputs.juju-channel }} \
+            --juju-channel ${{ inputs.juju-channel || '3.6/stable' }} \
             --extra-snaps astral-uv,terraform
 
       - name: Build Atelier
@@ -48,7 +71,6 @@ jobs:
 
       - name: Test deployment
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq jq
           if [[ "${{ runner.debug }}" == "1" ]]; then
             export KEEP_MODELS=true
           fi

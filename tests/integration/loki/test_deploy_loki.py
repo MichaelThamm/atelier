@@ -5,10 +5,11 @@
 Flow under test:
 
 1. Create a temporary Juju model (Jubilant).
-2. Shell out to Atelier to bootstrap a wrapper and configure the module from a
+2. Deploy seaweedfs-k8s into it and discover the S3 endpoint from the model.
+3. Shell out to Atelier to bootstrap a wrapper and configure the module from a
    preset, non-interactively (``stdin=/dev/null`` skips the TUI).
-3. Latch Terraform onto the wrapper Atelier wrote and ``init`` + ``apply`` it.
-4. Assert the model settles active and idle.
+4. Latch Terraform onto the wrapper Atelier wrote and ``init`` + ``apply`` it.
+5. Assert the model settles active and idle.
 """
 
 import jubilant
@@ -32,12 +33,15 @@ EXPECTED_APPS = (
 
 
 @pytest.mark.cloud
-def test_deploy_loki_operators(tf_manager, juju: jubilant.Juju, atelier_bin: str):
+def test_deploy_loki_operators(
+    tf_manager, juju: jubilant.Juju, atelier_bin: str, s3_endpoint: str
+):
     # GIVEN a running Juju model
     model_uuid = juju.show_model(juju.model).model_uuid
 
-    # AND a preset describing the S3-backed loki deployment for that model
-    preset_path = write_preset_file(tf_manager.base, model_uuid)
+    # AND a preset describing the S3-backed loki deployment for that model,
+    # pointing at the seaweedfs S3 endpoint discovered from the model
+    preset_path = write_preset_file(tf_manager.base, model_uuid, s3_endpoint)
 
     # AND a fresh directory for Atelier to author a wrapper into
     wrapper_dir = tf_manager.new_wrapper_dir()

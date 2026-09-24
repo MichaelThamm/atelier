@@ -14,6 +14,14 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+# The S3 test backend. seaweedfs-k8s serves its S3 API on the unit address at
+# port 8333. The application name is arbitrary, so it is discoverable by charm
+# name rather than assumed to be any particular label.
+SEAWEEDFS_CHARM = "seaweedfs-k8s"
+SEAWEEDFS_CHANNEL = "latest/edge"
+SEAWEEDFS_DEFAULT_APP = os.environ.get("SEAWEEDFS_APP", "swfs")
+S3_PORT = int(os.environ.get("SEAWEEDFS_S3_PORT", "8333"))
+
 
 class TfDirManager:
     """Runs Terraform against a wrapper directory authored by Atelier.
@@ -86,26 +94,107 @@ def run_atelier(wrapper_dir, atelier_bin: str, *args: str, env: Optional[dict] =
         )
 
 
+def deploy_seaweedfs(
+    juju: jubilant.Juju,
+    app: Optional[str] = None,
+    channel: Optional[str] = None,
+    timeout: int = 20 * 60,
+) -> str:
+    """Ensure a seaweedfs-k8s S3 backend is deployed and active, and return its app name.
+
+    Idempotent: if the app (or any seaweedfs-k8s app) is already present it is
+    reused rather than redeployed, so the test works whether the S3 backend was
+    deployed here or by the caller.
+    """
+    channel = channel or os.environ.get("SEAWEEDFS_CHANNEL", SEAWEEDFS_CHANNEL)
+    if app is None:
+        try:
+            app = find_seaweedfs_app(juju)
+            logger.info("reusing existing seaweedfs app %r", app)
+        except LookupError:
+            app = SEAWEEDFS_DEFAULT_APP
+    if app not in juju.status().apps:
+        logger.info("deploying %s as %r from %s", SEAWEEDFS_CHARM, app, channel)
+        juju.deploy(SEAWEEDFS_CHARM, app=app, channel=channel)
+    juju.wait(lambda status: jubilant.all_active(status, app), timeout=timeout, delay=5)
+    return app
+
+
+def find_seaweedfs_app(juju: jubilant.Juju, app: Optional[str] = None) -> str:
+    """Return the name of the seaweedfs-k8s application in the model.
+
+    If ``app`` is given it is returned unchecked. Otherwise the model is
+    searched by charm name, so the application label — ``sw``, ``swfs``,
+    ``seaweedfs`` — does not matter.
+    """
+    if app:
+        return app
+    apps = juju.status().apps
+    matches = [name for name, status in apps.items() if _is_seaweedfs(status)]
+    if not matches:
+        raise LookupError(
+            f"no {SEAWEEDFS_CHARM} application found in model {juju.model!r}; "
+            f"apps present: {sorted(apps)}"
+        )
+    return matches[0]
+
+
+def _is_seaweedfs(app_status) -> bool:
+    """Whether an application status is a seaweedfs-k8s deployment.
+
+    Matches on charm name, tolerating a full charm URL (``ch:amd64/…/name``)
+    in the ``charm`` field.
+    """
+    return any(
+        candidate and SEAWEEDFS_CHARM in candidate
+        for candidate in (app_status.charm_name, app_status.charm)
+    )
+
+
+def get_unit_address(juju: jubilant.Juju, app: str, unit_no: int = 0) -> str:
+    """Return the address of ``<app>/<unit_no>`` from the model status."""
+    units = juju.status().apps[app].units
+    unit = units.get(f"{app}/{unit_no}") or next(iter(units.values()))
+    return unit.address
+
+
+def get_s3_endpoint(
+    juju: jubilant.Juju,
+    app: Optional[str] = None,
+    port: int = S3_PORT,
+) -> str:
+    """Return the S3 endpoint of the seaweedfs app in the model.
+
+    Mirrors ``juju status … | yq .applications.<app>.units."<app>/0".address``
+    but works for any application name and on a Jubilant-managed model.
+    """
+    app = find_seaweedfs_app(juju, app)
+    return f"http://{get_unit_address(juju, app)}:{port}"
+
+
 def write_preset_file(
     directory,
     model_uuid: str,
+    s3_endpoint: str,
     *,
+    s3_access_key: str = "placeholder",
+    s3_secret_key: str = "placeholder",
+    channel: Optional[str] = None,
     name: str = "cos-s3.yaml",
-    env: Optional[dict] = None,
 ) -> Path:
     """Write a runtime preset file for loki-operators and return its path.
 
-    ``model_uuid`` is model-specific, so it cannot live in a checked-in example;
-    the test resolves it from the freshly-created model and writes the file
-    here. The S3 coordinates come from the CI environment (microceph RGW).
+    ``model_uuid`` and ``s3_endpoint`` are runtime values — the model UUID is
+    model-specific and the S3 endpoint is the live seaweedfs unit address — so
+    neither can live in a checked-in example. seaweedfs-k8s runs without auth,
+    so the credentials are placeholders.
     """
-    env = env or os.environ
     sets = {
-        "channel": env.get("LOKI_CHANNEL", "dev/edge"),
+        "channel": channel or os.environ.get("LOKI_CHANNEL", "dev/edge"),
         "model_uuid": model_uuid,
-        "s3_access_key": env["S3_ACCESS_KEY"],
-        "s3_secret_key": env["S3_SECRET_KEY"],
-        "s3_endpoint": env["S3_ENDPOINT"],
+        "s3_access_key": s3_access_key,
+        "s3_secret_key": s3_secret_key,
+        "s3_endpoint": s3_endpoint,
     }
     path = Path(directory) / name
     path.write_text(yaml.safe_dump(sets, sort_keys=False))

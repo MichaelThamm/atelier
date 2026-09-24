@@ -8,7 +8,7 @@ import shutil
 import jubilant
 import pytest
 
-from helpers import TfDirManager
+from helpers import TfDirManager, deploy_seaweedfs, get_s3_endpoint
 
 
 def pytest_addoption(parser):
@@ -55,3 +55,12 @@ def tf_manager(tmp_path_factory) -> TfDirManager:
     """A Terraform manager that latches onto the wrapper Atelier authors."""
     base = tmp_path_factory.mktemp("atelier_wrapper")
     return TfDirManager(base)
+
+
+@pytest.fixture(scope="module")
+def s3_endpoint(juju: jubilant.Juju) -> str:
+    """Deploy a seaweedfs-k8s S3 backend and return its in-model endpoint."""
+    deploy_seaweedfs(juju)
+    endpoint = get_s3_endpoint(juju)
+    print(f"\nseaweedfs S3 endpoint: {endpoint}\n")
+    return endpoint

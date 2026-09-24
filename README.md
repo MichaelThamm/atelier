@@ -402,8 +402,9 @@ Integration tests live in [`tests/integration/`](tests/integration/). They
 create a model with [Jubilant](https://github.com/canonical/jubilant), run
 Atelier non-interactively to author a wrapper from a real upstream module, then
 deploy that wrapper with Terraform. They run in
-[`.github/workflows/terraform.yml`](.github/workflows/terraform.yml) against
-Juju + Canonical K8s prepared by Concierge, with microceph providing S3. See
+[`.github/workflows/integration.yml`](.github/workflows/integration.yml) against
+Juju + Canonical K8s prepared by Concierge, with S3 provided by a seaweedfs-k8s
+application the tests deploy. See
 [tests/integration/README.md](tests/integration/README.md) to run them locally.
 
 ## License

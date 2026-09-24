@@ -27,9 +27,13 @@
 #     `juju show-model <model> --format json | jq -r '.model-uuid'`.
 #     The integration test generates this file at runtime for exactly that
 #     reason.
+#   - `s3_endpoint` is the address of the S3 backend (e.g. the seaweedfs-k8s
+#     unit address at port 8333). That is model-specific too, so it is also
+#     filled in at runtime. seaweedfs-k8s needs no auth, so the credentials
+#     are placeholders.
 
 channel: dev/edge
 model_uuid: 00000000-0000-0000-0000-000000000000
-s3_access_key: access-key
-s3_secret_key: secret-key
-s3_endpoint: http://10.1.0.95:8080
+s3_access_key: placeholder
+s3_secret_key: placeholder
+s3_endpoint: http://10.1.0.95:8333
