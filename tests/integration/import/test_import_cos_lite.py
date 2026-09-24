@@ -3,18 +3,26 @@
 """`atelier import` round-trip against a live COS-Lite deployment.
 
 Flow under test — the end-to-end value of the provider registry
-(internal/importer/providers):
+(internal/importer/providers), exercised with non-default module inputs:
 
 1. Create a temporary Juju model (Jubilant).
-2. Shell out to Atelier to bootstrap a COS-Lite wrapper from a preset,
-   non-interactively (``stdin=/dev/null`` skips the TUI).
+2. Shell out to Atelier to bootstrap a COS-Lite wrapper pinned to ``--ref``
+   and configured from a ``--preset`` (the model to deploy into, and
+   ``internal_tls = false``), non-interactively (``stdin=/dev/null`` skips the
+   TUI).
 3. ``terraform init`` + ``apply`` to deploy COS-Lite into the model.
 4. Delete the Terraform state, leaving the live deployment orphaned.
-5. Run ``atelier import`` and let it rebuild the state from live resources —
-   detection, discovery, matching, import-ID construction and the post-import
-   steps all run through the registered Juju provider.
-6. Assert the run reported matches/imports and the state file was
-   repopulated.
+5. Run ``atelier import`` with the *same* ``--ref`` and ``--preset``, letting it
+   rebuild the state from live resources — detection, discovery, matching,
+   import-ID construction and the post-import steps all run through the
+   registered Juju provider.
+6. Assert the run reported matches/imports, that the state file was
+   repopulated, and — the strongest check — that a following ``terraform plan``
+   finds no changes, proving the import reproduced the deployment exactly.
+
+``--query-var model_uuid`` is required: the Juju list resources for
+applications and integrations carry a required ``model_uuid`` config block, so
+without it only ``juju_model``/``juju_offer`` are queryable.
 
 This is deliberately the same recipe as a user's disaster-recovery flow:
 ``module add`` to author the wrapper, then ``import`` to recover state from a
@@ -30,6 +38,7 @@ from helpers import run_atelier, wait_for_active_idle_without_error, write_local
 
 COS_REPO = "https://github.com/canonical/observability-stack.git"
 COS_MODULE = "terraform/cos-lite"
+COS_REF = "main"
 
 
 @pytest.mark.cloud
@@ -40,14 +49,24 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     # AND a fresh directory for Atelier to author a wrapper into
     wrapper_dir = tf_manager.new_wrapper_dir()
 
-    # AND a preset describing the deployment for that model
+    # AND a preset describing the deployment for that model. COS-Lite takes a
+    # `model` object (not the flat `model_uuid` the prometheus module uses):
+    # setting `model.uuid` makes the module look up the temp model instead of
+    # creating a new one. `internal_tls = false` is a non-default input that
+    # changes the resource set (no self-signed-certificates app, no internal
+    # certificate integrations), so the import has real configuration to
+    # reproduce rather than just module defaults.
     preset = write_local_preset(
         wrapper_dir,
         "ci",
-        {"model_uuid": model_uuid, "name": juju.model},
+        {
+            "model": {"uuid": model_uuid, "name": juju.model},
+            "internal_tls": False,
+        },
     )
 
-    # WHEN Atelier bootstraps the module, non-interactively, from the preset
+    # WHEN Atelier bootstraps the module, non-interactively, pinned to --ref
+    # and configured from the preset
     run_atelier(
         wrapper_dir,
         atelier_bin,
@@ -56,15 +75,20 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
         COS_REPO,
         "--module",
         COS_MODULE,
+        "--ref",
+        COS_REF,
         "--preset",
         preset,
         "--yes",
     )
 
-    # AND the wrapper really does reference the module with the model UUID
+    # AND the wrapper really does reference the module at the ref, with the
+    # preset values written through
     main_tf = (Path(wrapper_dir) / "main.tf").read_text()
     assert "//terraform/cos-lite" in main_tf
+    assert f"ref={COS_REF}" in main_tf
     assert model_uuid in main_tf
+    assert "internal_tls = false" in main_tf
 
     # AND Terraform deploys COS-Lite into the model
     tf_manager.init()
@@ -80,11 +104,23 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     state_file.unlink()
     (wrapper / "terraform.tfstate.backup").unlink(missing_ok=True)
 
-    # WHEN Atelier imports the live deployment back into a fresh state
+    # WHEN Atelier imports the live deployment back into a fresh state, with
+    # the same --ref/--preset flags and the model UUID as a query variable
     result = run_atelier(
         wrapper_dir,
         atelier_bin,
         "import",
+        "juju",
+        "--source",
+        COS_REPO,
+        "--module",
+        COS_MODULE,
+        "--ref",
+        COS_REF,
+        "--preset",
+        preset,
+        "--query-var",
+        f"model_uuid={model_uuid}",
         capture=True,
     )
 
@@ -93,5 +129,12 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     assert "Matched" in result.stderr, f"no matches reported:\n{result.stderr}"
     assert "Imported" in result.stderr, f"nothing imported:\n{result.stderr}"
     assert state_file.exists(), "import should have repopulated terraform.tfstate"
-    state_text = state_file.read_text()
-    assert state_text.count('"type": "juju_') >= 1, "state should contain juju resources"
+    assert '"type": "juju_' in state_file.read_text(), "state should contain juju resources"
+
+    # AND the strongest check: a plan against the imported state finds nothing
+    # to change, so the import reproduced the live deployment exactly.
+    plan = tf_manager.plan()
+    assert plan.returncode == 0, (
+        "terraform plan reported changes after import (import did not reproduce "
+        f"state); exit={plan.returncode}\n{plan.stdout}\n{plan.stderr}"
+    )

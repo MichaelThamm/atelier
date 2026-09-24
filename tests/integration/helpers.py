@@ -56,6 +56,19 @@ class TfDirManager:
         """Run ``terraform validate`` in the latched wrapper directory."""
         subprocess.run(shlex.split(f"{self.tf_cmd} validate"), check=True)
 
+    def plan(self, *extra_args: str) -> subprocess.CompletedProcess:
+        """Run ``terraform plan -detailed-exitcode``.
+
+        Exit code 0 means the configuration matches state exactly; 2 means
+        there are changes (e.g. an import that did not reproduce state); 1 is
+        an error. Returned rather than checked so callers can assert no-diff.
+        """
+        cmd = f"{self.tf_cmd} plan -detailed-exitcode -input=false -no-color"
+        if extra_args:
+            cmd += " " + " ".join(shlex.quote(a) for a in extra_args)
+        logger.info("running: %s", cmd)
+        return subprocess.run(shlex.split(cmd), capture_output=True, text=True)
+
     @staticmethod
     def _args_str(target: Optional[str] = None, **kwargs) -> str:
         target_arg = f"-target module.{target}" if target else ""
