@@ -18,7 +18,8 @@ Flow under test — the end-to-end value of the provider registry
    registered Juju provider.
 6. Assert the run reported matches/imports, that the state file was
    repopulated, and — the strongest check — that a following ``terraform plan``
-   finds no changes, proving the import reproduced the deployment exactly.
+   finds nothing to change for any resource with a live counterpart (only the
+   unimportable ``terraform_data`` bookkeeping may remain).
 
 ``--query-var model_uuid`` is required: the Juju list resources for
 applications and integrations carry a required ``model_uuid`` config block, so
@@ -131,10 +132,15 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     assert state_file.exists(), "import should have repopulated terraform.tfstate"
     assert '"type": "juju_' in state_file.read_text(), "state should contain juju resources"
 
-    # AND the strongest check: a plan against the imported state finds nothing
-    # to change, so the import reproduced the live deployment exactly.
-    plan = tf_manager.plan()
-    assert plan.returncode == 0, (
-        "terraform plan reported changes after import (import did not reproduce "
-        f"state); exit={plan.returncode}\n{plan.stdout}\n{plan.stderr}"
+    # AND the strongest check: the import reproduced the deployment. A plan
+    # against the imported state must find nothing to change for resources that
+    # have a live counterpart. The only permitted delta is `terraform_data`
+    # (replace-trigger bookkeeping): it exists only in Terraform state, has no
+    # live object to import, and Atelier excludes it from import candidates for
+    # exactly that reason.
+    changes = tf_manager.plan_changes()
+    importable = [c for c in changes if c[1] != "terraform_data"]
+    assert not importable, (
+        "import did not reproduce state; a plan still wants to change these "
+        f"importable resources (address, type, actions): {importable}"
     )
