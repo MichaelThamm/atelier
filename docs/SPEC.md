@@ -45,7 +45,7 @@ module (typically a public git repository), and Atelier:
 - Let users curate their own reusable presets via a wrapper-local
   `atelier.local.yaml`, without adding any Atelier files to the upstream
   module repository.
-- Distribute as a single static Go binary; package as a snap.
+- Distribute as a single static Go binary.
 
 ### Non-goals (not implemented)
 
@@ -276,12 +276,15 @@ state-only operation that cannot alter infrastructure.
 
 Provider-specific behaviour (currently Juju only — see ADR-0028) is reached
 through four extension points: a pre-plan preflight step, a post-plan safety
-check, post-import normalisation steps, and an import-ID builder. Provider
-*detection and wiring* live in the CLI layer; the provider-specific code itself
-lives in dedicated files (`internal/importer/juju_steps.go`,
-`internal/wrapper/juju.go`, `internal/state/juju.go`), plus the third matching
-phase in `internal/importer/match.go` and the error hints in
-`internal/importer/hints.go`. See ADR-0028 for the full inventory.
+check, post-import normalisation steps, and an import-ID builder. Providers are
+registered behind the `Provider` interface in
+`internal/importer/providers/providers.go`; the CLI wires whatever the
+registered provider implements, and the importer core stays
+provider-agnostic. The Juju provider itself lives in
+`internal/importer/providers/juju/`. The importer core also contains the third
+matching phase in `internal/importer/match.go` and the error hints in
+`internal/importer/hints.go`. ADR-0028 records the decision to scope import
+support to Juju for v1.
 
 Flags:
 
@@ -1005,7 +1008,6 @@ See [ADR-0002](adr/0002-author-and-plan-scope.md).
 
 - Single static binary. Release tarballs for `linux/amd64` and `linux/arm64`
   at minimum.
-- Snap package using the `home` plug for filesystem access.
 - `go install github.com/MichaelThamm/atelier@latest` for development users.
 
 ### 14.3 Aesthetics
