@@ -9,27 +9,9 @@ on:
         type: string
         default: 3.6/stable
   pull_request:
-    paths:
-      - "cmd/**"
-      - "internal/**"
-      - "tests/integration/**"
-      - "docs/examples/**"
-      - "go.mod"
-      - "go.sum"
-      - "concierge-k8s.yaml"
-      - ".github/workflows/integration.yml"
   # Enable to run on merges to main as well:
   # push:
   #   branches: [main]
-  #   paths:
-  #     - "cmd/**"
-  #     - "internal/**"
-  #     - "tests/integration/**"
-  #     - "docs/examples/**"
-  #     - "go.mod"
-  #     - "go.sum"
-  #     - "concierge-k8s.yaml"
-  #     - ".github/workflows/integration.yml"
 
 permissions:
   contents: read
@@ -88,12 +70,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      # - name: Remove docker.io and containerd
-      #   if: ${{ runner.environment == 'self-hosted' }}
-      #   run: |
-      #     sudo apt-get remove -y docker.io containerd
-      #     sudo rm -rf /run/containerd
 
       - name: Allow forwarded traffic
         run: |

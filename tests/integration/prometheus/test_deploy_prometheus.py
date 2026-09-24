@@ -14,7 +14,6 @@ The module deploys a single application and needs no relations or object
 storage, so it settles quickly.
 """
 
-import os
 from pathlib import Path
 
 import jubilant
@@ -23,11 +22,7 @@ import pytest
 from helpers import run_atelier, wait_for_active_idle_without_error, write_preset_file
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
-# prometheus-k8s-operator ships its Terraform under terraform/; pick it
-# explicitly so the test doubles as documentation for --module.
 PROM_MODULE = "terraform"
-
-# Application name the module deploys (its app_name default).
 PROM_APP = "prometheus"
 
 
@@ -39,11 +34,7 @@ def test_deploy_prometheus_k8s(tf_manager, juju: jubilant.Juju, atelier_bin: str
     # AND a preset describing the deployment for that model
     preset = write_preset_file(
         tf_manager.base,
-        {
-            "model_uuid": model_uuid,
-            "channel": os.environ.get("PROMETHEUS_CHANNEL", "dev/edge"),
-            "units": int(os.environ.get("PROMETHEUS_UNITS", "1")),
-        },
+        {"model_uuid": model_uuid, "channel": "dev/edge", "units": 1},
     )
 
     # AND a fresh directory for Atelier to author a wrapper into

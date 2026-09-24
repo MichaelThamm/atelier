@@ -117,7 +117,6 @@ def write_preset_file(directory, sets: dict, *, name: str = "preset.yaml") -> Pa
 
 def wait_for_active_idle_without_error(juju: jubilant.Juju, timeout: int = 60 * 45) -> None:
     """Wait for every unit in the model to be active and every agent idle."""
-    timeout = int(os.environ.get("INTEGRATION_TIMEOUT", timeout))
     print(f"\nwaiting for the model ({juju.model}) to settle ...\n")
     juju.wait(jubilant.all_active, delay=10, timeout=timeout)
     print("\nwaiting for agents idle ...\n")

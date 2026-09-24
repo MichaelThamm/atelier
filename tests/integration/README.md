@@ -19,18 +19,15 @@ go build -o /tmp/atelier ./cmd/atelier
 export ATELIER_BIN=/tmp/atelier
 
 # Feature tests only — no Juju model required.
-uv run --project tests/integration pytest tests/integration -m "not cloud" -vv --capture=no
+uv run --project tests/integration pytest tests/integration -m "not cloud"
 
 # Everything, including the deployment, against your current Juju controller.
-uv run --project tests/integration pytest tests/integration -vv --capture=no
+uv run --project tests/integration pytest tests/integration
 ```
 
 Useful flags and environment variables:
 
 - `--keep-models` (or `KEEP_MODELS=1`) — keep the temporary model for inspection.
-- `INTEGRATION_TIMEOUT` — override the settle timeout in seconds.
-- `PROMETHEUS_CHANNEL` — charm channel for the deployment test (default `dev/edge`).
-- `PROMETHEUS_UNITS` — unit count for the deployment test (default `1`).
 
 ## Why prometheus-k8s-operator
 

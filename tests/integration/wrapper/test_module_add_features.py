@@ -4,15 +4,10 @@
 
 These exercise the CLI surface — sub-module selection, ref pinning, presets,
 block naming, listing/removal, duplicate refusal, and non-interactive exit — by
-inspecting the wrapper Atelier writes. They need no Juju model and no
-``terraform apply``, so they are fast; one test also runs ``terraform validate``
-to prove the wrapper is deployable.
+inspecting the wrapper Atelier writes.
 
 The target is canonical/prometheus-k8s-operator, whose Terraform lives in the
-``terraform/`` sub-directory. Candidate-discovery semantics (multiple roots,
-exclusions) are covered by Go unit tests in ``internal/candidate`` and
-``internal/bootstrap``; here we assert the end-to-end CLI behaviour that
-operators actually type.
+``terraform/`` sub-directory.
 """
 
 import re
