@@ -393,13 +393,15 @@ Atelier persists terraform's diagnostics under the wrapper's
 Unit tests run with `go test ./...` (the `build · vet · test` job in
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
-Integration tests live in [`tests/integration/`](tests/integration/) and run
-against the real
+Integration tests live in [`tests/integration/`](tests/integration/). A
+wrapper-layer tier asserts the `atelier module add` surface (`--module`,
+`--ref`, `--preset`, `--as`, listing/removal) without a Juju model, and
+`cloud`-marked tiers deploy real modules with Terraform:
 [`canonical/prometheus-k8s-operator`](https://github.com/canonical/prometheus-k8s-operator)
-module. A wrapper-layer tier asserts the `atelier module add` surface
-(`--module`, `--ref`, `--preset`, `--as`, listing/removal) without a Juju model,
-and a `cloud`-marked tier deploys the module with Terraform and waits for it to
-settle. They run in
+as a deployment smoke test, and COS-Lite
+([`canonical/observability-stack`](https://github.com/canonical/observability-stack))
+as an import round-trip that deletes the Terraform state and proves
+`atelier import` rebuilds it. They run in
 [`.github/workflows/integration.yml`](.github/workflows/integration.yml) against
 Juju + Canonical K8s prepared by Concierge. See
 [tests/integration/README.md](tests/integration/README.md) to run them locally.
