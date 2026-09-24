@@ -46,10 +46,11 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 
 Usage:
   atelier                                      Open the wrapper in the current directory.
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--yes]
+  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--preset NAME] [--yes]
                                                Add a module to the wrapper (bootstraps if needed).
                                                Warns and asks before scaffolding into a directory that
                                                already holds other files; --yes skips the prompt.
+                                               --preset applies a named preset from atelier.local.yaml.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
@@ -156,6 +157,13 @@ func runOpen() error {
 
 func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	state := res.State
+
+	// The TUI needs a terminal; in scripts and CI (e.g. `module add … < /dev/null`)
+	// skip it. The wrapper is already written, so the command can just exit.
+	if !isTerminal(os.Stdin) || !isTerminal(os.Stdout) {
+		fmt.Fprintln(os.Stderr, "non-interactive: wrapper is ready; run 'atelier' in a terminal to edit.")
+		return nil
+	}
 
 	// Load presets for the left pane from wrapper-local atelier.local.yaml
 	// files, discovered by walking up from the wrapper directory. Atelier does
