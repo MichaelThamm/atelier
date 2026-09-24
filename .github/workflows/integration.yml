@@ -39,10 +39,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  integration:
+  # Feature tests for `atelier module add` against a real module.
+  wrapper:
+    name: Wrapper feature tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Install uv
+        run: |
+          sudo snap install astral-uv --classic
+          echo "/snap/bin" >> "$GITHUB_PATH"
+
+      - name: Build Atelier
+        run: |
+          go build -o "$RUNNER_TEMP/atelier" ./cmd/atelier
+          echo "ATELIER_BIN=$RUNNER_TEMP/atelier" >> "$GITHUB_ENV"
+
+      - name: Test wrapper features
+        run: |
+          uv run --project tests/integration --frozen pytest tests/integration/wrapper \
+            -vv -ra --capture=no --exitfirst
+
+  # The deployment smoke test: needs a Juju controller on Kubernetes, prepared by Concierge.
+  prometheus:
     name: Deploy prometheus-k8s with Atelier + Terraform
-    # Swap for a Canonical self-hosted runner if available, e.g.
-    # self-hosted-linux-amd64-noble-large.
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -74,10 +108,8 @@ jobs:
           if [[ "${{ runner.debug }}" == "1" ]]; then
             export KEEP_MODELS=true
           fi
-          # Fast, model-less feature tests first; then the deployment smoke test.
-          uv run --project tests/integration --frozen pytest \
-            tests/integration/wrapper tests/integration/prometheus \
-            -vv -ra --capture=no --exitfirst
+          uv run --project tests/integration --frozen pytest tests/integration/prometheus \
+            -m cloud -vv -ra --capture=no --exitfirst
 
       - name: Open SSH session on failure
         if: ${{ failure() && (runner.debug == '1') }}

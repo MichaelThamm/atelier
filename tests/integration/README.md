@@ -53,5 +53,8 @@ directory, runs `atelier module add … --preset … --yes` in it (with
 `terraform apply` in that same directory.
 
 See [`.github/workflows/integration.yml`](../../.github/workflows/integration.yml)
-for the CI setup (Juju/Canonical K8s via Concierge; the deployment test deploys
-`prometheus-k8s` into its own model).
+for the CI setup. The two tiers run as **two parallel jobs**: `wrapper`
+(no Juju/K8s — only Go, Terraform, git and network) and `prometheus`
+(Juju/Canonical K8s prepared by Concierge). Because the wrapper job needs no
+Concierge, it starts immediately and reports in about a minute, while the
+deployment job prepares the controller alongside it.
