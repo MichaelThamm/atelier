@@ -401,9 +401,9 @@ wrapper-layer tier asserts the `atelier module add` surface (`--module`,
 as a deployment smoke test, and COS-Lite
 ([`canonical/observability-stack`](https://github.com/canonical/observability-stack))
 as an import round-trip that deletes the Terraform state and proves
-`atelier import` rebuilds it. They run in
-[`.github/workflows/integration.yml`](.github/workflows/integration.yml) against
-Juju + Canonical K8s prepared by Concierge. See
+`atelier import` rebuilds it. They run in the
+[`CI`](.github/workflows/ci.yml) workflow — after the `build · vet · test` job
+passes — against Juju + Canonical K8s prepared by Concierge. See
 [tests/integration/README.md](tests/integration/README.md) to run them locally.
 
 ## License
