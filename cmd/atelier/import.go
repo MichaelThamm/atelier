@@ -17,6 +17,7 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/importer"
+	"github.com/MichaelThamm/atelier/internal/importer/providers"
 	"github.com/MichaelThamm/atelier/internal/manifest"
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
@@ -239,9 +240,9 @@ func runImport(args []string) error {
 		}
 		applyVarOverrides(wrapperState, config)
 		// Propagate preset values back into config so that downstream
-		// consumers (e.g. JujuBuildImportID which looks up model_uuid
-		// in opts.Config) can see values supplied via --preset, not just
-		// --var flags.
+		// consumers (e.g. the provider's import-ID builder, which looks up
+		// model_uuid in opts.Config) can see values supplied via --preset,
+		// not just --var flags.
 		mergeWrapperStateIntoConfig(wrapperState, config)
 		if err := wrapperState.Write(); err != nil {
 			return fmt.Errorf("write values to main.tf: %w", err)
@@ -271,43 +272,38 @@ func runImport(args []string) error {
 		WrapperState:    wrapperState,
 	}
 
-	// Wire provider-specific steps and the import ID builder. Provider detection
-	// lives in the CLI layer; the importer package itself stays
-	// provider-agnostic.
+	// Wire provider-specific steps and the import ID builder. Provider support
+	// is registered per provider (internal/importer/providers): the importer
+	// core stays provider-agnostic, and adding a provider is a new registered
+	// implementation rather than a branch here.
 	//
 	// Detection considers the directory's own declarations as well as the
 	// PROVIDER argument: that argument is only given when Atelier has to
 	// scaffold provider config, so a directory that already declares its
 	// providers would otherwise wire nothing and import nothing.
 	detected := append([]string{provider}, importer.DeclaredProviderSources(dir)...)
-	if hasJujuProvider(detected) {
-		opts.PreflightSteps = []importer.PreflightStep{
-			&importer.JujuModelIdentity{},
-		}
-		opts.PlanChecks = []importer.PlanCheck{
-			&importer.JujuModelConsistency{},
-		}
-		opts.PostImportSteps = []importer.PostImportStep{
-			// Generic: null-versus-empty is a provider-SDK quirk, not a Juju one.
-			&importer.NullEmptyNormalization{},
-			&importer.JujuSchemaVersions{},
-			&importer.JujuOfferDefaults{},
-			&importer.JujuModelUUIDInjection{},
-		}
-		opts.BuildImportID = importer.JujuBuildImportID
+	if p := providers.For(detected); p != nil {
+		opts.PreflightSteps = p.PreflightSteps()
+		opts.PlanChecks = p.PlanChecks()
+		opts.PostImportSteps = p.PostImportSteps()
+		opts.BuildImportID = p.BuildImportID()
 	} else {
 		// Be explicit rather than letting the run reach the end and report every
 		// resource as "could not build an import ID" with no reason given.
 		// Import IDs are provider-specific and not derivable from the schema
 		// (ADR-0028), so support is an explicit per-provider allow-list.
+		supported := make([]string, 0, len(providers.All()))
+		for _, q := range providers.All() {
+			supported = append(supported, q.Name())
+		}
 		fmt.Fprintf(os.Stderr,
-			"note: `atelier import` currently implements import IDs for the Juju provider only.\n"+
+			"note: `atelier import` currently implements import IDs for: %s.\n"+
 				"  Detected: %s\n"+
 				"  Discovery and matching still run, and every match is reported with the\n"+
 				"  address it belongs to — but nothing will be imported, because Atelier\n"+
 				"  cannot construct import IDs for this provider. You can use the reported\n"+
 				"  matches to run `terraform import` yourself.\n\n",
-			describeProviders(detected))
+			strings.Join(supported, ", "), describeProviders(detected))
 	}
 	if listOnly {
 		stop := startSpinner("Preparing provider and reading schema…")
@@ -512,17 +508,6 @@ func reportUnresolvedIDs(res *importer.Result) {
 	fmt.Fprintln(os.Stderr, "  address is right; only the provider-specific ID could not be built.")
 }
 
-// hasJujuProvider reports whether any of the given provider source addresses is
-// the Juju provider.
-func hasJujuProvider(sources []string) bool {
-	for _, s := range sources {
-		if strings.Contains(s, "juju") {
-			return true
-		}
-	}
-	return false
-}
-
 // describeProviders renders the detected provider sources for a diagnostic,
 // falling back to a clear phrase when none could be determined.
 func describeProviders(sources []string) string {
@@ -567,39 +552,16 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 		return dir, res.State, nil
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-
-	// As in `module add`, a bootstrap that fails partway must not leave a clone
-	// behind in a directory that never became a wrapper — but only remove
-	// .atelier/ if this run is what created it.
-	atelierDir := filepath.Join(dir, wrapper.AtelierDir)
-	createdAtelierDir := false
-	if _, err := os.Stat(atelierDir); os.IsNotExist(err) {
-		createdAtelierDir = true
-	}
-	cleanup := func() {
-		if createdAtelierDir {
-			_ = os.RemoveAll(atelierDir)
-		}
-	}
-
-	stop := startSpinner("Cloning and preparing module…")
-	res, err := bootstrap.InitNew(ctx, bootstrap.InitOptions{
-		WrapperDir: dir,
-		Source:     source,
-		Ref:        ref,
-		ModulePath: modulePath,
-	})
-	stop()
+	// The clone, wrapper authoring and failure cleanup are the same fresh
+	// bootstrap `module add` runs (bootstrapFreshWrapper), so `import
+	// --source` cannot drift from it.
+	res, _, err := bootstrapFreshWrapper(dir, source, ref, modulePath)
 	if err != nil {
-		cleanup()
 		return "", nil, err
 	}
 
 	if res.State == nil {
 		// Multiple candidates — user needs --module.
-		cleanup()
 		fmt.Fprintln(os.Stderr, "Multiple module candidates found. Re-run with --module <path>:")
 		for _, c := range res.Candidates {
 			label := c.Path
@@ -609,10 +571,6 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 			fmt.Fprintln(os.Stderr, "  "+label)
 		}
 		return "", nil, fmt.Errorf("multiple module candidates; specify one with --module")
-	}
-
-	for _, w := range res.Warnings {
-		fmt.Fprintln(os.Stderr, "warning:", w)
 	}
 
 	return dir, res.State, nil
@@ -674,8 +632,9 @@ func applyVarOverrides(state *wrapper.State, config map[string]string) {
 // mergeWrapperStateIntoConfig propagates string-typed values from the wrapper
 // state back into the flat config map. This ensures that values supplied via
 // --preset (which only update wrapperState.Values) are visible to downstream
-// consumers that look up keys in opts.Config — e.g. JujuBuildImportID needs
-// model_uuid to construct import IDs for juju_application and juju_secret.
+// consumers that look up keys in opts.Config — e.g. the Juju provider's
+// import-ID builder needs model_uuid to construct import IDs for
+// juju_application and juju_secret.
 // Keys already present in config (--var flags) take precedence.
 func mergeWrapperStateIntoConfig(state *wrapper.State, config map[string]string) {
 	if state == nil {

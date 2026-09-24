@@ -20,7 +20,6 @@ Format follows the Michael Nygard template, lightly extended.
 | 0010 | [Manifest format: `atelier.yaml`](0010-manifest-format.md)                                  | Superseded by ADR-0022 |
 | 0011 | [Plan output as module-path tree](0011-plan-output-tree.md)                                 | Accepted |
 | 0012 | [Validation via `terraform validate`](0012-validation-via-terraform-validate.md)            | Accepted |
-| 0013 | [Snap packaging](0013-snap-packaging.md)                                                    | Proposed |
 | 0014 | [Unified layout budget and scroll support](0014-unified-layout-budget.md)                   | Accepted |
 | 0015 | [Multi-module grouping in the left pane](0015-multi-module-grouping.md)                     | Accepted |
 | 0016 | [Scope boundaries — no orchestration overlap with Terragrunt](0016-scope-boundaries-no-orchestration.md) | Accepted |
