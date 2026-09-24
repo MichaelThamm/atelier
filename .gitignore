@@ -9,3 +9,9 @@ atelier-import.tfquery.hcl
 atelier-import.auto.tfvars
 /atelier
 /atelier_dev
+
+# Python integration tests
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

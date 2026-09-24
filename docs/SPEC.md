@@ -331,9 +331,15 @@ worked Juju example.
 - If a wrapper exists, appends a `module {}` block to `main.tf`.
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
+- Applies any `--preset` values (a named preset from walk-up
+  `atelier.local.yaml`, or a standalone preset YAML file) and writes them to
+  `main.tf`.
 - Runs the target-directory preflight (§6.5) before writing anything.
 - Refuses to add a module the wrapper already references at the same ref (§6.7).
-- Runs `terraform init` and launches the TUI with the new module focused.
+- Runs `terraform init` and launches the TUI with the new module focused. When
+  stdin or stdout is not a terminal — a script, CI, or `atelier module add … <
+  /dev/null` — the TUI is skipped and the command exits after writing the
+  wrapper, so presets can be applied fully non-interactively.
 - If the bootstrap fails partway, removes the `.atelier/` directory it created,
   leaving the target as it was found.
 

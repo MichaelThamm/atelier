@@ -1,0 +1,15 @@
+[project]
+name = "atelier-integration-tests"
+version = "0.0.0"
+description = "Integration tests for Atelier: Juju + Terraform."
+requires-python = ">=3.10"
+dependencies = [
+    "jubilant",
+    "pytest",
+    "pyyaml",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "cloud: integration test that deploys to a live Juju cloud",
+]

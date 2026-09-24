@@ -15,8 +15,10 @@ import (
 )
 
 const moduleUsage = `Usage:
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--yes]
+  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--preset NAME|PATH] [--yes]
                                                Add a module to the wrapper.
+                                               --preset applies a named preset from atelier.local.yaml
+                                               or a preset YAML file, then exits without the TUI.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
 `
@@ -41,11 +43,12 @@ func runModule(args []string) error {
 
 // moduleAddOpts holds parsed flags for `atelier module add`.
 type moduleAddOpts struct {
-	Source     string // positional git URL
-	As         string // --as: explicit HCL block name
-	Ref        string // --ref: git ref
-	ModulePath string // --module: candidate subdir
-	Yes        bool   // --yes/-y: skip the target-directory confirmation
+	Source     string   // positional git URL
+	As         string   // --as: explicit HCL block name
+	Ref        string   // --ref: git ref
+	ModulePath string   // --module: candidate subdir
+	Presets    []string // --preset: named preset from atelier.local.yaml, or a preset YAML file path
+	Yes        bool     // --yes/-y: skip the target-directory confirmation
 }
 
 func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
@@ -74,7 +77,17 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 				return opts, fmt.Errorf("--module requires a path")
 			}
 			opts.ModulePath = args[i]
+		case "--preset":
+			i++
+			if i >= len(args) {
+				return opts, fmt.Errorf("--preset requires a name or file path")
+			}
+			opts.Presets = append(opts.Presets, args[i])
 		default:
+			if strings.HasPrefix(a, "--preset=") {
+				opts.Presets = append(opts.Presets, strings.TrimPrefix(a, "--preset="))
+				continue
+			}
 			if strings.HasPrefix(a, "-") {
 				return opts, fmt.Errorf("unknown flag %q for module add", a)
 			}
@@ -201,6 +214,20 @@ func runModuleAdd(args []string) error {
 		for _, w := range res.Warnings {
 			fmt.Fprintln(os.Stderr, "warning:", w)
 		}
+
+		// Apply --preset values before launching (or, non-interactively,
+		// before exiting). state.Write persists them to main.tf so the wrapper
+		// is deployable without ever opening the TUI.
+		if len(opts.Presets) > 0 {
+			if err := applyPresetArgs(cwd, res.State, opts.Presets); err != nil {
+				cleanup()
+				return err
+			}
+			if err := res.State.Write(); err != nil {
+				cleanup()
+				return err
+			}
+		}
 		return launchTUI(res, cwd)
 	}
 
@@ -288,6 +315,14 @@ func runModuleAdd(args []string) error {
 		blockName = unique
 	}
 	state.ModuleBlockName = blockName
+
+	// Apply --preset values to the module being added, so they are persisted
+	// with the new block rather than to the wrapper's primary module.
+	if len(opts.Presets) > 0 {
+		if err := applyPresetArgs(cwd, state, opts.Presets); err != nil {
+			return err
+		}
+	}
 
 	// Write the new module block to main.tf.
 	if err := state.Write(); err != nil {
