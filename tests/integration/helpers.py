@@ -52,6 +52,10 @@ class TfDirManager:
             cmd += " " + " ".join(shlex.quote(a) for a in extra_args)
         subprocess.run(shlex.split(cmd), check=True)
 
+    def validate(self) -> None:
+        """Run ``terraform validate`` in the latched wrapper directory."""
+        subprocess.run(shlex.split(f"{self.tf_cmd} validate"), check=True)
+
     @staticmethod
     def _args_str(target: Optional[str] = None, **kwargs) -> str:
         target_arg = f"-target module.{target}" if target else ""
@@ -67,55 +71,52 @@ class TfDirManager:
         subprocess.run(shlex.split(cmd_str), check=True)
 
 
-def run_atelier(wrapper_dir, atelier_bin: str, *args: str, env: Optional[dict] = None) -> None:
+def run_atelier(
+    wrapper_dir,
+    atelier_bin: str,
+    *args: str,
+    env: Optional[dict] = None,
+    capture: bool = False,
+    check: bool = True,
+) -> subprocess.CompletedProcess:
     """Run the Atelier CLI in ``wrapper_dir`` with stdin pinned to ``/dev/null``.
 
     Pinning stdin to ``/dev/null`` is what makes ``module add`` non-blocking:
     Atelier detects the non-terminal, applies any ``--preset`` and skips the
     TUI instead of trying (and failing) to open one.
+
+    With ``capture=True`` the completed process is returned with ``stdout`` and
+    ``stderr`` as text (useful for ``module list`` assertions).
     """
     cmd = [atelier_bin, *args]
     logger.info("running: %s", " ".join(shlex.quote(c) for c in cmd))
     with open(os.devnull, "rb") as devnull:
-        subprocess.run(
+        return subprocess.run(
             cmd,
             cwd=wrapper_dir,
             stdin=devnull,
             env={**os.environ, **(env or {})},
-            check=True,
+            check=check,
+            capture_output=capture,
+            text=capture,
         )
 
 
-def write_preset_file(
-    directory,
-    model_uuid: str,
-    *,
-    name: str = "cos-s3.yaml",
-    env: Optional[dict] = None,
-) -> Path:
-    """Write a runtime preset file for loki-operators and return its path.
+def write_local_preset(directory, name: str, sets: dict) -> str:
+    """Write an ``atelier.local.yaml`` with one named preset; return the name.
 
-    ``model_uuid`` is model-specific, so it cannot live in a checked-in example;
-    the test resolves it from the freshly-created model and writes the file
-    here. The S3 coordinates come from the CI environment (microceph RGW).
+    This is the canonical preset mechanism (the same file the TUI's `S` key and
+    ``import --preset`` use), so the tests document the real thing.
     """
-    env = env or os.environ
-    sets = {
-        "channel": env.get("LOKI_CHANNEL", "dev/edge"),
-        "model_uuid": model_uuid,
-        "s3_access_key": env["S3_ACCESS_KEY"],
-        "s3_secret_key": env["S3_SECRET_KEY"],
-        "s3_endpoint": env["S3_ENDPOINT"],
-    }
-    path = Path(directory) / name
-    path.write_text(yaml.safe_dump(sets, sort_keys=False))
-    logger.info("wrote preset %s: %s", path, sets)
-    return path
+    path = Path(directory) / "atelier.local.yaml"
+    manifest = {"modules": [{"path": ".", "presets": [{"name": name, "sets": sets}]}]}
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    logger.info("wrote %s with preset %r: %s", path, name, sets)
+    return name
 
 
 def wait_for_active_idle_without_error(juju: jubilant.Juju, timeout: int = 60 * 45) -> None:
     """Wait for every unit in the model to be active and every agent idle."""
-    timeout = int(os.environ.get("INTEGRATION_TIMEOUT", timeout))
     print(f"\nwaiting for the model ({juju.model}) to settle ...\n")
     juju.wait(jubilant.all_active, delay=10, timeout=timeout)
     print("\nwaiting for agents idle ...\n")

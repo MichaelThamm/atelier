@@ -15,10 +15,9 @@ import (
 )
 
 const moduleUsage = `Usage:
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--preset NAME|PATH] [--yes]
+  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--preset NAME] [--yes]
                                                Add a module to the wrapper.
-                                               --preset applies a named preset from atelier.local.yaml
-                                               or a preset YAML file, then exits without the TUI.
+                                               --preset applies a named preset from atelier.local.yaml.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
 `
@@ -47,7 +46,7 @@ type moduleAddOpts struct {
 	As         string   // --as: explicit HCL block name
 	Ref        string   // --ref: git ref
 	ModulePath string   // --module: candidate subdir
-	Presets    []string // --preset: named preset from atelier.local.yaml, or a preset YAML file path
+	Presets    []string // --preset: named preset from atelier.local.yaml
 	Yes        bool     // --yes/-y: skip the target-directory confirmation
 }
 
@@ -80,7 +79,7 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 		case "--preset":
 			i++
 			if i >= len(args) {
-				return opts, fmt.Errorf("--preset requires a name or file path")
+				return opts, fmt.Errorf("--preset requires a name")
 			}
 			opts.Presets = append(opts.Presets, args[i])
 		default:
@@ -215,11 +214,9 @@ func runModuleAdd(args []string) error {
 			fmt.Fprintln(os.Stderr, "warning:", w)
 		}
 
-		// Apply --preset values before launching (or, non-interactively,
-		// before exiting). state.Write persists them to main.tf so the wrapper
-		// is deployable without ever opening the TUI.
+		// Apply --preset values, then persist them to main.tf.
 		if len(opts.Presets) > 0 {
-			if err := applyPresetArgs(cwd, res.State, opts.Presets); err != nil {
+			if err := applyPresets(cwd, res.State, opts.Presets); err != nil {
 				cleanup()
 				return err
 			}
@@ -316,10 +313,9 @@ func runModuleAdd(args []string) error {
 	}
 	state.ModuleBlockName = blockName
 
-	// Apply --preset values to the module being added, so they are persisted
-	// with the new block rather than to the wrapper's primary module.
+	// Apply --preset values to the module being added, before writing it.
 	if len(opts.Presets) > 0 {
-		if err := applyPresetArgs(cwd, state, opts.Presets); err != nil {
+		if err := applyPresets(cwd, state, opts.Presets); err != nil {
 			return err
 		}
 	}

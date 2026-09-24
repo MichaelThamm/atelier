@@ -238,17 +238,12 @@ rationale.
 
 ### Applying a preset from the CLI
 
-`atelier module add` accepts `--preset`, which applies a preset and exits
-without opening the TUI — useful in scripts and CI:
+`atelier module add` accepts `--preset`, which applies a named preset and
+exits without opening the TUI — useful in scripts and CI:
 
 ```bash
-# Apply a named preset from a walk-up atelier.local.yaml:
 atelier module add https://github.com/canonical/loki-operators.git \
-  --module terraform --preset production --yes
-
-# Or apply a standalone preset YAML file (a flat variable → value map):
-atelier module add https://github.com/canonical/loki-operators.git \
-  --module terraform --preset docs/examples/cos-s3.yaml --yes < /dev/null
+  --module terraform --preset production --yes < /dev/null
 ```
 
 The wrapper's `main.tf` is written with the preset values, ready for
@@ -391,19 +386,22 @@ Atelier persists terraform's diagnostics under the wrapper's
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What Atelier does today and what's not yet implemented |
 | [docs/how-to/](docs/how-to/) | Step-by-step guides |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
-| [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` and preset files |
+| [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` |
 
 ## Testing
 
 Unit tests run with `go test ./...` (the `build · vet · test` job in
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
-Integration tests live in [`tests/integration/`](tests/integration/). They
-create a model with [Jubilant](https://github.com/canonical/jubilant), run
-Atelier non-interactively to author a wrapper from a real upstream module, then
-deploy that wrapper with Terraform. They run in
-[`.github/workflows/terraform.yml`](.github/workflows/terraform.yml) against
-Juju + Canonical K8s prepared by Concierge, with microceph providing S3. See
+Integration tests live in [`tests/integration/`](tests/integration/) and run
+against the real
+[`canonical/prometheus-k8s-operator`](https://github.com/canonical/prometheus-k8s-operator)
+module. A wrapper-layer tier asserts the `atelier module add` surface
+(`--module`, `--ref`, `--preset`, `--as`, listing/removal) without a Juju model,
+and a `cloud`-marked tier deploys the module with Terraform and waits for it to
+settle. They run in
+[`.github/workflows/integration.yml`](.github/workflows/integration.yml) against
+Juju + Canonical K8s prepared by Concierge. See
 [tests/integration/README.md](tests/integration/README.md) to run them locally.
 
 ## License

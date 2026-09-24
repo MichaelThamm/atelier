@@ -55,3 +55,4 @@ def tf_manager(tmp_path_factory) -> TfDirManager:
     """A Terraform manager that latches onto the wrapper Atelier authors."""
     base = tmp_path_factory.mktemp("atelier_wrapper")
     return TfDirManager(base)
+
