@@ -1,10 +1,36 @@
 package main
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
+
+// --- parseModuleAddArgs: --preset ---
+
+func TestParseModuleAddArgs_Preset(t *testing.T) {
+	cases := []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"url", "--preset", "cos-s3"}, []string{"cos-s3"}},
+		{[]string{"url", "--preset=cos-s3"}, []string{"cos-s3"}},
+		{[]string{"url", "--preset", "a", "--preset=b"}, []string{"a", "b"}},
+	}
+	for _, c := range cases {
+		opts, err := parseModuleAddArgs(c.args)
+		if err != nil {
+			t.Fatalf("parse(%v): %v", c.args, err)
+		}
+		if !slices.Equal(opts.Presets, c.want) {
+			t.Errorf("parse(%v) presets = %v, want %v", c.args, opts.Presets, c.want)
+		}
+	}
+	if _, err := parseModuleAddArgs([]string{"url", "--preset"}); err == nil {
+		t.Error("expected error for --preset with no value")
+	}
+}
 
 // --- sanitizeBlockName ---
 
