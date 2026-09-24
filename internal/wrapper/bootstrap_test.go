@@ -8,8 +8,24 @@ import (
 
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
+
+func mustVar(t *testing.T, name, typeSrc string, def cty.Value, hasDef bool) tfvars.Variable {
+	t.Helper()
+	tp, err := tftypes.ParseTypeExpr(typeSrc)
+	if err != nil {
+		t.Fatalf("parse type %q: %v", typeSrc, err)
+	}
+	return tfvars.Variable{
+		Name:       name,
+		Type:       tp,
+		HasDefault: hasDef,
+		Default:    def,
+		Nullable:   true,
+	}
+}
 
 func TestBootstrap_freshWrapper(t *testing.T) {
 	dir := t.TempDir()

@@ -42,7 +42,7 @@ Concretely:
 - In-TUI output viewing (`O` key): shows planned output values before apply,
   live state values after apply, with syntax-highlighted JSON and scrollable
   navigation. Auto-generates `outputs.tf` to re-export module outputs.
-- Single static Go binary; snap packaging.
+- Single static Go binary.
 - `atelier import [PROVIDER] [flags]`: import a running deployment into
   Terraform state. Discovers live resources via `terraform query`, matches
   them to module resource addresses by name, and runs `terraform import` for

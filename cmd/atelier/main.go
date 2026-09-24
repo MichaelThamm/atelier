@@ -84,8 +84,7 @@ the user does that themselves from the wrapper using their existing workflow.
 //
 //	-ldflags "-X main.version=$(git describe --tags --always --dirty)"
 //
-// It defaults to "dev" for `go run`/`go build` without ldflags. The snap
-// build sets the same value from `git describe` (see snap/snapcraft.yaml).
+// It defaults to "dev" for `go run`/`go build` without ldflags.
 var version = "dev"
 
 func main() {

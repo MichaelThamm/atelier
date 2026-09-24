@@ -1,4 +1,4 @@
-package importer
+package juju
 
 import (
 	"context"
@@ -7,38 +7,38 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/MichaelThamm/atelier/internal/importer"
 	"github.com/MichaelThamm/atelier/internal/state"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
-	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
-// JujuSchemaVersions ensures schema_version is set for Juju resource types
+// SchemaVersions ensures schema_version is set for Juju resource types
 // that declare a non-zero Version but don't implement UpgradeState(). Without
 // this, Terraform tries to upgrade from version 0 and fails.
-type JujuSchemaVersions struct{}
+type SchemaVersions struct{}
 
-func (s *JujuSchemaVersions) Name() string {
+func (s *SchemaVersions) Name() string {
 	return "Ensure schema versions"
 }
 
-func (s *JujuSchemaVersions) Run(_ context.Context, pctx PostImportContext) error {
+func (s *SchemaVersions) Run(_ context.Context, pctx importer.PostImportContext) error {
 	versions := map[string]int{
 		"juju_application": 1,
 	}
 	return state.EnsureSchemaVersions(pctx.Dir, versions)
 }
 
-// JujuModelUUIDInjection injects the model UUID into the wrapper so
+// ModelUUIDInjection injects the model UUID into the wrapper so
 // terraform plan sees a concrete model_uuid instead of "(known after apply)".
 // Without this, RequiresReplace on model_uuid triggers destroy-and-recreate
 // for every juju_application resource.
-type JujuModelUUIDInjection struct{}
+type ModelUUIDInjection struct{}
 
-func (s *JujuModelUUIDInjection) Name() string {
+func (s *ModelUUIDInjection) Name() string {
 	return "Inject model UUID"
 }
 
-func (s *JujuModelUUIDInjection) Run(_ context.Context, pctx PostImportContext) error {
+func (s *ModelUUIDInjection) Run(_ context.Context, pctx importer.PostImportContext) error {
 	if pctx.WrapperState == nil {
 		return nil
 	}
@@ -50,17 +50,17 @@ func (s *JujuModelUUIDInjection) Run(_ context.Context, pctx PostImportContext) 
 	if st == nil {
 		return nil
 	}
-	uuid := st.ExtractModelUUID()
+	uuid := ExtractModelUUID(st)
 	if uuid == "" {
 		return nil
 	}
-	name := st.ExtractModelName()
-	// Safety net only: JujuModelIdentity normally does this before the plan,
+	name := ExtractModelName(st)
+	// Safety net only: ModelIdentity normally does this before the plan,
 	// which is the point at which it matters. Reaching here with something to
 	// write means the pre-plan step could not determine the UUID (and already
 	// warned), so stay quiet about the "no variable" case rather than repeating
 	// the warning.
-	if pctx.WrapperState.InjectModelUUID(uuid, name) == wrapper.ModelUUIDInjected {
+	if InjectModelUUID(pctx.WrapperState, uuid, name) == ModelUUIDInjected {
 		if err := pctx.WrapperState.Write(); err != nil {
 			return fmt.Errorf("write wrapper with model uuid: %w", err)
 		}
@@ -69,17 +69,17 @@ func (s *JujuModelUUIDInjection) Run(_ context.Context, pctx PostImportContext) 
 	return nil
 }
 
-// JujuOfferDefaults normalizes null offer attributes that the Juju provider
+// OfferDefaults normalizes null offer attributes that the Juju provider
 // stores as null but whose schema declares a non-null default (e.g.
 // allow_force_destroy defaults to false). Without this, Terraform sees
 // null→false on every plan and plans an in-place update.
-type JujuOfferDefaults struct{}
+type OfferDefaults struct{}
 
-func (s *JujuOfferDefaults) Name() string {
+func (s *OfferDefaults) Name() string {
 	return "Normalize offer defaults"
 }
 
-func (s *JujuOfferDefaults) Run(_ context.Context, pctx PostImportContext) error {
+func (s *OfferDefaults) Run(_ context.Context, pctx importer.PostImportContext) error {
 	if pctx.WrapperState == nil {
 		return nil
 	}
@@ -102,7 +102,7 @@ func (s *JujuOfferDefaults) Run(_ context.Context, pctx PostImportContext) error
 	return nil
 }
 
-// JujuModelIdentity derives the Juju model UUID (and name) from the live
+// ModelIdentity derives the Juju model UUID (and name) from the live
 // deployment and folds it into the wrapper *before* the module is planned.
 //
 // This is what lets `atelier import juju` work without the user having to
@@ -119,11 +119,11 @@ func (s *JujuOfferDefaults) Run(_ context.Context, pctx PostImportContext) error
 // both the wrong addresses and an unknown model_uuid, which makes Terraform
 // plan a replace for every application on the next run. Running this before
 // the plan avoids both.
-type JujuModelIdentity struct{}
+type ModelIdentity struct{}
 
-func (s *JujuModelIdentity) Name() string { return "Derive model identity" }
+func (s *ModelIdentity) Name() string { return "Derive model identity" }
 
-func (s *JujuModelIdentity) Run(_ context.Context, pctx PreflightContext) error {
+func (s *ModelIdentity) Run(_ context.Context, pctx importer.PreflightContext) error {
 	// The model the live objects actually came from is the ground truth: it is
 	// what every import ID encodes and what lands in state. A requested value is
 	// only a fallback for when no live identity carries a UUID (e.g. a model
@@ -132,7 +132,7 @@ func (s *JujuModelIdentity) Run(_ context.Context, pctx PreflightContext) error 
 	// QueryConfig outranks Config because the query merges them with QueryConfig
 	// winning, so it is the value that actually selected the model.
 	uuid := firstNonEmpty(
-		jujuModelUUIDFromLive(pctx.Live),
+		modelUUIDFromLive(pctx.Live),
 		pctx.QueryConfig["model_uuid"],
 		pctx.Config["model_uuid"],
 	)
@@ -140,7 +140,7 @@ func (s *JujuModelIdentity) Run(_ context.Context, pctx PreflightContext) error 
 		return nil
 	}
 
-	// Make the UUID reachable by JujuBuildImportID even when it was only ever
+	// Make the UUID reachable by BuildImportID even when it was only ever
 	// supplied as a query variable or inferred from live identities.
 	pctx.Config["model_uuid"] = uuid
 
@@ -148,13 +148,13 @@ func (s *JujuModelIdentity) Run(_ context.Context, pctx PreflightContext) error 
 		return nil
 	}
 
-	switch pctx.WrapperState.InjectModelUUID(uuid, jujuModelNameFromLive(pctx.Live)) {
-	case wrapper.ModelUUIDInjected:
+	switch InjectModelUUID(pctx.WrapperState, uuid, modelNameFromLive(pctx.Live)) {
+	case ModelUUIDInjected:
 		if err := pctx.WrapperState.Write(); err != nil {
 			return fmt.Errorf("write wrapper with model uuid: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "\nDerived model UUID %s from the live deployment.\n", uuid)
-	case wrapper.ModelUUIDNoVariable:
+	case ModelUUIDNoVariable:
 		// The UUID is known but there is nowhere recognised to put it. Import
 		// IDs still work (they come from each live object's identity), but the
 		// plan runs with the UUID unset — and modules that branch on it will
@@ -166,7 +166,7 @@ func (s *JujuModelIdentity) Run(_ context.Context, pctx PreflightContext) error 
 				"  Planning with it unset. If this module branches on the model UUID, set it\n"+
 				"  yourself (in the TUI, or --var <name>=...) and re-run; --dry-run shows the\n"+
 				"  effect without touching state.\n", uuid)
-	case wrapper.ModelUUIDAlreadySet:
+	case ModelUUIDAlreadySet:
 		// Expected on a re-run or after the user set it; nothing to report.
 	}
 	return nil
@@ -177,12 +177,12 @@ func (s *JujuModelIdentity) Run(_ context.Context, pctx PreflightContext) error 
 // secret identities.
 var uuidPrefix = regexp.MustCompile(`^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(:|$)`)
 
-// jujuModelUUIDFromLive recovers the model UUID from the live objects'
+// modelUUIDFromLive recovers the model UUID from the live objects'
 // identities. Every model-scoped Juju resource identity is prefixed with it,
 // so the most frequently seen prefix is the model being imported. Returns ""
 // when no identity carries a UUID (e.g. only offers were found, whose
 // identity is a URL).
-func jujuModelUUIDFromLive(live []tfexec.LiveResource) string {
+func modelUUIDFromLive(live []tfexec.LiveResource) string {
 	counts := map[string]int{}
 	for _, lr := range live {
 		id, _ := lr.Identity["id"].(string)
@@ -200,11 +200,11 @@ func jujuModelUUIDFromLive(live []tfexec.LiveResource) string {
 	return best
 }
 
-// jujuModelNameFromLive recovers the model name from the live objects. Offer
+// modelNameFromLive recovers the model name from the live objects. Offer
 // identities are URLs of the form "<user>/<model>.<offer>", which is the only
 // place the model name reliably appears; otherwise an application's "model"
 // attribute is used when the provider exposes one.
-func jujuModelNameFromLive(live []tfexec.LiveResource) string {
+func modelNameFromLive(live []tfexec.LiveResource) string {
 	for _, lr := range live {
 		if lr.ResourceType != "juju_offer" {
 			continue
@@ -233,18 +233,18 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// jujuIdentityNotImportID lists resource types whose provider-declared
+// identityNotImportID lists resource types whose provider-declared
 // identity is *not* the string `terraform import` expects, so the identity
 // must not be used verbatim as an import ID.
 //
 // juju_secret is the known exception: its identity is
 // "<model_uuid>:<secret_id>" (e.g. "…:coj8mulh8b41e8nv6p90"), while import
 // expects the secret's *name*, not its generated ID.
-var jujuIdentityNotImportID = map[string]bool{
+var identityNotImportID = map[string]bool{
 	"juju_secret": true,
 }
 
-// JujuBuildImportID constructs the provider-specific import ID for a Juju
+// BuildImportID constructs the provider-specific import ID for a Juju
 // resource.
 //
 // The provider-declared resource identity is preferred whenever it is
@@ -256,9 +256,9 @@ var jujuIdentityNotImportID = map[string]bool{
 //
 // The name-based fallback — "<model_uuid>:<name>", or bare "<model_uuid>" for
 // juju_model — is used only for resources whose identity is absent or is known
-// to differ from the import ID (see jujuIdentityNotImportID).
-func JujuBuildImportID(m MatchedImport, config map[string]string) string {
-	if !jujuIdentityNotImportID[m.ResourceType] {
+// to differ from the import ID (see identityNotImportID).
+func BuildImportID(m importer.MatchedImport, config map[string]string) string {
+	if !identityNotImportID[m.ResourceType] {
 		if id, ok := m.Identity["id"].(string); ok && id != "" {
 			return id
 		}
@@ -273,7 +273,7 @@ func JujuBuildImportID(m MatchedImport, config map[string]string) string {
 	return modelUUID + ":" + m.Name
 }
 
-// JujuModelConsistency refuses a run whose planned configuration targets a
+// ModelConsistency refuses a run whose planned configuration targets a
 // different Juju model than the live resources came from.
 //
 // model_uuid forces replacement on every Juju resource, so importing model A's
@@ -286,20 +286,20 @@ func JujuBuildImportID(m MatchedImport, config map[string]string) string {
 // may carry the UUID in a tfvars file, a -var, an environment variable or a
 // literal. Terraform has already resolved all of those by the time it produces a
 // plan, so the plan is the one place the answer is always available.
-type JujuModelConsistency struct{}
+type ModelConsistency struct{}
 
-func (c *JujuModelConsistency) Name() string { return "Check model consistency" }
+func (c *ModelConsistency) Name() string { return "Check model consistency" }
 
-func (c *JujuModelConsistency) Check(_ context.Context, pctx PlanCheckContext) error {
+func (c *ModelConsistency) Check(_ context.Context, pctx importer.PlanCheckContext) error {
 	live := firstNonEmpty(
-		jujuModelUUIDFromLive(pctx.Live),
+		modelUUIDFromLive(pctx.Live),
 		pctx.QueryConfig["model_uuid"],
 		pctx.Config["model_uuid"],
 	)
 	if live == "" {
 		return nil
 	}
-	planned, addr := jujuPlannedModelUUID(pctx.Planned, live)
+	planned, addr := plannedModelUUID(pctx.Planned, live)
 	if planned == "" {
 		// Either nothing declares a model_uuid, or every value is unknown —
 		// which is the "UUID unset" case the preflight step already warns about,
@@ -307,7 +307,7 @@ func (c *JujuModelConsistency) Check(_ context.Context, pctx PlanCheckContext) e
 		return nil
 	}
 	source := "the planned configuration"
-	if pctx.WrapperState != nil && pctx.WrapperState.ModelUUID() == planned {
+	if pctx.WrapperState != nil && ModelUUID(pctx.WrapperState) == planned {
 		source = "the wrapper"
 	}
 	return fmt.Errorf(
@@ -321,10 +321,10 @@ func (c *JujuModelConsistency) Check(_ context.Context, pctx PlanCheckContext) e
 		source, planned, live, addr, live, planned, planned, planned, live)
 }
 
-// jujuPlannedModelUUID returns the first concrete planned model_uuid that
+// plannedModelUUID returns the first concrete planned model_uuid that
 // differs from want, with the address it was found at. Unknown and empty values
 // are skipped: they mean "not yet determined", not "a different model".
-func jujuPlannedModelUUID(planned []PlannedResource, want string) (uuid, addr string) {
+func plannedModelUUID(planned []importer.PlannedResource, want string) (uuid, addr string) {
 	for _, p := range planned {
 		v, ok := p.PlannedAttrs["model_uuid"].(string)
 		if !ok || v == "" || v == want {
