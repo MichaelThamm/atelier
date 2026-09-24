@@ -15,7 +15,7 @@ import subprocess
 
 import pytest
 
-from helpers import TfDirManager, run_atelier, write_preset_file
+from helpers import TfDirManager, run_atelier, write_local_preset
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 PROM_MODULE = "terraform"
@@ -78,8 +78,9 @@ def test_ref_is_pinned_in_the_source(tmp_path, atelier_bin):
 
 def test_preset_applies_typed_values(tmp_path, atelier_bin):
     # GIVEN a preset with scalars and a map-typed value
-    preset = write_preset_file(
+    preset = write_local_preset(
         tmp_path,
+        "ci",
         {
             "model_uuid": "00000000-0000-0000-0000-000000000001",
             "channel": "dev/edge",
@@ -90,7 +91,7 @@ def test_preset_applies_typed_values(tmp_path, atelier_bin):
     )
 
     # WHEN the module is configured from it
-    _add(tmp_path, atelier_bin, "--preset", str(preset))
+    _add(tmp_path, atelier_bin, "--preset", preset)
 
     # THEN the values are written as typed HCL arguments
     main_tf = _main_tf(tmp_path)
@@ -143,8 +144,8 @@ def test_duplicate_add_is_refused(tmp_path, atelier_bin):
 
 def test_wrapper_initialises_and_validates(tmp_path, atelier_bin):
     # GIVEN a wrapper Atelier authored from a preset
-    preset = write_preset_file(tmp_path, DEFAULT_PRESET)
-    _add(tmp_path, atelier_bin, "--preset", str(preset))
+    preset = write_local_preset(tmp_path, "ci", DEFAULT_PRESET)
+    _add(tmp_path, atelier_bin, "--preset", preset)
 
     # WHEN Terraform initialises it (fetching the module and provider)
     tf = TfDirManager(tmp_path)

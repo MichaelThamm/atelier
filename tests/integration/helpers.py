@@ -102,17 +102,17 @@ def run_atelier(
         )
 
 
-def write_preset_file(directory, sets: dict, *, name: str = "preset.yaml") -> Path:
-    """Write a standalone ``--preset`` YAML file and return its path.
+def write_local_preset(directory, name: str, sets: dict) -> str:
+    """Write an ``atelier.local.yaml`` with one named preset; return the name.
 
-    The file is a flat map of module variable name → value. Model-specific
-    values (``model_uuid``, an endpoint address, …) are supplied here rather
-    than checked in, so the same helper serves every deployment test.
+    This is the canonical preset mechanism (the same file the TUI's `S` key and
+    ``import --preset`` use), so the tests document the real thing.
     """
-    path = Path(directory) / name
-    path.write_text(yaml.safe_dump(sets, sort_keys=False))
-    logger.info("wrote preset %s: %s", path, sets)
-    return path
+    path = Path(directory) / "atelier.local.yaml"
+    manifest = {"modules": [{"path": ".", "presets": [{"name": name, "sets": sets}]}]}
+    path.write_text(yaml.safe_dump(manifest, sort_keys=False))
+    logger.info("wrote %s with preset %r: %s", path, name, sets)
+    return name
 
 
 def wait_for_active_idle_without_error(juju: jubilant.Juju, timeout: int = 60 * 45) -> None:

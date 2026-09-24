@@ -238,17 +238,12 @@ rationale.
 
 ### Applying a preset from the CLI
 
-`atelier module add` accepts `--preset`, which applies a preset and exits
-without opening the TUI — useful in scripts and CI:
+`atelier module add` accepts `--preset`, which applies a named preset and
+exits without opening the TUI — useful in scripts and CI:
 
 ```bash
-# Apply a named preset from a walk-up atelier.local.yaml:
 atelier module add https://github.com/canonical/loki-operators.git \
-  --module terraform --preset production --yes
-
-# Or apply a standalone preset YAML file (a flat variable → value map):
-atelier module add https://github.com/canonical/loki-operators.git \
-  --module terraform --preset docs/examples/cos-s3.yaml --yes < /dev/null
+  --module terraform --preset production --yes < /dev/null
 ```
 
 The wrapper's `main.tf` is written with the preset values, ready for
@@ -391,7 +386,7 @@ Atelier persists terraform's diagnostics under the wrapper's
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What Atelier does today and what's not yet implemented |
 | [docs/how-to/](docs/how-to/) | Step-by-step guides |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
-| [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` and preset files |
+| [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` |
 
 ## Testing
 

@@ -332,8 +332,7 @@ worked Juju example.
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
 - Applies any `--preset` values (a named preset from walk-up
-  `atelier.local.yaml`, or a standalone preset YAML file) and writes them to
-  `main.tf`.
+  `atelier.local.yaml`) and writes them to `main.tf`.
 - Runs the target-directory preflight (§6.5) before writing anything.
 - Refuses to add a module the wrapper already references at the same ref (§6.7).
 - Runs `terraform init` and launches the TUI with the new module focused. When
