@@ -19,7 +19,7 @@ from helpers import TfDirManager, run_atelier, write_local_preset
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 PROM_MODULE = "terraform"
-PROM_REF = "tf-3.11.3"
+PROM_REF = "main"
 # `terraform` is a generic directory name, so Atelier names the block after the
 # repository instead (see internal/bootstrap.ModuleBlockName).
 PROM_BLOCK = "prometheus_k8s_operator"
