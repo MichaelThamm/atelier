@@ -9,6 +9,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/importer"
+	"github.com/MichaelThamm/atelier/internal/importer/providers"
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
@@ -607,8 +608,8 @@ func TestHasJujuProvider(t *testing.T) {
 		{"nil", nil, false},
 	}
 	for _, c := range cases {
-		if got := hasJujuProvider(c.sources); got != c.want {
-			t.Errorf("%s: hasJujuProvider(%v) = %v, want %v", c.name, c.sources, got, c.want)
+		if got := providers.For(c.sources) != nil; got != c.want {
+			t.Errorf("%s: registry detection (%v) matched = %v, want %v", c.name, c.sources, got, c.want)
 		}
 	}
 }
