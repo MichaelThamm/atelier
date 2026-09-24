@@ -236,6 +236,26 @@ See [docs/examples/atelier.local.yaml](docs/examples/atelier.local.yaml)
 for a full example, and [ADR-0022](docs/adr/0022-local-presets.md) for the
 rationale.
 
+### Applying a preset from the CLI
+
+`atelier module add` accepts `--preset`, which applies a preset and exits
+without opening the TUI — useful in scripts and CI:
+
+```bash
+# Apply a named preset from a walk-up atelier.local.yaml:
+atelier module add https://github.com/canonical/loki-operators.git \
+  --module terraform --preset production --yes
+
+# Or apply a standalone preset YAML file (a flat variable → value map):
+atelier module add https://github.com/canonical/loki-operators.git \
+  --module terraform --preset docs/examples/cos-s3.yaml --yes < /dev/null
+```
+
+The wrapper's `main.tf` is written with the preset values, ready for
+`terraform init && terraform apply`. Piping stdin from `/dev/null` (or running
+without a terminal) makes Atelier skip the TUI rather than error, so the
+command never blocks.
+
 <details>
 <summary>Demo: saving a preset</summary>
 
@@ -371,7 +391,20 @@ Atelier persists terraform's diagnostics under the wrapper's
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What Atelier does today and what's not yet implemented |
 | [docs/how-to/](docs/how-to/) | Step-by-step guides |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
-| [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` |
+| [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` and preset files |
+
+## Testing
+
+Unit tests run with `go test ./...` (the `build · vet · test` job in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
+Integration tests live in [`tests/integration/`](tests/integration/). They
+create a model with [Jubilant](https://github.com/canonical/jubilant), run
+Atelier non-interactively to author a wrapper from a real upstream module, then
+deploy that wrapper with Terraform. They run in
+[`.github/workflows/terraform.yml`](.github/workflows/terraform.yml) against
+Juju + Canonical K8s prepared by Concierge, with microceph providing S3. See
+[tests/integration/README.md](tests/integration/README.md) to run them locally.
 
 ## License
 

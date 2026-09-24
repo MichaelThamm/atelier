@@ -1,0 +1,63 @@
+name: Test Atelier against Juju and Terraform
+run-name: Atelier integration (${{ inputs.juju-channel }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      juju-channel:
+        description: 'The Juju snap channel to prepare the controller with.'
+        type: string
+        default: 3.6/stable
+  workflow_call:
+    inputs:
+      juju-channel:
+        type: string
+        default: 3.6/stable
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Deploy loki-operators with Atelier + Terraform
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Concierge prepare (Juju + Canonical K8s)
+        timeout-minutes: 30
+        run: |
+          sudo snap install concierge --classic
+          sudo concierge prepare \
+            --config concierge-k8s.yaml \
+            --juju-channel ${{ inputs.juju-channel }} \
+            --extra-snaps astral-uv,terraform
+
+      - name: Build Atelier
+        run: |
+          go build -o "$RUNNER_TEMP/atelier" ./cmd/atelier
+          echo "ATELIER_BIN=$RUNNER_TEMP/atelier" >> "$GITHUB_ENV"
+
+      - name: Test deployment
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq
+          if [[ "${{ runner.debug }}" == "1" ]]; then
+            export KEEP_MODELS=true
+          fi
+          uv run --project tests/integration --frozen pytest tests/integration/loki \
+            -m cloud -vv -ra --capture=no --exitfirst
+
+      - name: Open SSH session on failure
+        if: ${{ failure() && (runner.debug == '1') }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          timeout-minutes: 30
+          limit-access-to-actor: true

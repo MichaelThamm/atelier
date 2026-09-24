@@ -1,0 +1,42 @@
+name: Terraform
+
+on:
+  workflow_dispatch:
+
+  pull_request:
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "tests/integration/**"
+      - "docs/examples/**"
+      - "go.mod"
+      - "go.sum"
+      - "concierge-k8s.yaml"
+      - ".github/workflows/terraform.yml"
+      - ".github/workflows/_integration.yml"
+  push:
+    branches: [main]
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "tests/integration/**"
+      - "docs/examples/**"
+      - "go.mod"
+      - "go.sum"
+      - "concierge-k8s.yaml"
+      - ".github/workflows/terraform.yml"
+      - ".github/workflows/_integration.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-integration-loki:
+    name: Loki operators integration
+    uses: ./.github/workflows/_integration.yml
+    with:
+      juju-channel: 3.6/stable
