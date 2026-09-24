@@ -156,40 +156,15 @@ func runModuleAdd(args []string) error {
 	defer cancel()
 
 	if !wrapperExists {
-		// Fresh bootstrap of a new wrapper from the given module URL.
-		initOpts := bootstrap.InitOptions{
-			WrapperDir: cwd,
-			Source:     opts.Source,
-			Ref:        opts.Ref,
-			ModulePath: opts.ModulePath,
-		}
-
-		// A bootstrap that fails partway leaves a clone under .atelier/ in a
-		// directory the user may not have wanted touched at all. Remove it —
-		// but only if this run is what created it, so a retry in a wrapper
-		// that already had state doesn't destroy that state.
-		atelierDir := filepath.Join(cwd, wrapper.AtelierDir)
-		createdAtelierDir := false
-		if _, err := os.Stat(atelierDir); os.IsNotExist(err) {
-			createdAtelierDir = true
-		}
-		cleanup := func() {
-			if createdAtelierDir {
-				_ = os.RemoveAll(atelierDir)
-			}
-		}
-
-		stop := startSpinner("Cloning and preparing module…")
-		defer stop()
-		res, err := bootstrap.InitNew(ctx, initOpts)
-		stop()
+		// Fresh bootstrap of a new wrapper from the given module URL. Clone,
+		// wrapper authoring and failure cleanup are shared with `import
+		// --source` (bootstrapFreshWrapper) so the two stay in lockstep.
+		res, cleanup, err := bootstrapFreshWrapper(cwd, opts.Source, opts.Ref, opts.ModulePath)
 		if err != nil {
-			cleanup()
 			return err
 		}
 		if res.State == nil {
 			// Multiple candidates — user needs --module.
-			cleanup()
 			fmt.Println("Multiple module candidates found. Re-run with --module <path>:")
 			for _, c := range res.Candidates {
 				label := c.Path
@@ -208,10 +183,6 @@ func runModuleAdd(args []string) error {
 				cleanup()
 				return err
 			}
-		}
-
-		for _, w := range res.Warnings {
-			fmt.Fprintln(os.Stderr, "warning:", w)
 		}
 
 		// Apply --preset values, then persist them to main.tf.
@@ -333,6 +304,67 @@ func runModuleAdd(args []string) error {
 		return err
 	}
 	return launchTUI(res, cwd)
+}
+
+// bootstrapFreshWrapper clones a remote module source and writes a wrapper
+// into dir: the single fresh-bootstrap path shared by `module add` (into the
+// working directory) and `import --source` (into the import target). Keeping
+// one implementation means the two cannot drift — `import --source` offers
+// exactly the same clone, failure cleanup and warnings as `module add`.
+//
+// It returns a result with a nil State when the module has multiple Terraform
+// candidates (nothing was written); the caller decides how to present the
+// candidate list — `module add` prints it and exits 0, `import --source`
+// prints it and errors.
+//
+// A bootstrap that fails partway must not leave a clone behind in a directory
+// that never became a wrapper — but only an .atelier/ this run created is
+// removed, so a retry inside an established wrapper never destroys its state.
+// The returned cleanup closure does that removal; callers invoke it on their
+// own post-bootstrap failure paths (e.g. a rename or preset-write error),
+// matching `module add`'s previous behaviour.
+func bootstrapFreshWrapper(dir, source, ref, modulePath string) (*bootstrap.Result, func(), error) {
+	if _, err := tfexec.Locate(); err != nil {
+		return nil, nil, err
+	}
+
+	atelierDir := filepath.Join(dir, wrapper.AtelierDir)
+	createdAtelierDir := false
+	if _, err := os.Stat(atelierDir); os.IsNotExist(err) {
+		createdAtelierDir = true
+	}
+	cleanup := func() {
+		if createdAtelierDir {
+			_ = os.RemoveAll(atelierDir)
+		}
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	stop := startSpinner("Cloning and preparing module…")
+	defer stop()
+	res, err := bootstrap.InitNew(ctx, bootstrap.InitOptions{
+		WrapperDir: dir,
+		Source:     source,
+		Ref:        ref,
+		ModulePath: modulePath,
+	})
+	stop()
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	if res.State == nil {
+		// Multiple candidates — nothing written. The caller presents them.
+		cleanup()
+		return res, nil, nil
+	}
+
+	for _, w := range res.Warnings {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+	return res, cleanup, nil
 }
 
 // runModuleRm implements `atelier module rm <name>`.
