@@ -2,6 +2,7 @@
 # See LICENSE file for licensing details.
 """Helpers for Atelier's Juju + Terraform integration tests."""
 
+import json
 import logging
 import os
 import shlex
@@ -55,6 +56,46 @@ class TfDirManager:
     def validate(self) -> None:
         """Run ``terraform validate`` in the latched wrapper directory."""
         subprocess.run(shlex.split(f"{self.tf_cmd} validate"), check=True)
+
+    def plan_changes(self) -> list[tuple[str, str, list[str]]]:
+        """Return a plan's managed-resource changes as ``(address, type, actions)``.
+
+        Runs ``terraform plan -out`` then ``terraform show -json`` so the result
+        is machine-readable. Data sources and no-op changes are omitted; each
+        remaining entry is something the plan would add, change, or destroy.
+
+        This is what lets a caller separate real infrastructure deltas from
+        ``terraform_data`` bookkeeping, which has no live counterpart and can
+        never be imported.
+        """
+        plan_file = os.path.join(self.dir, ".atelier-integration.tfplan")
+        logger.info("running: %s plan -out=%s", self.tf_cmd, plan_file)
+        subprocess.run(
+            shlex.split(f"{self.tf_cmd} plan -out={plan_file} -input=false -no-color"),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        try:
+            shown = subprocess.run(
+                shlex.split(f"{self.tf_cmd} show -json {plan_file}"),
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+        finally:
+            if os.path.exists(plan_file):
+                os.remove(plan_file)
+
+        changes: list[tuple[str, str, list[str]]] = []
+        for rc in json.loads(shown).get("resource_changes") or []:
+            if rc.get("mode") != "managed":
+                continue
+            actions = (rc.get("change") or {}).get("actions") or []
+            if actions == ["no-op"]:
+                continue
+            changes.append((rc.get("address", ""), rc.get("type", ""), actions))
+        return changes
 
     @staticmethod
     def _args_str(target: Optional[str] = None, **kwargs) -> str:

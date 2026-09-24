@@ -1,9 +1,11 @@
-package wrapper
+package juju
 
 import (
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/MichaelThamm/atelier/internal/state"
 	"github.com/MichaelThamm/atelier/internal/tftypes"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // ModelUUIDResult reports the outcome of InjectModelUUID. The three cases are
@@ -46,7 +48,7 @@ const (
 // yields ModelUUIDNoVariable, which callers must surface — silently planning
 // with the UUID unset is what produces wrong resource addresses in modules that
 // branch on it.
-func (s *State) InjectModelUUID(uuid, name string) ModelUUIDResult {
+func InjectModelUUID(s *wrapper.State, uuid, name string) ModelUUIDResult {
 	if uuid == "" || s == nil {
 		return ModelUUIDNoVariable
 	}
@@ -124,7 +126,7 @@ func isNonEmptyString(v cty.Value) bool {
 // one being imported. That mismatch is not cosmetic: model_uuid forces
 // replacement on Juju resources, so applying it would destroy every imported
 // resource and recreate it in the other model.
-func (s *State) ModelUUID() string {
+func ModelUUID(s *wrapper.State) string {
 	if s == nil {
 		return ""
 	}
@@ -139,6 +141,45 @@ func (s *State) ModelUUID() string {
 	}
 	if v := s.FindVar("model_uuid"); v != nil && isNonEmptyString(s.Values["model_uuid"]) {
 		return s.Values["model_uuid"].AsString()
+	}
+	return ""
+}
+
+// ExtractModelUUID returns the first model UUID found in juju_application
+// resources in the state, or "" if none. When multiple applications exist in
+// the same model (as is typical), they all share the same UUID, so any one
+// suffices.
+func ExtractModelUUID(s *state.State) string {
+	if s == nil {
+		return ""
+	}
+	for _, r := range s.Resources {
+		if r.Type == "juju_application" {
+			if v, ok := r.Attributes["model_uuid"]; ok {
+				if s, ok := v.(string); ok && s != "" {
+					return s
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// ExtractModelName returns the name of the first juju_model resource found in
+// the state, or "" if none. This is used to populate the model variable's
+// name field in the wrapper.
+func ExtractModelName(s *state.State) string {
+	if s == nil {
+		return ""
+	}
+	for _, r := range s.Resources {
+		if r.Type == "juju_model" {
+			if v, ok := r.Attributes["name"]; ok {
+				if s, ok := v.(string); ok && s != "" {
+					return s
+				}
+			}
+		}
 	}
 	return ""
 }

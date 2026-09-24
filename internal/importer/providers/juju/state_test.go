@@ -1,12 +1,14 @@
-package state
+package juju
 
 import (
 	"testing"
+
+	"github.com/MichaelThamm/atelier/internal/state"
 )
 
 func TestExtractModelUUID(t *testing.T) {
-	s := &State{
-		Resources: []Resource{
+	s := &state.State{
+		Resources: []state.Resource{
 			{
 				Type: "juju_application",
 				Attributes: map[string]interface{}{
@@ -23,36 +25,36 @@ func TestExtractModelUUID(t *testing.T) {
 			},
 		},
 	}
-	got := s.ExtractModelUUID()
+	got := ExtractModelUUID(s)
 	if got != "64fa7ee4-f2e6-4f1a-8fe9-aeef8c082578" {
 		t.Errorf("ExtractModelUUID = %q, want 64fa7ee4-f2e6-4f1a-8fe9-aeef8c082578", got)
 	}
 }
 
 func TestExtractModelUUID_NilState(t *testing.T) {
-	var s *State
-	if got := s.ExtractModelUUID(); got != "" {
+	var s *state.State
+	if got := ExtractModelUUID(s); got != "" {
 		t.Errorf("nil state should return empty, got %q", got)
 	}
 }
 
 func TestExtractModelUUID_NoApplications(t *testing.T) {
-	s := &State{
-		Resources: []Resource{
+	s := &state.State{
+		Resources: []state.Resource{
 			{
 				Type:       "juju_model",
 				Attributes: map[string]interface{}{"name": "cos"},
 			},
 		},
 	}
-	if got := s.ExtractModelUUID(); got != "" {
+	if got := ExtractModelUUID(s); got != "" {
 		t.Errorf("no juju_application resources should return empty, got %q", got)
 	}
 }
 
 func TestExtractModelUUID_EmptyModelUUID(t *testing.T) {
-	s := &State{
-		Resources: []Resource{
+	s := &state.State{
+		Resources: []state.Resource{
 			{
 				Type: "juju_application",
 				Attributes: map[string]interface{}{
@@ -62,14 +64,14 @@ func TestExtractModelUUID_EmptyModelUUID(t *testing.T) {
 			},
 		},
 	}
-	if got := s.ExtractModelUUID(); got != "" {
+	if got := ExtractModelUUID(s); got != "" {
 		t.Errorf("empty model_uuid should return empty, got %q", got)
 	}
 }
 
 func TestExtractModelName(t *testing.T) {
-	s := &State{
-		Resources: []Resource{
+	s := &state.State{
+		Resources: []state.Resource{
 			{
 				Type: "juju_model",
 				Attributes: map[string]interface{}{
@@ -79,22 +81,22 @@ func TestExtractModelName(t *testing.T) {
 			},
 		},
 	}
-	got := s.ExtractModelName()
+	got := ExtractModelName(s)
 	if got != "cos-lite" {
 		t.Errorf("ExtractModelName = %q, want cos-lite", got)
 	}
 }
 
 func TestExtractModelName_NilState(t *testing.T) {
-	var s *State
-	if got := s.ExtractModelName(); got != "" {
+	var s *state.State
+	if got := ExtractModelName(s); got != "" {
 		t.Errorf("nil state should return empty, got %q", got)
 	}
 }
 
 func TestExtractModelName_NoJujuModel(t *testing.T) {
-	s := &State{
-		Resources: []Resource{
+	s := &state.State{
+		Resources: []state.Resource{
 			{
 				Type: "juju_application",
 				Attributes: map[string]interface{}{
@@ -103,7 +105,7 @@ func TestExtractModelName_NoJujuModel(t *testing.T) {
 			},
 		},
 	}
-	if got := s.ExtractModelName(); got != "" {
+	if got := ExtractModelName(s); got != "" {
 		t.Errorf("no juju_model resources should return empty, got %q", got)
 	}
 }
