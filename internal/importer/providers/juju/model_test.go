@@ -1,4 +1,4 @@
-package wrapper
+package juju
 
 import (
 	"strings"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 func mustVar(t *testing.T, name, typeSrc string, def cty.Value, hasDef bool) tfvars.Variable {
@@ -26,13 +27,13 @@ func mustVar(t *testing.T, name, typeSrc string, def cty.Value, hasDef bool) tfv
 }
 
 func TestInjectModelUUID_modelObject(t *testing.T) {
-	s := &State{
+	s := &wrapper.State{
 		Vars: []tfvars.Variable{
 			mustVar(t, "model", `object({name = string, uuid = string})`, cty.EmptyObjectVal, true),
 			mustVar(t, "internal_tls", "bool", cty.True, true),
 		},
 	}
-	if got := s.InjectModelUUID("abc-def-123", "cos-lite"); got != ModelUUIDInjected {
+	if got := InjectModelUUID(s, "abc-def-123", "cos-lite"); got != ModelUUIDInjected {
 		t.Fatalf("got %v, want ModelUUIDInjected for object model var", got)
 	}
 	uv := s.Values["model"].AsValueMap()
@@ -45,12 +46,12 @@ func TestInjectModelUUID_modelObject(t *testing.T) {
 }
 
 func TestInjectModelUUID_modelUuidString(t *testing.T) {
-	s := &State{
+	s := &wrapper.State{
 		Vars: []tfvars.Variable{
 			mustVar(t, "model_uuid", "string", cty.NilVal, false),
 		},
 	}
-	if got := s.InjectModelUUID("xyz-789", ""); got != ModelUUIDInjected {
+	if got := InjectModelUUID(s, "xyz-789", ""); got != ModelUUIDInjected {
 		t.Fatalf("got %v, want ModelUUIDInjected for string model_uuid var", got)
 	}
 	if s.Values["model_uuid"].AsString() != "xyz-789" {
@@ -59,43 +60,43 @@ func TestInjectModelUUID_modelUuidString(t *testing.T) {
 }
 
 func TestInjectModelUUID_nilState(t *testing.T) {
-	var s *State
-	if got := s.InjectModelUUID("x", ""); got != ModelUUIDNoVariable {
+	var s *wrapper.State
+	if got := InjectModelUUID(s, "x", ""); got != ModelUUIDNoVariable {
 		t.Errorf("nil state: got %v, want ModelUUIDNoVariable", got)
 	}
 }
 
 func TestInjectModelUUID_emptyUUID(t *testing.T) {
-	s := &State{
+	s := &wrapper.State{
 		Vars: []tfvars.Variable{
 			mustVar(t, "model_uuid", "string", cty.NilVal, false),
 		},
 	}
-	if got := s.InjectModelUUID("", ""); got != ModelUUIDNoVariable {
+	if got := InjectModelUUID(s, "", ""); got != ModelUUIDNoVariable {
 		t.Errorf("empty UUID: got %v, want ModelUUIDNoVariable", got)
 	}
 }
 
 func TestInjectModelUUID_noMatchingVar(t *testing.T) {
-	s := &State{
+	s := &wrapper.State{
 		Vars: []tfvars.Variable{
 			mustVar(t, "region", "string", cty.StringVal("us-east-1"), true),
 		},
 	}
 	// The distinguishing case: nothing recognised to write into. This must be
 	// reported to the user, so it must not be confused with "already set".
-	if got := s.InjectModelUUID("abc", ""); got != ModelUUIDNoVariable {
+	if got := InjectModelUUID(s, "abc", ""); got != ModelUUIDNoVariable {
 		t.Errorf("no matching variable: got %v, want ModelUUIDNoVariable", got)
 	}
 }
 
 func TestInjectModelUUID_emptyNameFallsBackToZero(t *testing.T) {
-	s := &State{
+	s := &wrapper.State{
 		Vars: []tfvars.Variable{
 			mustVar(t, "model", `object({name = string, uuid = string})`, cty.EmptyObjectVal, true),
 		},
 	}
-	s.InjectModelUUID("abc", "")
+	InjectModelUUID(s, "abc", "")
 	uv := s.Values["model"].AsValueMap()
 	if uv["name"].AsString() != "" {
 		t.Errorf("model.name = %q, want empty when name arg is empty", uv["name"].AsString())
@@ -122,9 +123,9 @@ const cosLiteModelType = `object({
   target_controller = optional(string)
 })`
 
-func newCosLiteState(t *testing.T, dir string) *State {
+func newCosLiteState(t *testing.T, dir string) *wrapper.State {
 	t.Helper()
-	return &State{
+	return &wrapper.State{
 		Dir:             dir,
 		ModuleBlockName: "cos_lite",
 		Source:          "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite",
@@ -140,7 +141,7 @@ func newCosLiteState(t *testing.T, dir string) *State {
 func TestInjectModelUUID_rendersSparseModelObject(t *testing.T) {
 	dir := t.TempDir()
 	s := newCosLiteState(t, dir)
-	if got := s.InjectModelUUID("b62cdacf-9e9b-4e35-8c5e-e334930e2b02", "cos-lite"); got != ModelUUIDInjected {
+	if got := InjectModelUUID(s, "b62cdacf-9e9b-4e35-8c5e-e334930e2b02", "cos-lite"); got != ModelUUIDInjected {
 		t.Fatalf("got %v, want ModelUUIDInjected", got)
 	}
 	out, err := s.RenderMain()
@@ -168,7 +169,7 @@ func TestInjectModelUUID_preservesExistingFields(t *testing.T) {
 	s.Values["model"] = cty.ObjectVal(map[string]cty.Value{
 		"constraints": cty.StringVal("arch=arm64"),
 	})
-	if got := s.InjectModelUUID("abc-123", "cos-lite"); got != ModelUUIDInjected {
+	if got := InjectModelUUID(s, "abc-123", "cos-lite"); got != ModelUUIDInjected {
 		t.Fatalf("got %v, want ModelUUIDInjected", got)
 	}
 	out, err := s.RenderMain()
@@ -191,7 +192,7 @@ func TestInjectModelUUID_doesNotOverwriteExistingUUID(t *testing.T) {
 	s.Values["model"] = cty.ObjectVal(map[string]cty.Value{
 		"uuid": cty.StringVal("user-chosen"),
 	})
-	if got := s.InjectModelUUID("derived", "cos-lite"); got != ModelUUIDAlreadySet {
+	if got := InjectModelUUID(s, "derived", "cos-lite"); got != ModelUUIDAlreadySet {
 		t.Fatalf("got %v, want ModelUUIDAlreadySet (must not overwrite)", got)
 	}
 	if got := s.Values["model"].AsValueMap()["uuid"].AsString(); got != "user-chosen" {
@@ -200,11 +201,11 @@ func TestInjectModelUUID_doesNotOverwriteExistingUUID(t *testing.T) {
 }
 
 func TestInjectModelUUID_doesNotOverwriteExistingModelUUIDString(t *testing.T) {
-	s := &State{
+	s := &wrapper.State{
 		Vars:   []tfvars.Variable{mustVar(t, "model_uuid", "string", cty.StringVal(""), true)},
 		Values: map[string]cty.Value{"model_uuid": cty.StringVal("user-chosen")},
 	}
-	if got := s.InjectModelUUID("derived", ""); got != ModelUUIDAlreadySet {
+	if got := InjectModelUUID(s, "derived", ""); got != ModelUUIDAlreadySet {
 		t.Fatalf("got %v, want ModelUUIDAlreadySet (must not overwrite)", got)
 	}
 	if got := s.Values["model_uuid"].AsString(); got != "user-chosen" {
@@ -216,7 +217,7 @@ func TestInjectModelUUID_doesNotOverwriteExistingModelUUIDString(t *testing.T) {
 func TestInjectModelUUID_fillsEmptyUUID(t *testing.T) {
 	s := newCosLiteState(t, t.TempDir())
 	s.Values["model"] = cty.ObjectVal(map[string]cty.Value{"uuid": cty.StringVal("")})
-	if got := s.InjectModelUUID("derived", "cos-lite"); got != ModelUUIDInjected {
+	if got := InjectModelUUID(s, "derived", "cos-lite"); got != ModelUUIDInjected {
 		t.Fatalf("got %v, want ModelUUIDInjected (empty uuid should be filled)", got)
 	}
 	if got := s.Values["model"].AsValueMap()["uuid"].AsString(); got != "derived" {
@@ -233,7 +234,7 @@ func TestInjectModelUUID_UnknownNameFallsBackToDeclaredDefault(t *testing.T) {
 	dir := t.TempDir()
 	s := newCosLiteState(t, dir)
 	// name deliberately empty: the live model name could not be determined.
-	if got := s.InjectModelUUID("b62cdacf-9e9b-4e35-8c5e-e334930e2b02", ""); got != ModelUUIDInjected {
+	if got := InjectModelUUID(s, "b62cdacf-9e9b-4e35-8c5e-e334930e2b02", ""); got != ModelUUIDInjected {
 		t.Fatalf("got %v, want ModelUUIDInjected", got)
 	}
 	out, err := s.RenderMain()
