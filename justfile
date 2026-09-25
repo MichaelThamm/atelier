@@ -46,6 +46,10 @@ test:
 test-pkg pkg:
     go test -race {{pkg}}
 
+# Documentation drift checks: ADR index, ADR references, relative links.
+docs-check:
+    go test ./tools/docscheck/...
+
 # Build the dev binary used by the integration tiers.
 build-bin:
     go build -o {{atelier_bin}} ./cmd/atelier
