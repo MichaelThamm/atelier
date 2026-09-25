@@ -1,13 +1,17 @@
 .atelier/
 .terraform/
-terraform.tfstate
-terraform.tfstate.backup
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
+*.tfplan
+.terraform.lock.hcl
 atelier-import.tfquery.hcl
 atelier-import.auto.tfvars
 /atelier
 /atelier_dev
+
+# Local Terraform scratch and fixtures (e.g. a shared atelier.local.yaml with
+# wrappers beneath it). Keep out of the repo and out of agent search.
+tf-testing/
 
 # Python integration tests
 .venv/
