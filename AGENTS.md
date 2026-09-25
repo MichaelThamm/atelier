@@ -34,6 +34,7 @@ recipes.
 just check                    # fmt-check + build + vet + race tests — the "is it green?" gate
 just fmt                      # rewrite files with gofmt (never hand-format)
 just test-pkg ./internal/tui  # unit tests for one package (fast iteration)
+just docs-check               # ADR index / ADR-reference / markdown-link drift checks
 just build-bin                # build the dev binary the integration tiers use
 just test-wrapper             # integration tier needing only Terraform
 just test-cloud               # cloud tier: needs a Juju controller on K8s (slow)
@@ -53,8 +54,8 @@ need Juju + Canonical K8s. See
 
 ## Architecture map
 
-Entry point is `cmd/atelier` (package `main`). All logic lives under
-`internal/`; keep it that way.
+Entry point is `cmd/atelier` (package `main`). Product logic lives under
+`internal/`; keep it that way. Repository tooling lives under `tools/`.
 
 | Package | Responsibility |
 | --- | --- |
@@ -114,6 +115,10 @@ comment instead.
   authoritative and copied into new code. Comment *density* in Go may be higher
   than a human-only team would choose, but **diff size stays small regardless**:
   one logical change per commit.
+- **Docs:** `docs/adr/README.md` is the index of record — every ADR needs a row
+  there. `just check` runs `tools/docscheck`, which fails on a missing or
+  inconsistent index row, an unresolved `ADR-NNNN` reference, or a broken
+  relative Markdown link. Run `just docs-check` for a focused pass.
 - **Language:** American English in new code, comments, commit messages, and
   docs (e.g. "behavior", "color"). Some existing docs predate this rule; do not
   churn prose just to change spelling, fix it only where you are already
