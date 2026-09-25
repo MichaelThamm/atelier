@@ -111,89 +111,27 @@ proceeding.
 
 Every time you edit a variable, Atelier immediately saves the change to disk
 and debounces a background `terraform validate`. Errors appear inline in the
-status bar; press `E` to see full diagnostics. Validation runs
-`terraform init` automatically if the workspace hasn't been initialised yet.
+status bar; press `L` to open the live logs view, whose Errors tab holds the
+full terraform diagnostics. Validation runs `terraform init` automatically if
+the workspace hasn't been initialised yet.
 
 ## Keyboard shortcuts
 
-| Key | Context | Action |
-|-----|---------|--------|
-| `Tab` | Anywhere | Switch between left (variable list) and right (editor) pane |
-| `↑` / `↓` | Left pane | Navigate variables |
-| `Enter` | Left pane | Focus the editor for the selected variable |
-| `P` | Left pane | Run `terraform plan` against the wrapper |
-| `A` | Plan view | Apply the current plan |
-| `O` | Plan view | Show terraform outputs (planned values or state) |
-| `W` | Plan view | Show `check` block warnings (when the plan reports any) |
-| `R` | Left pane | Switch the module ref (branch, tag, or SHA) |
-| `D` | Left pane / Plan view | Show ref switch summary (when a switch produced orphaned or new vars) |
-| `L` | Plan view / Loading | View live terraform logs with errors/stdout tabs (scrollable) |
-| `F` | Left pane | Open the preset picker (when presets are available) |
-| `S` | Left pane | Save the current configuration as a new preset |
-| `?` | Anywhere | Show the keyboard shortcuts help modal |
-| `^R` | Anywhere | Reset the current variable to its default |
-| `Q` | Left pane | Quit and save |
+Atelier uses the terminal conventions you already know: `Tab` moves between
+the variable list and the editor, `↑`/`↓` (or `j`/`k`) move the selection, and
+`Enter` opens or advances. Value fields share one readline-style keymap
+(`Ctrl+A`/`Ctrl+E`, `Ctrl+W`, `Alt+B`/`Alt+F`, …), so editing feels like
+`bash`. Map editors follow a name-the-key-then-`Enter` model, and an empty key
+is never saved.
 
-### Editing a value
+Press `?` anywhere for the complete, always-current keymap. The help modal is
+context-aware — it lists the keys for the view you are in (editor, plan, logs,
+ref switch) and is the single source of truth for shortcuts. The demo GIFs in
+this README show each flow end to end.
 
-The right-pane editors (string, number, and map cells) use a readline-style
-keymap so editing works like `bash`, `zsh`, or any standard text input
-field. See [ADR-0020](docs/adr/0020-readline-style-text-editing.md) for the
-rationale.
-
-| Key | Action |
-|-----|--------|
-| `←` / `→` | Move caret one character |
-| `Ctrl+←` / `Ctrl+→` | Move caret one word |
-| `Alt+B` / `Alt+F` | Move caret one word (Emacs-style alias) |
-| `Home` / `Ctrl+A` | Caret to start of cell |
-| `End` / `Ctrl+E` | Caret to end of cell |
-| `Backspace` | Delete the character before the caret |
-| `Delete` | Delete the character under the caret |
-| `Ctrl+W` / `Alt+Backspace` | Delete the previous word |
-| `Alt+D` | Delete the next word |
-| `Ctrl+U` | Delete from caret to start |
-| `Ctrl+K` | Delete from caret to end |
-
-Sensitive variables (`sensitive = true`) echo `•` characters; the keymap is
-unchanged.
-
-### Map / map(object) editors
-
-Rows are keyed first: `+ Add row` (or `Enter` past the last value) drops you
-on a new row's key cell. `Enter` is the single "advance forward" verb —
-it moves key → value, value → next row, and on the last value it commits and
-opens a fresh row. In a `map(object)`, once a row's key is named, `Enter`
-drills into the object; `Esc` backs out one level at a time. A row with an
-empty key is never saved: a freshly-added blank row is dropped when you move
-away, and `Enter` off an empty key is blocked with a `key required` nudge.
-See [ADR-0023](docs/adr/0023-map-row-editing-lifecycle.md).
-
-| Key | Action |
-|-----|--------|
-| `↑` / `↓` | Move between rows |
-| `Enter` | Advance: key → value → next row; on the last value, add a row; on a `map(object)` key, drill into the object |
-| `→` | In a `map(string)`, at the end of a non-empty key cell, move to the value cell (a caret-level alias of `Enter`); otherwise move the caret |
-| `←` | In a `map(string)`, at the start of the value cell, return to the key cell; otherwise move the caret |
-| `Esc` | Back one level (then out to the variable list) |
-| `Alt+Delete` | Remove the current row (press again to confirm when the row has content) |
-| `Tab` | Switch panes (variable list ⇄ editor) |
-| `Ctrl+Home` / `Ctrl+End` | Jump to the first / last field (inside an object editor) |
-
-### Scrolling and navigation
-
-The following shortcuts work in any scrollable view: the variable list, plan
-tree, plan diff, output view, and logs view.
-
-| Key | Action |
-|-----|--------|
-| `j` / `↓` | Scroll down |
-| `k` / `↑` | Scroll up |
-| `Ctrl+D` / `PgDn` | Half-page down |
-| `Ctrl+U` / `PgUp` | Half-page up |
-| `g` | Jump to top |
-| `G` | Jump to bottom |
-| `Esc` / `q` | Close (in modal views) |
+See [ADR-0020](docs/adr/0020-readline-style-text-editing.md),
+[ADR-0023](docs/adr/0023-map-row-editing-lifecycle.md), and
+[ADR-0025](docs/adr/0025-ref-selection-matcher.md) for the design rationale.
 
 ## Presets
 
@@ -287,13 +225,7 @@ so caret motion and word-delete work; free text (an arbitrary SHA, an
 unlisted ref) is always accepted. See
 [ADR-0025](docs/adr/0025-ref-selection-matcher.md) for the design.
 
-| Key | Action |
-|-----|--------|
-| type | Filter the ref list (substring match) |
-| `↑` / `↓` | Move the highlight in the filtered list |
-| `Tab` | Fill the field with the highlighted ref |
-| `Enter` | Switch to the typed ref (free text accepted) |
-| `Esc` | Cancel |
+Press `?` in the modal for its navigation keys.
 
 <details>
 <summary>Demo: switch module ref</summary>

@@ -162,8 +162,9 @@ A change is done when all of the following hold:
 
 - `just check` passes (format check, build, vet, and race tests).
 - New or changed behavior has a colocated test that fails without the change.
-- User-visible surface changes are reflected in `docs/SPEC.md`, and the README
-  keybinding/prose tables if applicable.
+- User-visible surface changes are reflected in `docs/SPEC.md`; keybinding
+  changes are reflected in the TUI `?` help modal (the source of truth), and in
+  the README's prose where relevant.
 - Any new decision is captured as an ADR, with the index updated.
 - The change matches the scope boundaries above (no orchestration, no new
   configuration language, wrapper stays independently runnable).

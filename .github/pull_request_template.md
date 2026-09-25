@@ -29,7 +29,8 @@ Keep one logical change per PR. The repo contract is in ../AGENTS.md.
 ## Docs
 
 - [ ] `docs/SPEC.md` updated for user-visible surface changes (or N/A).
-- [ ] README tables updated if keys or commands changed (or N/A).
+- [ ] `?` help modal updated if keybindings changed, and README/SPEC updated for
+  command or surface changes (or N/A).
 - [ ] A row was added to the [ADR index](../docs/adr/README.md) for any new ADR.
 
 ## Risk and rollback
