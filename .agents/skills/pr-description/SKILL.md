@@ -41,9 +41,16 @@ Explain **why** the change matters before **how** it works.
      `TODO`.
 4. Never invent facts. Where the diff does not tell you something, keep the
    template's placeholder and write `TODO`.
-5. Output raw Markdown only — no surrounding prose and no code fence. Also
-   write the same Markdown to `${TMPDIR:-/tmp}/atelier-pr.md` and print that
-   path.
+5. Write the body to `${TMPDIR:-/tmp}/atelier-pr.md`. Then print, in order:
+   1. a suggested PR title in the repository's conventional-commit style
+      (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`), matching the
+      actual change and kept under about 72 characters;
+   2. a ready-to-run command that uses that title and the body file:
+      `gh pr create --title "<title>" --body-file <path>`;
+   3. the raw Markdown body, with no surrounding prose and no code fence.
+
+   Keep the body file to the Markdown body only — the title and the command are
+   terminal output, not part of the body.
 
 Keep the whole description as short as it can be while still complete; cut
 anything a non-technical reviewer does not need.

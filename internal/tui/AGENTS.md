@@ -7,9 +7,17 @@ file only adds what is local to the package.
 
 | File | Responsibility |
 | --- | --- |
-| `model.go` | Top-level `Model`; owns `wrapper.State`; routes input to the active editor. |
-| `editor.go` | `cellInput` readline cell and the `Editor` interfaces; variable type to widget. |
-| `view.go` | Rendering helpers, ANSI-aware wrapping, layout. |
+| `model.go` | Top-level `Model`, state enums, row model, constructor, accessors, `Init`/`View`/`SaveIfDirty`. |
+| `update.go` | `Update` and the top-level key router. |
+| `messages.go`, `commands.go` | Bubble Tea message types and `tea.Cmd` producers (plan, apply, validate, ref). |
+| `list_keys.go`, `plan_keys.go` | Key handling for the variable list/logs, and for the plan/diff views. |
+| `preset_keys.go`, `ref_keys.go` | Preset picker/save flows; ref-switch modal, matching, and apply. |
+| `helpers.go` | Small model helpers (labels, counts, diagnostics formatting). |
+| `editor.go` | `cellInput` readline cell, `Editor` interfaces, dispatcher, and the scalar editors (`string`/`number`/`bool`/read-only). |
+| `editor_map.go`, `editor_mapobject.go` | The `map(string)` and `map(object(...))` editors. |
+| `editor_object.go` | The `list`/`set` and `object` editors and their field helpers. |
+| `view.go` | Core view helpers: wrapping, modal frame, layout primitives. |
+| `view_panes.go`, `view_logs.go`, `view_modals.go` | Panes/header/footer; logs view and status line; help/ref/preset modals. |
 | `theme.go` | All colors and role styles (Catppuccin Mocha/Latte). |
 | `planner.go` | `Planner` / `Applier` / `Validator` interfaces and the tfexec-backed implementation. |
 | `plan.go` | Pure plan/state tree, attribute diff, summary, and check-warning builders. |
@@ -26,7 +34,8 @@ file only adds what is local to the package.
   `AdaptiveColor` anywhere else; a theme swap should be a one-file change.
 - **Terraform is reached through interfaces, not directly.** Long-running
   work goes via `Planner`/`Applier`/`Validator`/`RefSwitcher` so tests can
-  substitute stubs. Do not shell out to terraform from `model.go`.
+  substitute stubs. Never shell out to terraform from the TUI outside those
+  interfaces.
 - **Plan tree construction in `plan.go` is pure.** Keep rendering out of it;
   it is what makes plan logic unit-testable without a terminal.
 - Editor behavior is spec'd: readline editing
