@@ -14,7 +14,7 @@ directory. One static binary; no server; no network beyond `git` and
 
 Read in this order before making non-trivial changes:
 
-1. [docs/SPEC.md](docs/SPEC.md) — the current surface and behaviour (source of truth).
+1. [docs/SPEC.md](docs/SPEC.md) — the current surface and behavior (source of truth).
 2. [docs/adr/](docs/adr/) — immutable decisions and their rationale. Read the
    index in [docs/adr/README.md](docs/adr/README.md); read any ADR that touches
    the area you're changing.
@@ -26,19 +26,25 @@ architectural decision, write an ADR first (see below).
 
 ## Commands
 
-Go ≥ 1.25. Terraform on `PATH` for anything that plans or validates.
+Go ≥ 1.25. Terraform on `PATH` for anything that plans or validates. Common
+flows are wrapped in the [`justfile`](justfile); run `just --list` to see all
+recipes.
 
 ```bash
-gofmt -l .            # formatting check (must print nothing)
-go build ./...        # compile everything
-go vet ./...          # static checks
-go test -race ./...   # full unit suite (this is the default "is it green?")
-go test ./internal/tui/...   # fast iteration on one package
+just check                    # fmt-check + build + vet + race tests — the "is it green?" gate
+just fmt                      # rewrite files with gofmt (never hand-format)
+just test-pkg ./internal/tui  # unit tests for one package (fast iteration)
+just build-bin                # build the dev binary the integration tiers use
+just test-wrapper             # integration tier needing only Terraform
+just test-cloud               # cloud tier: needs a Juju controller on K8s (slow)
 ```
 
-The exact CI gate is `.github/workflows/ci.yml` (`build · vet · test`). Run
-those four commands before declaring a change done. A `make check` wrapper is
-planned; until then use the raw commands.
+CI runs these same recipes
+([.github/workflows/ci.yml](.github/workflows/ci.yml)): the `build · vet · test`
+job runs `just check`, and the integration jobs run `just test-wrapper`,
+`just test-prometheus`, and `just test-import`. If a recipe passes locally it is
+the same gate CI enforces. Underneath them are `gofmt -l .`, `go build ./...`,
+`go vet ./...`, and `go test -race ./...` if you prefer the raw commands.
 
 Integration tests live in `tests/integration/` and are tiered. The `wrapper/`
 tier needs only Terraform; `prometheus/` and `import/` are marked `cloud` and
@@ -96,7 +102,7 @@ comment instead.
   imperative subject, one logical change per commit. Formatting changes must
   not be mixed into logic changes.
 - **Tests:** table-driven Go tests colocated with the code as `*_test.go`. A
-  behaviour change needs a test that fails without the change. Prefer small,
+  behavior change needs a test that fails without the change. Prefer small,
   named test functions over one large one. Clarity beats brevity in tests —
   they are the executable spec.
 - **Comments:** optimise for the *why*, not the *what*. Encouraged:
@@ -135,9 +141,8 @@ Do not renumber ADRs. Do not edit an accepted ADR's decision; supersede it.
 
 A change is done when all of the following hold:
 
-- `gofmt -l .` prints nothing; `go build ./...`, `go vet ./...`, and
-  `go test -race ./...` all pass.
-- New or changed behaviour has a colocated test that fails without the change.
+- `just check` passes (format check, build, vet, and race tests).
+- New or changed behavior has a colocated test that fails without the change.
 - User-visible surface changes are reflected in `docs/SPEC.md`, and the README
   keybinding/prose tables if applicable.
 - Any new decision is captured as an ADR, with the index updated.

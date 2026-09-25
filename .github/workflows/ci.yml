@@ -36,23 +36,11 @@ jobs:
         with:
           terraform_wrapper: false
 
-      - name: Verify formatting
-        run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "${unformatted}" ]; then
-            echo "These files are not gofmt-formatted:"
-            echo "${unformatted}"
-            exit 1
-          fi
+      - name: Install just
+        run: sudo snap install just --classic
 
-      - name: Build
-        run: go build ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test -race ./...
+      - name: Run the local gate
+        run: just check
 
   # Feature tests for `atelier module add` against a real module.
   wrapper:
@@ -75,20 +63,14 @@ jobs:
         with:
           terraform_wrapper: false
 
-      - name: Install uv
+      - name: Install tools
         run: |
           sudo snap install astral-uv --classic
+          sudo snap install just --classic
           echo "/snap/bin" >> "$GITHUB_PATH"
 
-      - name: Build Atelier
-        run: |
-          go build -o "$RUNNER_TEMP/atelier" ./cmd/atelier
-          echo "ATELIER_BIN=$RUNNER_TEMP/atelier" >> "$GITHUB_ENV"
-
       - name: Test wrapper features
-        run: |
-          uv run --project tests/integration --frozen pytest tests/integration/wrapper \
-            -vv -ra --capture=no --exitfirst
+        run: just test-wrapper
 
   # The deployment smoke test: needs a Juju controller on Kubernetes, prepared by Concierge.
   prometheus:
@@ -120,18 +102,15 @@ jobs:
             --juju-channel ${{ github.event.inputs['juju-channel'] || '3.6/stable' }} \
             --extra-snaps astral-uv,terraform
 
-      - name: Build Atelier
-        run: |
-          go build -o "$RUNNER_TEMP/atelier" ./cmd/atelier
-          echo "ATELIER_BIN=$RUNNER_TEMP/atelier" >> "$GITHUB_ENV"
+      - name: Install just
+        run: sudo snap install just --classic
 
       - name: Test deployment
         run: |
           if [[ "${{ runner.debug }}" == "1" ]]; then
             export KEEP_MODELS=true
           fi
-          uv run --project tests/integration --frozen pytest tests/integration/prometheus \
-            -m cloud -vv -ra --capture=no --exitfirst
+          just test-prometheus
 
       - name: Open SSH session on failure
         if: ${{ failure() && (runner.debug == '1') }}
@@ -170,18 +149,15 @@ jobs:
             --juju-channel ${{ github.event.inputs['juju-channel'] || '3.6/stable' }} \
             --extra-snaps astral-uv,terraform
 
-      - name: Build Atelier
-        run: |
-          go build -o "$RUNNER_TEMP/atelier" ./cmd/atelier
-          echo "ATELIER_BIN=$RUNNER_TEMP/atelier" >> "$GITHUB_ENV"
+      - name: Install just
+        run: sudo snap install just --classic
 
       - name: Test import round-trip
         run: |
           if [[ "${{ runner.debug }}" == "1" ]]; then
             export KEEP_MODELS=true
           fi
-          uv run --project tests/integration --frozen pytest tests/integration/import \
-            -m cloud -vv -ra --capture=no --exitfirst
+          just test-import
 
       - name: Open SSH session on failure
         if: ${{ failure() && (runner.debug == '1') }}
