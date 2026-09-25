@@ -152,11 +152,12 @@ A change is done when all of the following hold:
 ## Do not
 
 - Do not commit generated, vendored, or state artifacts. `.atelier/`,
-  `.terraform/`, `*.tfstate`, `atelier-import.auto.tfvars`, and
-  `tests/integration/.venv/` are gitignored for good reasons — and Terraform
-  state can contain secrets. Do not read or index
-  `docs/examples/tf-testing/**` or the vendored trees under
-  `docs/examples/**/.terraform/**`; they are scratch fixtures, not source.
+  `.terraform/`, `tf-testing/`, `*.tfstate*`, `.terraform.lock.hcl`,
+  `atelier-import.auto.tfvars`, and `.venv/` are gitignored for good reasons —
+  Terraform state can contain secrets. Do not read or index those trees
+  either; they are scratch fixtures, not source. If you create test fixtures,
+  put them under `tf-testing/` (or another ignored path), never in a tracked
+  directory.
 - Do not add a web UI, replace `terraform apply`, or support non-HCL
   configuration languages. See the "Out of scope" section of
   [docs/ROADMAP.md](docs/ROADMAP.md).
