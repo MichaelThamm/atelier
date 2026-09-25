@@ -97,6 +97,18 @@ inventory. Update one only when that package's responsibilities or invariants
 change; if you find yourself documenting a specific function, it belongs in a
 comment instead.
 
+## Reusable procedures (skills)
+
+On-demand, tool-neutral procedures live under `.agents/skills/` in the Agent
+Skills (`SKILL.md`) format. Tools that discover skills natively (Cursor,
+Copilot, OpenCode, Codex, Claude Code) pick them up automatically; agents
+without native discovery should read the matching `SKILL.md` when a task
+matches its description.
+
+- [`pr-description`](.agents/skills/pr-description/SKILL.md) — draft a concise
+  PR description from the branch diff, following
+  [`.github/pull_request_template.md`](.github/pull_request_template.md).
+
 ## Conventions
 
 - **Commits:** conventional-style prefixes (`feat:`, `fix:`, `chore:`, `docs:`),
@@ -119,6 +131,8 @@ comment instead.
   there. `just check` runs `tools/docscheck`, which fails on a missing or
   inconsistent index row, an unresolved `ADR-NNNN` reference, or a broken
   relative Markdown link. Run `just docs-check` for a focused pass.
+- **Pull requests:** fill in `.github/pull_request_template.md`; it mirrors the
+  definition of done below.
 - **Language:** American English in new code, comments, commit messages, and
   docs (e.g. "behavior", "color"). Some existing docs predate this rule; do not
   churn prose just to change spelling, fix it only where you are already
