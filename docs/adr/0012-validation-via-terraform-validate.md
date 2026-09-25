@@ -89,7 +89,7 @@ evaluate expressions given an evaluation context). Rejected because:
 - The status pane is a multi-purpose surface: it shows validation results,
   plan errors, and general session info (module info, key hints). Unified
   treatment of "Terraform telling you something is wrong" is consistent
-  with the error-handling design from SPEC §13.4.
+  with the error-handling design from SPEC §13.3.
 - Cost: each `terraform validate` invocation is sub-second on COS Lite-sized
   modules but not free. The 500ms debounce ensures we don't run validate
   for every keystroke. A run-in-progress is left to finish; new edits queue

@@ -124,6 +124,15 @@ success, warning, danger). All panels, modals, header, and footer use
 consistent rounded borders with focus highlighting. JSON output values have
 syntax highlighting. See SPEC.md §14.3 for details.
 
+### Undo / redo
+
+The TUI has no undo. Today the safety net is git: every edit is written to
+`main.tf` immediately (§13.1), so `git diff` and `git checkout` are the
+recovery path. A future in-memory stack of ~20 logical edit actions
+(`Ctrl+Z`/`Ctrl+Shift+Z`), coalescing keystrokes into actions, would need the
+ADR treatment first — the auto-save loop makes the action boundary a design
+question, not a mechanical one.
+
 ### Local presets schema growth
 
 The `atelier.local.yaml` schema is intentionally minimal (`modules:` list with

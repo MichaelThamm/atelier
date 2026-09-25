@@ -76,8 +76,9 @@ Usage:
   atelier --help                               Print this help.
 
 The wrapper is the durable artifact: a normal Terraform project Atelier
-writes into the current directory. Atelier does not run 'terraform apply';
-the user does that themselves from the wrapper using their existing workflow.
+writes into the current directory. The TUI can run 'terraform plan' and, from
+the plan view, 'terraform apply'; the wrapper also stays runnable on its own
+without Atelier installed.
 `
 
 // version is the build version, injected at link time via

@@ -962,14 +962,7 @@ toggle.
 Every variable edit triggers a write to `main.tf`. There is no draft / published
 distinction. The file on disk always reflects what the user sees in the TUI.
 
-### 13.2 Undo
-
-The TUI maintains an in-memory undo stack of the last 20 user actions, popped
-via `Ctrl+Z` and pushed forward via `Ctrl+Shift+Z` (subject to the chosen
-keybinding scheme). Undo operates on logical edit actions, not character
-keystrokes.
-
-### 13.3 Plan invocation
+### 13.2 Plan invocation
 
 `terraform plan` runs only on explicit user request (`P` key). It runs as a
 background task; the TUI shows a spinner in the status pane while in-flight.
@@ -979,7 +972,7 @@ for the session.
 
 See [ADR-0002](adr/0002-author-and-plan-scope.md).
 
-### 13.4 Error handling
+### 13.3 Error handling
 
 | Error class                                      | Handling                                                                                        |
 |--------------------------------------------------|-------------------------------------------------------------------------------------------------|

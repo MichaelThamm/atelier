@@ -13,6 +13,14 @@ understand. Follow the section headings in `.github/pull_request_template.md`,
 in order, but keep each section to one or two short sentences or bullets.
 Explain **why** the change matters before **how** it works.
 
+## Formatting
+
+Write the body as full-width Markdown: one line per paragraph or bullet,
+however long that line runs in your terminal. GitHub reflows text and does not
+need hard wrapping — short, ragged ~80-column lines read strangely in the
+rendered issue or PR body. Reserve line breaks for real structure (paragraphs,
+bullets, headings, tables). This applies to issue bodies too.
+
 ## Workflow
 
 1. Find the base branch (default `origin/main`) and gather evidence:

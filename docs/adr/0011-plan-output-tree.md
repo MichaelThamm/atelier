@@ -88,6 +88,6 @@ animated reveal). v1 puts diffs in a side pane on selection.
   Terraform output.
 - Plan results are cached in memory for the session. The user re-runs plan
   explicitly by pressing `P`. Plan failures surface in the status pane
-  (see SPEC §13.4); the previous successful plan remains accessible.
+  (see SPEC §13.3); the previous successful plan remains accessible.
 - Autoplan-on-edit is not part of v1 (see [ADR-0002](0002-author-and-plan-scope.md)).
   When/if added later, the plan rendering does not need to change.
