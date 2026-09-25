@@ -2,11 +2,10 @@
 
 ## Status
 
-Accepted — amends [ADR-0022](0022-local-presets.md) (which explicitly deferred
-a `preset save`). Builds on [ADR-0007](0007-sparse-wrapper-write-rule.md) (the
-sparse-plus-required write rule) and reuses the ADR-0022 preset schema and
-`ResolvePresets`/`anyToCty` load path. Touches `internal/manifest`,
-`internal/tui`.
+Superseded by [ADR-0032](0032-upstream-tfvars-discovery.md). (Historical:
+amended [ADR-0022](0022-local-presets.md), which explicitly deferred a `preset
+save`; built on [ADR-0007](0007-sparse-wrapper-write-rule.md) and reused the
+ADR-0022 preset schema and `ResolvePresets`/`anyToCty` load path.)
 
 ## Context
 

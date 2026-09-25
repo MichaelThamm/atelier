@@ -24,11 +24,16 @@ const (
 	AtelierDir    = ".atelier"
 )
 
-// Write reflects the State to disk. It writes main.tf using the
-// sparse-plus-required rule. providers.tf, versions.tf, and the housekeeping
-// files are only generated at bootstrap time; subsequent writes leave them
-// alone (the user may have edited them).
+// Write reflects the State to disk. In the default shape it writes main.tf
+// using the sparse-plus-required rule. In TFVarsMode it writes the derived
+// pass-through files (terraform.tfvars, variables.tf, main.tf); see
+// wrapper/tfvars.go and ADR-0031. providers.tf, versions.tf, and the
+// housekeeping files are only generated at bootstrap time; subsequent writes
+// leave them alone (the user may have edited them).
 func (s *State) Write() error {
+	if s.TFVarsMode {
+		return s.writeTFVarsMode()
+	}
 	if err := s.writeMain(); err != nil {
 		return fmt.Errorf("write main.tf: %w", err)
 	}
@@ -58,6 +63,9 @@ func WriteMain(dir string, data []byte) error {
 // `atelier tidy` uses it to preview the prune without writing. Because both go
 // through this one path, the diff `tidy` shows is exactly what it applies.
 func (s *State) RenderMain() ([]byte, error) {
+	if s.TFVarsMode {
+		return s.RenderPassthroughMain(), nil
+	}
 	mainPath := filepath.Join(s.Dir, MainTF)
 
 	var file *hclwrite.File

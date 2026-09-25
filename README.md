@@ -19,9 +19,11 @@ modules approachable for first-time and experienced Terraform users alike.
 - **Plan and apply in the TUI.** Atelier owns the configure → plan iteration
   loop and supports `terraform apply` from the plan view (`A` key). The
   wrapper remains independently runnable without Atelier installed.
-- **User-owned presets.** Reusable variable bundles live in a wrapper-local
-  `atelier.local.yaml`, discovered by walking up from the wrapper directory, so
-  one file can be shared across sibling wrappers. See [Presets](#presets).
+- **User-owned presets.** Reusable variable bundles are `.tfvars` files in an
+  `atelier.presets/` directory discovered by walking up from the wrapper
+  directory, so one directory can be shared across sibling wrappers. Product
+  repos can also commit examples under `<module>/examples/`. See
+  [Presets](#presets).
 
 ## Requirements
 
@@ -77,6 +79,22 @@ and asks before scaffolding into one that already holds other files, sits inside
 another wrapper, or looks like the root of a different project. Pass `--yes` to
 skip the prompt in scripts; without a terminal the command fails rather than
 proceeding.
+
+### Pass-through mode (`--tfvars`)
+
+`atelier module add <url> --tfvars` writes a different wrapper shape: a
+generated `variables.tf` mirrors the module's inputs, `main.tf` forwards each
+one, and your values live in a sparse `terraform.tfvars` you can drive with
+standard Terraform tooling (`-var-file`, `*.auto.tfvars`, `TF_VAR_*`). Seed it
+from a committed example with `--var-file s3` (resolved in the module repo),
+from your own shared bundles in an ancestor `atelier.presets/` directory
+(walk-up, nearest wins), or from any local file with `--var-file ./test.tfvars`.
+Combine several at once: `--var-file cos-s3,cos-units`. Run
+`--list-var-files` to see the local and repo bundles available. Undeclared
+variables and type mismatches are skipped with a warning — add `--strict` to
+make them fatal, so a stale example fails loudly. This is opt-in and
+single-module for now; see [ADR-0032](docs/adr/0032-upstream-tfvars-discovery.md)
+and [ADR-0031](docs/adr/0031-tfvars-passthrough-mode.md).
 
 > **Note:** run `atelier --help` for the full command list, including `atelier
 > module add|rm|list`, `atelier tidy`, and `atelier purge`.
@@ -135,66 +153,46 @@ See [ADR-0020](docs/adr/0020-readline-style-text-editing.md),
 
 ## Presets
 
-Presets are user-owned, not maintainer-owned: Atelier never reads any file
-from the upstream module repository. You declare presets — named bundles of
-variable values that you apply in one action, then customise as needed — in a
-wrapper-local `atelier.local.yaml`. Atelier discovers it by walking up from
-the wrapper directory, so a single file at a parent directory (e.g.
-`tf-testing/atelier.local.yaml`) is shared by every wrapper beneath it.
+A preset is a named `.tfvars` file: a bundle of variable values you apply in
+one action, then customise. Atelier discovers presets from two sources:
 
-```yaml
-modules:
-  # "." matches the wrapper's primary module regardless of its upstream
-  # sub-path — the ergonomic default for a shared local file.
-  - path: "."
-    presets:
-      - name: production
-        description: "Stable channel, TLS, HA replicas."
-        sets:
-          risk: "stable"
-          internal_tls: true
-          alertmanager:
-            units: 3
-```
+- **Personal** bundles in an `atelier.presets/` directory at any ancestor of the
+  wrapper, discovered by walking up (nearest wins). One shared directory at a
+  parent (e.g. `tf-testing/atelier.presets/`) serves every wrapper beneath it.
+- **Product** examples committed to the module repo, e.g.
+  `terraform/cos/examples/s3.tfvars`.
 
-When presets are found, `[F] preset` appears in the status bar. Press `F`
-to open the picker, navigate with `↑`/`↓`, apply with `Enter`, or cancel
-with `Esc`.
+Atelier reads only Terraform-native `.tfvars` files, and only when you name
+them; it never reads Atelier-specific manifests. See
+[ADR-0032](docs/adr/0032-upstream-tfvars-discovery.md).
 
-You don't have to hand-write the YAML: configure a wrapper in the TUI, then
-press `S` to generate a preset from the current configuration. Atelier
-captures the current configuration (non-default values only), prompts for a name and optional description, and writes
-a new `atelier.local.yaml` in the wrapper directory. It never overwrites an
-existing one — if a file is already present, `S` tells you to edit it
-directly or move it to a parent. The generated file doubles as a worked
-template for further hand-editing. See
-[ADR-0026](docs/adr/0026-save-preset.md) for the design.
-
-See [docs/examples/atelier.local.yaml](docs/examples/atelier.local.yaml)
-for a full example, and [ADR-0022](docs/adr/0022-local-presets.md) for the
-rationale.
+The TUI lists both sources with `F` (source-labelled `[local]`/`[repo]`, with
+the description taken from each file's leading comment); `Enter` applies the
+selected one. Press `S` to save the current non-default configuration as a new
+`atelier.presets/<name>.tfvars` in the wrapper directory.
 
 ### Applying a preset from the CLI
 
-`atelier module add` accepts `--preset`, which applies a named preset and
-exits without opening the TUI — useful in scripts and CI:
+`atelier module add` accepts `--var-file`, which seeds a wrapper from one or
+more bundles and exits without opening the TUI — useful in scripts and CI:
 
 ```bash
-atelier module add https://github.com/canonical/loki-operators.git \
-  --module terraform --preset production --yes < /dev/null
+atelier module add https://github.com/canonical/observability-stack.git \
+  --module terraform/cos --tfvars --var-file s3,units --yes < /dev/null
 ```
 
-The wrapper's `main.tf` is written with the preset values, ready for
-`terraform init && terraform apply`. Piping stdin from `/dev/null` (or running
-without a terminal) makes Atelier skip the TUI rather than error, so the
-command never blocks.
+Names resolve against your walk-up `atelier.presets/` bundles first, then the
+module repo's examples; a local path is also accepted. `--list-var-files`
+prints what is available. Piping stdin from `/dev/null` (or running without a
+terminal) makes Atelier skip the TUI rather than error, so the command never
+blocks.
 
 <details>
 <summary>Demo: saving a preset</summary>
 
 1. `atelier`
 2. Fill in all the required variables
-3. Press `[S]` to save the preset
+3. Press `[S]` to save an `atelier.presets/<name>.tfvars` bundle
 
 ![Saving a preset](docs/gifs/save-preset.gif)
 
@@ -204,7 +202,7 @@ command never blocks.
 <summary>Demo: applying a preset</summary>
 
 1. `atelier`
-2. `[F]` to select and apply a preset from a parent directory
+2. `[F]` to select and apply a bundle from a parent directory
 
 ![Applying a preset](docs/gifs/apply-preset.gif)
 
@@ -318,7 +316,7 @@ Atelier persists terraform's diagnostics under the wrapper's
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What Atelier does today and what's not yet implemented |
 | [docs/how-to/](docs/how-to/) | Step-by-step guides |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
-| [docs/examples/](docs/examples/) | Sample `atelier.local.yaml` |
+| [docs/examples/](docs/examples/) | Sample wrappers |
 
 ## Testing
 
@@ -327,7 +325,7 @@ Unit tests run with `go test ./...` (the `build · vet · test` job in
 
 Integration tests live in [`tests/integration/`](tests/integration/). A
 wrapper-layer tier asserts the `atelier module add` surface (`--module`,
-`--ref`, `--preset`, `--as`, listing/removal) without a Juju model, and
+`--ref`, `--var-file`, `--as`, listing/removal) without a Juju model, and
 `cloud`-marked tiers deploy real modules with Terraform:
 [`canonical/prometheus-k8s-operator`](https://github.com/canonical/prometheus-k8s-operator)
 as a deployment smoke test, and COS-Lite

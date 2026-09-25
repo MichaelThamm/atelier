@@ -84,8 +84,6 @@ var benignEntries = map[string]bool{
 	"notice":                   true,
 	"terraform.tfstate":        true,
 	"terraform.tfstate.backup": true,
-	"atelier.local.yaml":       true,
-	"atelier.local.yml":        true,
 }
 
 // foreignProjectMarkers name files that identify a directory as the root of a

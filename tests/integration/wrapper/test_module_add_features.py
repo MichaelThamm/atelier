@@ -2,9 +2,9 @@
 # See LICENSE file for licensing details.
 """Feature tests for ``atelier module add`` against a real upstream module.
 
-These exercise the CLI surface — sub-module selection, ref pinning, presets,
-block naming, listing/removal, duplicate refusal, and non-interactive exit — by
-inspecting the wrapper Atelier writes.
+These exercise the CLI surface — sub-module selection, ref pinning, presets
+(`.tfvars` bundles), block naming, listing/removal, duplicate refusal, and
+non-interactive exit — by inspecting the wrapper Atelier writes.
 
 The target is canonical/prometheus-k8s-operator, whose Terraform lives in the
 ``terraform/`` sub-directory.
@@ -15,7 +15,7 @@ import subprocess
 
 import pytest
 
-from helpers import TfDirManager, run_atelier, write_local_preset
+from helpers import TfDirManager, run_atelier, write_var_file
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 PROM_MODULE = "terraform"
@@ -25,7 +25,7 @@ PROM_REF = "main"
 PROM_BLOCK = "prometheus_k8s_operator"
 PROM_SOURCE = "git::https://github.com/canonical/prometheus-k8s-operator.git//terraform"
 
-DEFAULT_PRESET = {
+DEFAULT_VALUES = {
     "model_uuid": "00000000-0000-0000-0000-000000000000",
     "channel": "dev/edge",
 }
@@ -76,9 +76,9 @@ def test_ref_is_pinned_in_the_source(tmp_path, atelier_bin):
     assert _source(_main_tf(tmp_path)) == f"{PROM_SOURCE}?ref={PROM_REF}"
 
 
-def test_preset_applies_typed_values(tmp_path, atelier_bin):
-    # GIVEN a preset with scalars and a map-typed value
-    preset = write_local_preset(
+def test_var_file_applies_typed_values(tmp_path, atelier_bin):
+    # GIVEN a bundle with scalars and a map-typed value
+    var_file = write_var_file(
         tmp_path,
         "ci",
         {
@@ -91,7 +91,7 @@ def test_preset_applies_typed_values(tmp_path, atelier_bin):
     )
 
     # WHEN the module is configured from it
-    _add(tmp_path, atelier_bin, "--preset", preset)
+    _add(tmp_path, atelier_bin, "--var-file", var_file)
 
     # THEN the values are written as typed HCL arguments
     main_tf = _main_tf(tmp_path)
@@ -143,9 +143,9 @@ def test_duplicate_add_is_refused(tmp_path, atelier_bin):
 
 
 def test_wrapper_initialises_and_validates(tmp_path, atelier_bin):
-    # GIVEN a wrapper Atelier authored from a preset
-    preset = write_local_preset(tmp_path, "ci", DEFAULT_PRESET)
-    _add(tmp_path, atelier_bin, "--preset", preset)
+    # GIVEN a wrapper Atelier authored from a bundle
+    var_file = write_var_file(tmp_path, "ci", DEFAULT_VALUES)
+    _add(tmp_path, atelier_bin, "--var-file", var_file)
 
     # WHEN Terraform initialises it (fetching the module and provider)
     tf = TfDirManager(tmp_path)

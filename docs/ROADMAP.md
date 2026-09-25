@@ -26,10 +26,9 @@ Concretely:
 - Sparse-plus-required wrapper writes via `hcl/v2`, with hand-edit
   round-tripping.
 - Module candidate discovery (purely heuristic; no upstream manifest).
-- Local presets: named bundles of variable values declared in a wrapper-local
-  `atelier.local.yaml` (walk-up discovery), applied in bulk via the `F` key,
-  then customised per-variable. The upstream module repo is never read for
-  Atelier files.
+- Presets: named `.tfvars` bundles discovered from an ancestor
+  `atelier.presets/` directory (walk-up) and from the module repo's `examples/`,
+  applied via `--var-file` or the TUI `F` picker, and saved with `S`.
 - Provider configuration via `terraform providers schema -json`.
 - Debounced `terraform validate` for inline validation feedback.
 - `terraform plan -json` rendering as a module-path tree with attribute diffs
@@ -133,15 +132,15 @@ recovery path. A future in-memory stack of ~20 logical edit actions
 ADR treatment first — the auto-save loop makes the action boundary a design
 question, not a mechanical one.
 
-### Local presets schema growth
+### Preset bundle discovery growth
 
-The `atelier.local.yaml` schema is intentionally minimal (`modules:` list with
-`path` + `presets`). Candidates for later:
+Presets are `.tfvars` bundles ([ADR-0032](adr/0032-upstream-tfvars-discovery.md)).
+Candidates for later:
 
-- A user-global presets store (e.g. `~/.config/atelier/`) keyed by source URL,
-  complementing walk-up local files.
-- A `--presets <path>` override flag.
-- Test-driven preset discovery from `.tftest.hcl` run blocks.
+- A user-global bundle store (e.g. `~/.config/atelier/`) keyed by source URL,
+  complementing walk-up `atelier.presets/` directories.
+- A `--var-file-dir <path>` override.
+- Test-driven bundle discovery from `.tftest.hcl` run blocks.
 
 ## Parked
 
@@ -153,13 +152,11 @@ The original vision included module maintainers declaring **features** —
 named higher-level toggles that map to one or more variable settings, with a
 proposed mechanism of auto-discovery from `tftest.hcl` run blocks.
 
-**Presets are now shipped, but user-owned.** Users declare `presets:` in a
-wrapper-local `atelier.local.yaml` and apply them with `F` in the TUI. Atelier
-does not read presets from the upstream module repo (see
-[ADR-0022](adr/0022-local-presets.md), superseding ADR-0010). See
-[SPEC §11](SPEC.md#11-local-presets-atelierlocalyaml) for schema details and
-[examples/atelier.local.yaml](examples/atelier.local.yaml) for a worked
-example.
+**Presets are now shipped as `.tfvars` bundles.** Users keep personal bundles
+in an ancestor `atelier.presets/` directory, and product repos commit examples
+under `<module>/examples/`; both are applied with `--var-file` or the TUI `F`
+picker (see [ADR-0032](adr/0032-upstream-tfvars-discovery.md) and
+[SPEC §11](SPEC.md)).
 
 What remains parked:
 

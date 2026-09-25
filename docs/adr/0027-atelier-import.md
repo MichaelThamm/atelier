@@ -100,7 +100,8 @@ This feature does not fit the wrapper model cleanly:
   a wrapper the user authored; import adopts pre-existing real resources into
   state.
 - **Import writes to `main.tf`.** In `--source` mode Atelier authors the
-  wrapper outright and persists every value it was given (`--var`, `--preset`)
+  wrapper outright and persists every value it was given (`--var`,
+  `--var-file`)
   into it, as the other flows do. What is new to import is that Atelier also
   writes a value it *derived itself*: to plan the module correctly it must know
   which deployment is being imported (for Juju, the model UUID), and that is
@@ -231,7 +232,7 @@ deleted.
 | `--dir PATH` | Target directory (defaults to the working directory). |
 | `--query-var K=V` | Values for the query engine's list blocks (e.g. `model_uuid`). |
 | `--var K=V` | Module input values. Written into the wrapper when there is one, and also threaded to any list block that accepts the key. |
-| `--preset NAME` | Apply a named preset from `atelier.local.yaml`. |
+| `--var-file PATH\|NAME` | Seed values from a `.tfvars` file: a local path, a walk-up `atelier.presets/` bundle, or a name committed to the module repo. |
 | `--type T` | Restrict the query to these list-resource types (repeatable). |
 | `--strict` | Make any list-resource query error fatal instead of skipping the type. |
 | `--provider-version V` | Version constraint for a scaffolded provider. |

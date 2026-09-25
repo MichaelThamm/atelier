@@ -37,6 +37,12 @@ type Variable struct {
 	// possible in practice).
 	DefaultRaw string
 
+	// Raw is the verbatim HCL source of the whole `variable "x" { ... }`
+	// block. It lets a caller mirror the module's input API exactly (types,
+	// defaults, descriptions, validation, sensitive, nullable) by re-emitting
+	// the block, rather than reconstructing it from the parsed fields.
+	Raw string
+
 	// DeclRange points back to the variable's declaration site in source.
 	// Useful in error messages.
 	DeclRange hcl.Range
@@ -90,7 +96,7 @@ func LoadDir(dir string) ([]Variable, error) {
 		if !ok {
 			return nil, fmt.Errorf("parse %s: unexpected body type", path)
 		}
-		fileVars, err := variablesInBody(body)
+		fileVars, err := variablesInBody(body, data)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
@@ -120,10 +126,10 @@ func Parse(src []byte, filename string) ([]Variable, error) {
 	if !ok {
 		return nil, fmt.Errorf("parse %s: unexpected body type", filename)
 	}
-	return variablesInBody(body)
+	return variablesInBody(body, src)
 }
 
-func variablesInBody(body *hclsyntax.Body) ([]Variable, error) {
+func variablesInBody(body *hclsyntax.Body, src []byte) ([]Variable, error) {
 	// Collect blocks in source order. hclsyntax.Body preserves declaration
 	// order in .Blocks.
 	var vars []Variable
@@ -138,9 +144,19 @@ func variablesInBody(body *hclsyntax.Body) ([]Variable, error) {
 		if err != nil {
 			return nil, err
 		}
+		v.Raw = rawBlock(src, block.Range())
 		vars = append(vars, v)
 	}
 	return vars, nil
+}
+
+// rawBlock slices the source bytes covered by r, returning "" when the range
+// falls outside src (e.g. an in-memory expression without backing bytes).
+func rawBlock(src []byte, r hcl.Range) string {
+	if r.Start.Byte < 0 || r.End.Byte > len(src) || r.End.Byte < r.Start.Byte {
+		return ""
+	}
+	return string(src[r.Start.Byte:r.End.Byte])
 }
 
 func parseVariableBlock(block *hclsyntax.Block) (Variable, error) {

@@ -244,3 +244,20 @@ func TestVariable_DefaultEqualsCty(t *testing.T) {
 		t.Errorf("default = %v", vars[0].Default.GoString())
 	}
 }
+
+func TestParse_capturesRawBlock(t *testing.T) {
+	src := []byte(`variable "region" {
+  type    = string
+  default = "us-east-1"
+}`)
+	vars, err := Parse(src, "variables.tf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vars) != 1 {
+		t.Fatalf("got %d variables, want 1", len(vars))
+	}
+	if got := vars[0].Raw; got != string(src) {
+		t.Errorf("Raw = %q, want %q", got, string(src))
+	}
+}

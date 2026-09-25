@@ -18,10 +18,8 @@ import (
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/importer"
 	"github.com/MichaelThamm/atelier/internal/importer/providers"
-	"github.com/MichaelThamm/atelier/internal/manifest"
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
-	"github.com/MichaelThamm/atelier/internal/tui"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -57,7 +55,7 @@ func runImport(args []string) error {
 		refArg      string
 		types       []string
 		provVersion string
-		presetNames []string
+		varFiles    []string
 		noInit      bool
 		strict      bool
 		verbose     bool
@@ -82,7 +80,7 @@ func runImport(args []string) error {
 			verbose = true
 		case a == "--dry-run":
 			dryRun = true
-		case a == "--source" || a == "--module" || a == "--ref" || a == "--type" || a == "--var" || a == "--query-var" || a == "--dir" || a == "--provider-version" || a == "--preset":
+		case a == "--source" || a == "--module" || a == "--ref" || a == "--type" || a == "--var" || a == "--query-var" || a == "--dir" || a == "--provider-version" || a == "--var-file":
 			if i+1 >= len(args) {
 				return fmt.Errorf("flag %q requires a value", a)
 			}
@@ -101,8 +99,8 @@ func runImport(args []string) error {
 				dirArg = val
 			case "--provider-version":
 				provVersion = val
-			case "--preset":
-				presetNames = append(presetNames, val)
+			case "--var-file":
+				varFiles = appendVarFileList(varFiles, val)
 			case "--var":
 				k, v, ok := strings.Cut(val, "=")
 				if !ok || k == "" {
@@ -134,8 +132,8 @@ func runImport(args []string) error {
 			dirArg = strings.TrimPrefix(a, "--dir=")
 		case strings.HasPrefix(a, "--provider-version="):
 			provVersion = strings.TrimPrefix(a, "--provider-version=")
-		case strings.HasPrefix(a, "--preset="):
-			presetNames = append(presetNames, strings.TrimPrefix(a, "--preset="))
+		case strings.HasPrefix(a, "--var-file="):
+			varFiles = appendVarFileList(varFiles, strings.TrimPrefix(a, "--var-file="))
 		case strings.HasPrefix(a, "--var="):
 			kv := strings.TrimPrefix(a, "--var=")
 			k, v, ok := strings.Cut(kv, "=")
@@ -202,28 +200,36 @@ func runImport(args []string) error {
 	// When --source is given, clone the module and write an Atelier wrapper
 	// so the directory has a proper Terraform root to import into.
 	var wrapperState *wrapper.State
+	var cloneDir, srcModulePath string
 	if sourceArg != "" {
 		var err error
-		dir, wrapperState, err = setupSourceModule(dir, sourceArg, moduleArg, refArg)
+		dir, wrapperState, cloneDir, srcModulePath, err = setupSourceModule(dir, sourceArg, moduleArg, refArg)
 		if err != nil {
 			return err
 		}
 	}
 
-	// Apply presets if specified via --preset flags. Presets are loaded from
-	// atelier.local.yaml files discovered by walking up from the wrapper
-	// directory. Multiple presets are merged in order (later overrides earlier),
-	// and --var flags override all preset values.
-	if len(presetNames) > 0 && wrapperState != nil {
-		if err := applyPresets(dir, wrapperState, presetNames); err != nil {
-			return err
+	// Apply --var-file bundles to the wrapper state before --var overrides.
+	// Names resolve against personal walk-up bundles (atelier.presets/) and,
+	// with --source, the cloned module repo.
+	if len(varFiles) > 0 && wrapperState != nil {
+		resolved, rerr := bootstrap.ResolveVarFiles(dir, cloneDir, srcModulePath, varFiles)
+		if rerr != nil {
+			return rerr
+		}
+		warns, aerr := applyVarFiles(wrapperState, resolved, false)
+		if aerr != nil {
+			return aerr
+		}
+		for _, w := range warns {
+			fmt.Fprintln(os.Stderr, "warning:", w)
 		}
 	}
 
 	// Merge --var flag values into the wrapper state and persist to main.tf.
-	// This ensures both preset values and --var values are visible to
-	// terraform plan via main.tf (not just the temp .auto.tfvars, which can't
-	// represent complex types correctly).
+	// This ensures the values are visible to terraform plan via main.tf (not
+	// just the temp .auto.tfvars, which can't represent complex types
+	// correctly).
 	if wrapperState != nil {
 		// Seed unset module variables from like-named query variables, before
 		// anything runs. `terraform query` loads the root module, so it is the
@@ -239,10 +245,9 @@ func runImport(args []string) error {
 				strings.Join(seeded, ", "))
 		}
 		applyVarOverrides(wrapperState, config)
-		// Propagate preset values back into config so that downstream
+		// Propagate wrapper values back into config so that downstream
 		// consumers (e.g. the provider's import-ID builder, which looks up
-		// model_uuid in opts.Config) can see values supplied via --preset,
-		// not just --var flags.
+		// model_uuid in opts.Config) can see them, not just --var flags.
 		mergeWrapperStateIntoConfig(wrapperState, config)
 		if err := wrapperState.Write(); err != nil {
 			return fmt.Errorf("write values to main.tf: %w", err)
@@ -531,10 +536,10 @@ func describeProviders(sources []string) string {
 // parsed wrapper state (with variable declarations from the module). If the
 // repo has multiple module candidates and --module was not given, it prints the
 // candidates and exits with an error.
-func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.State, error) {
+func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.State, string, string, error) {
 	// Check terraform is available.
 	if err := tfexecLocate(); err != nil {
-		return "", nil, err
+		return "", nil, "", "", err
 	}
 
 	// If the directory already has a wrapper, re-hydrate its state by
@@ -547,17 +552,17 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 		defer cancel()
 		res, err := bootstrap.LoadExisting(ctx, dir, nil)
 		if err != nil {
-			return "", nil, err
+			return "", nil, "", "", err
 		}
-		return dir, res.State, nil
+		return dir, res.State, res.CloneDir, res.ModulePath, nil
 	}
 
 	// The clone, wrapper authoring and failure cleanup are the same fresh
 	// bootstrap `module add` runs (bootstrapFreshWrapper), so `import
 	// --source` cannot drift from it.
-	res, _, err := bootstrapFreshWrapper(dir, source, ref, modulePath)
+	res, _, err := bootstrapFreshWrapper(dir, source, ref, modulePath, false)
 	if err != nil {
-		return "", nil, err
+		return "", nil, "", "", err
 	}
 
 	if res.State == nil {
@@ -570,10 +575,10 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 			}
 			fmt.Fprintln(os.Stderr, "  "+label)
 		}
-		return "", nil, fmt.Errorf("multiple module candidates; specify one with --module")
+		return "", nil, "", "", fmt.Errorf("multiple module candidates; specify one with --module")
 	}
 
-	return dir, res.State, nil
+	return dir, res.State, res.CloneDir, res.ModulePath, nil
 }
 
 // seedFromQueryVars fills module variables the wrapper leaves unset with
@@ -630,11 +635,10 @@ func applyVarOverrides(state *wrapper.State, config map[string]string) {
 }
 
 // mergeWrapperStateIntoConfig propagates string-typed values from the wrapper
-// state back into the flat config map. This ensures that values supplied via
-// --preset (which only update wrapperState.Values) are visible to downstream
-// consumers that look up keys in opts.Config — e.g. the Juju provider's
-// import-ID builder needs model_uuid to construct import IDs for
-// juju_application and juju_secret.
+// state back into the flat config map. This ensures that values seeded into
+// wrapperState.Values are visible to downstream consumers that look up keys in
+// opts.Config — e.g. the Juju provider's import-ID builder needs model_uuid to
+// construct import IDs for juju_application and juju_secret.
 // Keys already present in config (--var flags) take precedence.
 func mergeWrapperStateIntoConfig(state *wrapper.State, config map[string]string) {
 	if state == nil {
@@ -654,61 +658,40 @@ func mergeWrapperStateIntoConfig(state *wrapper.State, config map[string]string)
 	}
 }
 
-// applyPresets loads the named presets from atelier.local.yaml files and
-// applies them to the wrapper state. Presets are merged in order (later
-// overrides earlier).
-func applyPresets(dir string, state *wrapper.State, presetNames []string) error {
-	// Load all available presets from atelier.local.yaml files.
-	rawPresets, warns := manifest.LoadLocalPresets(dir, modulePathFromState(state))
-	for _, w := range warns {
-		fmt.Fprintln(os.Stderr, "warning:", w)
-	}
-	if len(rawPresets) == 0 {
-		return fmt.Errorf("no presets found in atelier.local.yaml files")
-	}
-
-	// Resolve presets to typed cty.Values.
-	resolvedPresets := tui.ResolvePresets(rawPresets, state.Vars)
-	if len(resolvedPresets) == 0 {
-		return fmt.Errorf("no presets resolved for module")
-	}
-
-	// Build a lookup map for quick access by name.
-	presetByName := make(map[string]tui.ResolvedPreset, len(resolvedPresets))
-	for _, p := range resolvedPresets {
-		presetByName[p.Name] = p
-	}
-
-	// Apply presets in order (later overrides earlier).
-	appliedPresets := make(map[string]bool)
-	for _, name := range presetNames {
-		p, ok := presetByName[name]
-		if !ok {
-			// List available presets for a helpful error message.
-			available := make([]string, 0, len(resolvedPresets))
-			for _, rp := range resolvedPresets {
-				available = append(available, rp.Name)
+// applyVarFiles merges values from one or more Terraform variable files into
+// the state. Later files win over earlier ones; variables a file does not set
+// are left untouched. Files may have any name (the common `-var-file` usage).
+// Undeclared names and type-mismatched values are skipped and returned as
+// warnings; when strict is set they become a hard error instead, so a
+// committed example cannot rot silently when a variable is renamed or its type
+// changes (ADR-0032). Persisting is the caller's job via state.Write().
+func applyVarFiles(state *wrapper.State, paths []string, strict bool) ([]string, error) {
+	state.EnsureValues()
+	var warnings []string
+	for _, p := range paths {
+		if _, err := os.Stat(p); err != nil {
+			return nil, fmt.Errorf("var-file %s: %w", p, err)
+		}
+		vals, diags, err := wrapper.ReadTFVarsFileChecked(p, state.Vars)
+		if err != nil {
+			return nil, err
+		}
+		if !diags.Empty() {
+			for _, n := range diags.Unknown {
+				warnings = append(warnings, fmt.Sprintf("%s: unknown variable %q ignored", p, n))
 			}
-			return fmt.Errorf("preset %q not found; available presets: %v", name, available)
+			for _, m := range diags.Mismatched {
+				warnings = append(warnings, fmt.Sprintf("%s: %s ignored", p, m))
+			}
+			if strict {
+				return nil, fmt.Errorf("var-file did not apply cleanly:\n  %s", strings.Join(warnings, "\n  "))
+			}
 		}
-		appliedPresets[name] = true
-
-		// Merge preset values into wrapper state.
-		for varName, val := range p.Values {
-			state.Values[varName] = val
+		for name, v := range vals {
+			state.Values[name] = v
 		}
 	}
-
-	// Print which presets were applied.
-	if len(appliedPresets) > 0 {
-		names := make([]string, 0, len(appliedPresets))
-		for name := range appliedPresets {
-			names = append(names, name)
-		}
-		fmt.Fprintf(os.Stderr, "Applied preset(s): %s\n", strings.Join(names, ", "))
-	}
-
-	return nil
+	return warnings, nil
 }
 
 // convertStringToCty converts a string value to a cty.Value based on the

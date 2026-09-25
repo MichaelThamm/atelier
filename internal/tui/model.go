@@ -33,6 +33,11 @@ type Model struct {
 	SourceURL    string
 	ManifestPath string
 
+	// TFVarsMode marks the opt-in pass-through wrapper shape (ADR-0031):
+	// values live in terraform.tfvars, not in main.tf's module block. The
+	// header shows a persistent chip so the shape is never a mystery.
+	TFVarsMode bool
+
 	// WrapperDir is the directory containing main.tf and terraform.tfstate.
 	// Used for reloading state after apply.
 	WrapperDir string
@@ -123,15 +128,16 @@ type Model struct {
 	// auto-save path that ends each Update tick.
 	dirty bool
 
-	// presets holds resolved presets from the manifest. When non-empty, the
-	// user can press F to open the picker overlay.
+	// presets holds resolved `.tfvars` bundles (personal walk-up + repo
+	// examples). When non-empty, the user can press F to open the picker.
 	presets      []ResolvedPreset
 	presetPicker bool // true when the picker overlay is visible
 	presetCursor int  // cursor within the picker list
 
 	// savePreset modal state: captures the current wrapper configuration into
-	// a new atelier.local.yaml (ADR-0026). The snapshot is taken when the
-	// modal opens; name and description are collected via two readline cells.
+	// a new atelier.presets/<name>.tfvars bundle (ADR-0032). The snapshot is
+	// taken when the modal opens; name and description are collected via two
+	// readline cells.
 	savePresetModal bool
 	savePresetName  cellInput
 	savePresetDesc  cellInput
@@ -283,10 +289,21 @@ func (m *Model) AddModuleEntry(e ModuleEntry) {
 	m.recomputeRows()
 }
 
-// SetPresets installs resolved presets from the manifest. When non-empty,
-// the user can press F from the left pane to open the preset picker.
+// SetPresets installs resolved `.tfvars` presets. When non-empty, the user can
+// press F from the left pane to open the preset picker.
 func (m *Model) SetPresets(p []ResolvedPreset) {
 	m.presets = p
+}
+
+// SetTFVarsMode marks the wrapper as the opt-in pass-through shape
+// (ADR-0031). The header then carries a persistent `tfvars` chip and the
+// footer opens with a one-line explanation of where values live, so the
+// generated forwards in main.tf aren't mistaken for user wiring.
+func (m *Model) SetTFVarsMode(on bool) {
+	m.TFVarsMode = on
+	if on {
+		m.flashStatus("tfvars mode — values live in terraform.tfvars", statusInfo)
+	}
 }
 
 // SetTFState sets the parsed terraform state for display in the plan view.

@@ -72,7 +72,6 @@ Entry point is `cmd/atelier` (package `main`). Product logic lives under
 | `internal/tidy` | `atelier tidy` — headless prune to sparse form. |
 | `internal/convert` | `atelier convert` — adopting an existing module. |
 | `internal/importer` | `atelier import` runtime; `providers/juju` is the only provider today. |
-| `internal/manifest` | Parses the local presets file `atelier.local.yaml`. |
 
 Design rules that recur in the ADRs and must stay true:
 
@@ -85,8 +84,11 @@ Design rules that recur in the ADRs and must stay true:
 - **No orchestration** ([ADR-0016](docs/adr/0016-scope-boundaries-no-orchestration.md)):
   Atelier configures one module's inputs and drives plan/apply. It is not
   Terragrunt and does not do cross-module orchestration.
-- **Never read Atelier files from upstream** ([ADR-0022](docs/adr/0022-local-presets.md)):
-  presets are user-owned and wrapper-local.
+- **Read only Terraform-native `.tfvars` from upstream, and only when named**
+  ([ADR-0032](docs/adr/0032-upstream-tfvars-discovery.md)): presets are `.tfvars`
+  bundles — personal ones in a walk-up `atelier.presets/` directory, product
+  examples under `<module>/examples/`. Never read an Atelier-specific manifest
+  from upstream.
 
 Three subtrees carry their own `AGENTS.md` with a local file map, invariants,
 and test patterns: [`internal/wrapper/`](internal/wrapper/AGENTS.md),

@@ -35,6 +35,10 @@ type InitOptions struct {
 	Ref         string // user-supplied ref; empty → HEAD
 	ModulePath  string // candidate path within the cloned repo; empty → pick interactively / auto-pick if one
 	GitRunner   gitops.Runner
+
+	// TFVars selects the opt-in pass-through wrapper shape (ADR-0031):
+	// generated variables.tf + forwarding main.tf, values in terraform.tfvars.
+	TFVars bool
 }
 
 // Result is the output of either InitNew or LoadExisting.
@@ -44,6 +48,13 @@ type Result struct {
 	ResolvedSHA string
 	LiteralRef  string
 	Warnings    []string
+
+	// CloneDir is the local path of the cloned module repository and
+	// ModulePath is the module's sub-path within it. Together they let the
+	// CLI resolve repo-local --var-file names (ADR-0032). Empty on the
+	// degraded path, where the clone is unavailable.
+	CloneDir   string
+	ModulePath string
 
 	// RefBump is non-nil when LoadExisting detects the ref resolved to a
 	// different SHA than session.json recorded. Empty when no session existed
@@ -239,6 +250,10 @@ type ModulePrep struct {
 	ModulePath  string // the resolved candidate sub-path (empty when State is nil)
 	ResolvedSHA string
 	Warnings    []string
+
+	// CloneDir is the local checkout the module was read from, for repo-local
+	// --var-file resolution (ADR-0032).
+	CloneDir string
 }
 
 // PrepareModule clones opts.Source, discovers module candidates, resolves the
@@ -286,6 +301,7 @@ func PrepareModule(ctx context.Context, opts InitOptions) (*ModulePrep, error) {
 				Candidates:  cands,
 				ResolvedSHA: sha,
 				Warnings:    warnings,
+				CloneDir:    cloneDir,
 			}, nil
 		}
 	} else {
@@ -313,6 +329,7 @@ func PrepareModule(ctx context.Context, opts InitOptions) (*ModulePrep, error) {
 		ModulePath:  modulePath,
 		ResolvedSHA: sha,
 		Warnings:    warnings,
+		CloneDir:    cloneDir,
 	}, nil
 }
 
@@ -331,12 +348,15 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 			ResolvedSHA: prep.ResolvedSHA,
 			LiteralRef:  opts.Ref,
 			Warnings:    prep.Warnings,
+			CloneDir:    prep.CloneDir,
+			ModulePath:  prep.ModulePath,
 		}, nil
 	}
 
 	state := prep.State
 	modulePath := prep.ModulePath
 	sha := prep.ResolvedSHA
+	state.TFVarsMode = opts.TFVars
 
 	// Convert variables to the wrapper-bootstrap adapter form.
 	tfvarsLike := make([]any, len(state.Vars))
@@ -351,6 +371,8 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		RequiredProviders: state.RequiredProviders,
 		Providers:         state.Providers,
 		Variables:         ConvertVariables(state.Vars),
+		TFVars:            opts.TFVars,
+		VariableBlocks:    RawVariableBlocks(state.Vars),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("wrapper bootstrap: %w", err)
@@ -382,6 +404,8 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		ResolvedSHA: sha,
 		LiteralRef:  opts.Ref,
 		Warnings:    warnings,
+		CloneDir:    prep.CloneDir,
+		ModulePath:  modulePath,
 	}, nil
 }
 
@@ -466,22 +490,38 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		return nil, err
 	}
 
-	// Overlay user values from main.tf.
+	// Overlay user values. In the classic shape they live in main.tf's module
+	// block; in TFVarsMode they live in terraform.tfvars and main.tf carries
+	// only generated forwards plus any wired expressions/meta-arguments.
 	pm, err := wrapper.ReadMain(wrapperDir, state.Vars)
 	if err != nil {
 		return nil, err
 	}
 	if pm != nil {
 		state.ModuleBlockName = pm.ModuleBlockName
-		for k, v := range pm.Values {
-			state.Values[k] = v
+		state.TFVarsMode = wrapper.IsTFVarsMode(wrapperDir)
+		if state.TFVarsMode {
+			state.UnknownAttrs = wrapper.FilterPassthroughAttrs(pm.UnknownAttrs, state.Vars)
+			vals, verr := wrapper.ReadTFVars(wrapperDir, state.Vars)
+			if verr != nil {
+				return nil, verr
+			}
+			for k, v := range vals {
+				state.Values[k] = v
+			}
+		} else {
+			for k, v := range pm.Values {
+				state.Values[k] = v
+			}
+			state.UnknownAttrs = pm.UnknownAttrs
 		}
-		state.UnknownAttrs = pm.UnknownAttrs
 	}
 	res := &Result{
 		State:       state,
 		ResolvedSHA: currentSHA,
 		LiteralRef:  prev.LiteralRef,
+		CloneDir:    cloneDir,
+		ModulePath:  prev.ModuleCandidatePath,
 	}
 	if prev.RefBumpedSince(currentSHA) {
 		res.RefBump = &RefBump{
@@ -508,18 +548,30 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 // is a read-only recovery path.
 func loadDegraded(wrapperDir string, prev *session.Session, unresolved *RefUnresolved) (*Result, error) {
 	state := PrepareStateFromMain(wrapperDir, prev.ModuleCandidatePath, prev.LiteralRef, prev.SourceURL)
+	state.TFVarsMode = wrapper.IsTFVarsMode(wrapperDir)
 
-	// Overlay user values and wired expressions from main.tf. Vars is nil, so
+	// Overlay user values and wired expressions from disk. Vars is nil, so
 	// ReadMain can't type-check values against a schema; it recovers them
 	// verbatim, which is exactly what we want to carry through the switch.
+	// In TFVarsMode the values live in terraform.tfvars instead; read them all
+	// (no schema to filter by) so a subsequent ref switch doesn't drop them.
 	if pm, err := wrapper.ReadMain(wrapperDir, state.Vars); err == nil && pm != nil {
 		if pm.ModuleBlockName != "" {
 			state.ModuleBlockName = pm.ModuleBlockName
 		}
-		for k, v := range pm.Values {
-			state.Values[k] = v
+		if state.TFVarsMode {
+			state.UnknownAttrs = wrapper.FilterPassthroughAttrs(pm.UnknownAttrs, state.Vars)
+			if vals, verr := wrapper.ReadTFVarsAll(wrapperDir); verr == nil {
+				for k, v := range vals {
+					state.Values[k] = v
+				}
+			}
+		} else {
+			for k, v := range pm.Values {
+				state.Values[k] = v
+			}
+			state.UnknownAttrs = pm.UnknownAttrs
 		}
-		state.UnknownAttrs = pm.UnknownAttrs
 	}
 	return &Result{
 		State:         state,
@@ -767,6 +819,18 @@ func ConvertVariables(vars []tfvars.Variable) []wrapper.TFVar {
 	out := make([]wrapper.TFVar, len(vars))
 	for i, v := range vars {
 		out[i] = v
+	}
+	return out
+}
+
+// RawVariableBlocks returns the verbatim `variable` block sources for mirroring
+// the module's input API into variables.tf in TFVarsMode (ADR-0031).
+func RawVariableBlocks(vars []tfvars.Variable) []string {
+	out := make([]string, 0, len(vars))
+	for i := range vars {
+		if raw := strings.TrimSpace(vars[i].Raw); raw != "" {
+			out = append(out, raw)
+		}
 	}
 	return out
 }

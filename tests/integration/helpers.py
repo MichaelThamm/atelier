@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Optional
 
 import jubilant
-import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +122,7 @@ def run_atelier(
     """Run the Atelier CLI in ``wrapper_dir`` with stdin pinned to ``/dev/null``.
 
     Pinning stdin to ``/dev/null`` is what makes ``module add`` non-blocking:
-    Atelier detects the non-terminal, applies any ``--preset`` and skips the
+    Atelier detects the non-terminal, applies any ``--var-file`` and skips the
     TUI instead of trying (and failing) to open one.
 
     With ``capture=True`` the completed process is returned with ``stdout`` and
@@ -143,17 +142,34 @@ def run_atelier(
         )
 
 
-def write_local_preset(directory, name: str, sets: dict) -> str:
-    """Write an ``atelier.local.yaml`` with one named preset; return the name.
+def _hcl_value(value) -> str:
+    """Render a Python value as HCL for a ``.tfvars`` file."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, dict):
+        inner = ", ".join(f"{k} = {_hcl_value(v)}" for k, v in value.items())
+        return "{ " + inner + " }"
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_hcl_value(v) for v in value) + "]"
+    raise TypeError(f"unsupported value for .tfvars: {value!r}")
 
-    This is the canonical preset mechanism (the same file the TUI's `S` key and
-    ``import --preset`` use), so the tests document the real thing.
+
+def write_var_file(directory, name: str, values: dict) -> str:
+    """Write a ``<name>.tfvars`` bundle and return its path.
+
+    This is the preset mechanism: ``module add --var-file <path>`` reads it, and
+    the TUI's `S` key writes the same shape under ``atelier.presets/``, so the
+    tests document the real thing.
     """
-    path = Path(directory) / "atelier.local.yaml"
-    manifest = {"modules": [{"path": ".", "presets": [{"name": name, "sets": sets}]}]}
-    path.write_text(yaml.safe_dump(manifest, sort_keys=False))
-    logger.info("wrote %s with preset %r: %s", path, name, sets)
-    return name
+    path = Path(directory) / f"{name}.tfvars"
+    body = "".join(f"{k} = {_hcl_value(v)}\n" for k, v in values.items())
+    path.write_text(body)
+    logger.info("wrote %s: %s", path, values)
+    return str(path)
 
 
 def wait_for_active_idle_without_error(juju: jubilant.Juju, timeout: int = 60 * 45) -> None:

@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted (supersedes [ADR-0010](0010-manifest-format.md); the "no `preset
-save`" item below is amended by [ADR-0026](0026-save-preset.md))
+Superseded by [ADR-0032](0032-upstream-tfvars-discovery.md). (Historical:
+superseded [ADR-0010](0010-manifest-format.md); the "no `preset save`" item was
+amended by [ADR-0026](0026-save-preset.md).)
 
 ## Context
 

@@ -15,9 +15,18 @@ import (
 )
 
 const moduleUsage = `Usage:
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--preset NAME] [--yes]
+  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
+                                [--var-file PATH|NAME] [--list-var-files] [--strict] [--tfvars] [--yes]
                                                Add a module to the wrapper.
-                                               --preset applies a named preset from atelier.local.yaml.
+                                               --var-file seeds values from a Terraform variable file: a local
+                                               path, a name in an ancestor atelier.presets/ directory (walk-up),
+                                               or a name committed to the module repo. Comma-separate or repeat
+                                               for several (e.g. --var-file cos-s3,cos-units); later files win.
+                                               --list-var-files prints the .tfvars files found in the module repo.
+                                               --strict makes var-file binding warnings (unknown variables,
+                                               type mismatches) fatal instead of warnings.
+                                               --tfvars writes an opt-in pass-through wrapper: a mirrored
+                                               variables.tf + forwarding main.tf, with values in terraform.tfvars.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
 `
@@ -42,12 +51,15 @@ func runModule(args []string) error {
 
 // moduleAddOpts holds parsed flags for `atelier module add`.
 type moduleAddOpts struct {
-	Source     string   // positional git URL
-	As         string   // --as: explicit HCL block name
-	Ref        string   // --ref: git ref
-	ModulePath string   // --module: candidate subdir
-	Presets    []string // --preset: named preset from atelier.local.yaml
-	Yes        bool     // --yes/-y: skip the target-directory confirmation
+	Source       string   // positional git URL
+	As           string   // --as: explicit HCL block name
+	Ref          string   // --ref: git ref
+	ModulePath   string   // --module: candidate subdir
+	VarFiles     []string // --var-file: seed values from a .tfvars file or repo-local name (repeatable)
+	Yes          bool     // --yes/-y: skip the target-directory confirmation
+	TFVars       bool     // --tfvars: opt-in pass-through wrapper shape (ADR-0031)
+	ListVarFiles bool     // --list-var-files: print the repo's .tfvars files and exit
+	Strict       bool     // --strict: make var-file binding warnings fatal
 }
 
 func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
@@ -58,6 +70,12 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 		switch a {
 		case "--yes", "-y":
 			opts.Yes = true
+		case "--tfvars":
+			opts.TFVars = true
+		case "--list-var-files":
+			opts.ListVarFiles = true
+		case "--strict":
+			opts.Strict = true
 		case "--as":
 			i++
 			if i >= len(args) {
@@ -76,15 +94,15 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 				return opts, fmt.Errorf("--module requires a path")
 			}
 			opts.ModulePath = args[i]
-		case "--preset":
+		case "--var-file":
 			i++
 			if i >= len(args) {
-				return opts, fmt.Errorf("--preset requires a name")
+				return opts, fmt.Errorf("--var-file requires a path")
 			}
-			opts.Presets = append(opts.Presets, args[i])
+			opts.VarFiles = appendVarFileList(opts.VarFiles, args[i])
 		default:
-			if strings.HasPrefix(a, "--preset=") {
-				opts.Presets = append(opts.Presets, strings.TrimPrefix(a, "--preset="))
+			if strings.HasPrefix(a, "--var-file=") {
+				opts.VarFiles = appendVarFileList(opts.VarFiles, strings.TrimPrefix(a, "--var-file="))
 				continue
 			}
 			if strings.HasPrefix(a, "-") {
@@ -103,6 +121,18 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 	return opts, nil
 }
 
+// appendVarFileList splits a comma-separated --var-file value into individual
+// names/paths. Commas are the one-shot syntax for several bundles
+// (`--var-file cos-s3,cos-units`); repeating the flag remains equivalent.
+func appendVarFileList(dst []string, raw string) []string {
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			dst = append(dst, p)
+		}
+	}
+	return dst
+}
+
 // runModuleAdd implements `atelier module add <url>`.
 func runModuleAdd(args []string) error {
 	opts, err := parseModuleAddArgs(args)
@@ -117,11 +147,46 @@ func runModuleAdd(args []string) error {
 		return err
 	}
 
+	// --list-var-files clones the module (without writing a wrapper) and
+	// prints the `.tfvars` files committed to the repository, then exits
+	// (ADR-0032). It needs no preflight because nothing is written.
+	if opts.ListVarFiles {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		prep, err := bootstrap.PrepareModule(ctx, bootstrap.InitOptions{
+			WrapperDir: cwd,
+			Source:     opts.Source,
+			Ref:        opts.Ref,
+			ModulePath: opts.ModulePath,
+		})
+		if err != nil {
+			return err
+		}
+		files := bootstrap.ListAllVarFiles(cwd, prep.CloneDir, prep.ModulePath)
+		if len(files) == 0 {
+			fmt.Println("No .tfvars bundles found (checked atelier.presets/ up-tree and the module repo).")
+			return nil
+		}
+		for _, f := range files {
+			fmt.Printf("[%s] %-24s %s\n", f.Source, f.Name, f.Display)
+		}
+		return nil
+	}
+
 	// Determine if this is a fresh bootstrap or an additive operation.
 	mainPath := filepath.Join(cwd, wrapper.MainTF)
 	wrapperExists := false
 	if _, err := os.Stat(mainPath); err == nil {
 		wrapperExists = true
+	}
+
+	// --tfvars selects a whole-wrapper shape. The additive path appends a
+	// second module block to an existing main.tf, which cannot be reconciled
+	// with a generated pass-through interface (that is the multi-module
+	// namespacing problem ADR-0031 defers), so refuse rather than half-apply.
+	if wrapperExists && opts.TFVars {
+		return fmt.Errorf("--tfvars applies to a fresh wrapper; this directory already has a main.tf.\n" +
+			"       tfvars mode is single-module for now — bootstrap it in an empty directory")
 	}
 
 	// Confirm the target directory before writing anything into it. `module
@@ -159,7 +224,7 @@ func runModuleAdd(args []string) error {
 		// Fresh bootstrap of a new wrapper from the given module URL. Clone,
 		// wrapper authoring and failure cleanup are shared with `import
 		// --source` (bootstrapFreshWrapper) so the two stay in lockstep.
-		res, cleanup, err := bootstrapFreshWrapper(cwd, opts.Source, opts.Ref, opts.ModulePath)
+		res, cleanup, err := bootstrapFreshWrapper(cwd, opts.Source, opts.Ref, opts.ModulePath, opts.TFVars)
 		if err != nil {
 			return err
 		}
@@ -185,11 +250,23 @@ func runModuleAdd(args []string) error {
 			}
 		}
 
-		// Apply --preset values, then persist them to main.tf.
-		if len(opts.Presets) > 0 {
-			if err := applyPresets(cwd, res.State, opts.Presets); err != nil {
+		// Apply --var-file values (explicit files win), then persist. A name
+		// is resolved against the cloned module repo; a local path is used
+		// as-is. In TFVarsMode this lands in terraform.tfvars; in the classic
+		// shape it becomes module arguments.
+		if len(opts.VarFiles) > 0 {
+			resolved, rerr := bootstrap.ResolveVarFiles(cwd, res.CloneDir, res.ModulePath, opts.VarFiles)
+			if rerr != nil {
 				cleanup()
-				return err
+				return rerr
+			}
+			warns, aerr := applyVarFiles(res.State, resolved, opts.Strict)
+			if aerr != nil {
+				cleanup()
+				return aerr
+			}
+			for _, w := range warns {
+				fmt.Fprintln(os.Stderr, "warning:", w)
 			}
 			if err := res.State.Write(); err != nil {
 				cleanup()
@@ -284,10 +361,18 @@ func runModuleAdd(args []string) error {
 	}
 	state.ModuleBlockName = blockName
 
-	// Apply --preset values to the module being added, before writing it.
-	if len(opts.Presets) > 0 {
-		if err := applyPresets(cwd, state, opts.Presets); err != nil {
-			return err
+	// Apply --var-file values to the module being added, before writing it.
+	if len(opts.VarFiles) > 0 {
+		resolved, rerr := bootstrap.ResolveVarFiles(cwd, prep.CloneDir, prep.ModulePath, opts.VarFiles)
+		if rerr != nil {
+			return rerr
+		}
+		warns, aerr := applyVarFiles(state, resolved, opts.Strict)
+		if aerr != nil {
+			return aerr
+		}
+		for _, w := range warns {
+			fmt.Fprintln(os.Stderr, "warning:", w)
 		}
 	}
 
@@ -323,7 +408,7 @@ func runModuleAdd(args []string) error {
 // The returned cleanup closure does that removal; callers invoke it on their
 // own post-bootstrap failure paths (e.g. a rename or preset-write error),
 // matching `module add`'s previous behaviour.
-func bootstrapFreshWrapper(dir, source, ref, modulePath string) (*bootstrap.Result, func(), error) {
+func bootstrapFreshWrapper(dir, source, ref, modulePath string, tfVars bool) (*bootstrap.Result, func(), error) {
 	if _, err := tfexec.Locate(); err != nil {
 		return nil, nil, err
 	}
@@ -349,6 +434,7 @@ func bootstrapFreshWrapper(dir, source, ref, modulePath string) (*bootstrap.Resu
 		Source:     source,
 		Ref:        ref,
 		ModulePath: modulePath,
+		TFVars:     tfVars,
 	})
 	stop()
 	if err != nil {

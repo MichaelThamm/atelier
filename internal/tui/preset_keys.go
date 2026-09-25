@@ -2,12 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/MichaelThamm/atelier/internal/manifest"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // handlePresetKey routes keys while the preset picker overlay is visible.
@@ -59,19 +61,12 @@ func (m *Model) applyPresetCmd(i int) tea.Cmd {
 	return m.scheduleValidate()
 }
 
-// openSavePreset opens the save-preset modal, refusing early (with a status
-// hint, no modal) in the two cases where there is nothing useful to do:
-// an atelier.local.yaml already exists in the wrapper directory (Atelier never
-// overwrites one — ADR-0026), or the configuration is entirely at its defaults
-// so the generated preset would be empty.
+// openSavePreset opens the save-preset modal, refusing early when the current
+// configuration has no non-default values (the bundle would be empty). The
+// bundle is written to atelier.presets/<name>.tfvars in the wrapper directory
+// (ADR-0032).
 func (m *Model) openSavePreset() (tea.Model, tea.Cmd) {
-	if manifest.HasLocalFile(m.State.Dir) {
-		m.flashStatus(fmt.Sprintf("%s already exists here — edit it directly or move it to a parent",
-			manifest.LocalFileName), statusInfo)
-		return m, nil
-	}
-	_, n := snapshotPreset(m.State, "", "")
-	if n == 0 {
+	if len(snapshotValues(m.State)) == 0 {
 		m.flashStatus("nothing to save — all values are at their defaults", statusInfo)
 		return m, nil
 	}
@@ -120,9 +115,9 @@ func (m *Model) setSavePresetFocus(f int) {
 }
 
 // commitSavePreset validates the name, snapshots the current configuration, and
-// writes a new atelier.local.yaml. A blank name keeps the modal open; a write
-// error (including a file that appeared since the modal opened) is surfaced in
-// the status line.
+// writes a new atelier.presets/<name>.tfvars in the wrapper directory. A blank
+// name keeps the modal open; an existing file is refused so a hand-authored
+// bundle is never overwritten.
 func (m *Model) commitSavePreset() (tea.Model, tea.Cmd) {
 	name := strings.TrimSpace(m.savePresetName.Value())
 	if name == "" {
@@ -130,18 +125,69 @@ func (m *Model) commitSavePreset() (tea.Model, tea.Cmd) {
 	}
 	desc := strings.TrimSpace(m.savePresetDesc.Value())
 
-	preset, n := snapshotPreset(m.State, name, desc)
-	if n == 0 {
+	values := snapshotValues(m.State)
+	if len(values) == 0 {
 		m.savePresetModal = false
 		m.flashStatus("nothing to save — all values are at their defaults", statusInfo)
 		return m, nil
 	}
 
-	m.savePresetModal = false
-	if err := manifest.SavePreset(m.State.Dir, preset); err != nil {
+	dir := filepath.Join(m.State.Dir, wrapper.PresetsDir)
+	stem := bundleFileName(name)
+	path := filepath.Join(dir, stem+".tfvars")
+	if _, err := os.Stat(path); err == nil {
+		m.flashStatus(fmt.Sprintf("%s already exists — choose another name", path), statusError)
+		return m, nil // keep the modal open for renaming
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		m.savePresetModal = false
 		m.flashStatus(fmt.Sprintf("save preset failed: %v", err), statusError)
 		return m, nil
 	}
-	m.flashStatus(fmt.Sprintf("Saved preset %q (%d vars) to %s", name, n, manifest.LocalFileName), statusInfo)
+
+	body := wrapper.RenderTFVarsValues(m.State.Vars, values)
+	if desc != "" {
+		body = append([]byte("# "+desc+"\n\n"), body...)
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		m.savePresetModal = false
+		m.flashStatus(fmt.Sprintf("save preset failed: %v", err), statusError)
+		return m, nil
+	}
+
+	// Make the new bundle available in the picker immediately.
+	m.presets = append(m.presets, ResolvedPreset{
+		Name:        stem,
+		Description: desc,
+		Values:      values,
+		Source:      "local",
+	})
+	m.savePresetModal = false
+	m.flashStatus(fmt.Sprintf("Saved preset %q (%d vars) to %s", name, len(values), path), statusInfo)
 	return m, nil
+}
+
+// bundleFileName turns a user-entered preset name into a safe .tfvars stem:
+// lowercase, spaces and unsupported characters collapse to '-', and the result
+// is never empty.
+func bundleFileName(name string) string {
+	var b strings.Builder
+	prevDash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '.':
+			b.WriteRune(r)
+			prevDash = false
+		default:
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-.")
+	if out == "" {
+		out = "preset"
+	}
+	return out
 }

@@ -250,6 +250,12 @@ func (m *Model) renderHeader() string {
 	if n := len(m.checkWarnings); n > 0 {
 		left += "  " + styleStatusWarning.Render(fmt.Sprintf("⚠ %d check warning(s)", n))
 	}
+	// Advertise the opt-in pass-through shape (ADR-0031). Without this, the
+	// generated `x = var.x` forwards in main.tf are easy to misread as the
+	// user's own wiring.
+	if m.TFVarsMode {
+		left += "  " + styleHelp.Render("tfvars")
+	}
 	leftW := lipgloss.Width(left)
 	// Inner width = m.width - 2 (border); padding takes 2 more.
 	contentW := m.width - 4

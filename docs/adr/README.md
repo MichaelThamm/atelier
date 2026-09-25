@@ -28,15 +28,17 @@ Format follows the Michael Nygard template, lightly extended.
 | 0019 | [Unified module version display](0019-unified-module-version-display.md)                    | Proposed |
 | 0020 | [Readline-style text editing in variable editors](0020-readline-style-text-editing.md)      | Proposed |
 | 0021 | [`atelier tidy` — on-demand prune to sparse form](0021-tidy-command.md)                      | Proposed |
-| 0022 | [Local presets: `atelier.local.yaml`](0022-local-presets.md)                                | Accepted |
+| 0022 | [Local presets: `atelier.local.yaml`](0022-local-presets.md)                                | Superseded by ADR-0032 |
 | 0023 | [Map / map(object) row editing lifecycle](0023-map-row-editing-lifecycle.md)                | Proposed |
 | 0024 | [Surfacing Terraform `check` block warnings](0024-check-block-warnings.md)                   | Accepted |
 | 0025 | [Interactive ref selection in the ref-switch modal](0025-ref-selection-matcher.md)          | Proposed |
-| 0026 | [Generate a preset from the current configuration](0026-save-preset.md)                      | Accepted |
+| 0026 | [Generate a preset from the current configuration](0026-save-preset.md)                      | Superseded by ADR-0032 |
 | 0027 | [`atelier import` — import live infrastructure into an existing module](0027-atelier-import.md) | Accepted |
 | 0028 | [Provider-specific import IDs — scoped to Juju for v1](0028-provider-specific-import-ids.md) | Accepted |
 | 0029 | [Live logs view (`L`)](0029-live-logs-view.md)                                              | Accepted |
 | 0030 | [Target-directory preflight and duplicate-module refusal](0030-target-directory-preflight.md) | Accepted |
+| 0031 | [Opt-in `.tfvars` pass-through wrapper mode](0031-tfvars-passthrough-mode.md)                  | Proposed |
+| 0032 | [Upstream `.tfvars` discovery; retire `atelier.local.yaml` presets](0032-upstream-tfvars-discovery.md) | Accepted |
 
 ## Conventions
 
