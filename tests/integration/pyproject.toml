@@ -10,6 +10,9 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
+# `cloud` tests create a real Juju model. Exclude them unless `-m cloud` is
+# passed explicitly, so a bare `pytest` run is always safe and fast.
+addopts = '-m "not cloud"'
 markers = [
     "cloud: integration test that deploys to a live Juju cloud",
 ]

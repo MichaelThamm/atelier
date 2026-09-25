@@ -36,13 +36,13 @@ just fmt                      # rewrite files with gofmt (never hand-format)
 just test-pkg ./internal/tui  # unit tests for one package (fast iteration)
 just docs-check               # ADR index / ADR-reference / markdown-link drift checks
 just build-bin                # build the dev binary the integration tiers use
-just test-wrapper             # integration tier needing only Terraform
+just test-integration         # fast integration tier (no Juju)
 just test-cloud               # cloud tier: needs a Juju controller on K8s (slow)
 ```
 
 CI runs these same recipes
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)): the `build · vet · test`
-job runs `just check`, and the integration jobs run `just test-wrapper`,
+job runs `just check`, and the integration jobs run `just test-integration`,
 `just test-prometheus`, and `just test-import`. If a recipe passes locally it is
 the same gate CI enforces. Underneath them are `gofmt -l .`, `go build ./...`,
 `go vet ./...`, and `go test -race ./...` if you prefer the raw commands.

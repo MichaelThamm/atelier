@@ -54,9 +54,9 @@ docs-check:
 build-bin:
     go build -o {{atelier_bin}} ./cmd/atelier
 
-# Integration tier that needs only Terraform (no Juju model).
-test-wrapper: build-bin
-    ATELIER_BIN={{atelier_bin}} {{pytest}} tests/integration/wrapper {{pytest_flags}}
+# Fast integration tier: every test not marked `cloud` (no Juju model needed).
+test-integration: build-bin
+    ATELIER_BIN={{atelier_bin}} {{pytest}} tests/integration -m "not cloud" {{pytest_flags}}
 
 # Cloud tier: prometheus-k8s deploy smoke test. Needs Juju + Canonical K8s.
 test-prometheus: build-bin
