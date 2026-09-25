@@ -124,6 +124,32 @@ func TestParseModuleAddArgs_ListVarFiles(t *testing.T) {
 	}
 }
 
+// --- preserveWrapperShape ---
+
+// TestPreserveWrapperShape guards the ref-switch regression: a freshly built
+// State defaults to classic, so the on-disk shape must be carried over or the
+// first `R` on a --tfvars wrapper converts it back to a classic module block.
+func TestPreserveWrapperShape(t *testing.T) {
+	dir := t.TempDir()
+	s := &wrapper.State{}
+
+	// A classic wrapper has no marker.
+	preserveWrapperShape(s, dir)
+	if s.TFVarsMode {
+		t.Error("classic wrapper must not enable tfvars mode")
+	}
+
+	// A pass-through wrapper carries the marker in main.tf.
+	if err := os.WriteFile(filepath.Join(dir, wrapper.MainTF), []byte(
+		"# atelier:tfvars — generated\n\nmodule \"m\" {\n  source = \"x\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	preserveWrapperShape(s, dir)
+	if !s.TFVarsMode {
+		t.Error("pass-through wrapper must keep tfvars mode across a ref switch")
+	}
+}
+
 // --- sanitizeBlockName ---
 
 func TestSanitizeBlockName_Hyphens(t *testing.T) {

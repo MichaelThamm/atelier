@@ -22,12 +22,17 @@ func mustMatch(t *testing.T, out, pattern string) {
 
 // tfVarsVars parses variable declarations from source so the Raw block
 // sources (which variables.tf mirroring depends on) are populated exactly as
-// they would be for a real module.
+// they would be for a real module. The source is written to disk first so
+// type expressions and Raw are recovered from a real file, as in production.
 func tfVarsVars(t *testing.T, src string) []tfvars.Variable {
 	t.Helper()
-	vars, err := tfvars.Parse([]byte(src), "variables.tf")
+	path := filepath.Join(t.TempDir(), "variables.tf")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write variables: %v", err)
+	}
+	vars, err := tfvars.LoadFile(path)
 	if err != nil {
-		t.Fatalf("parse variables: %v", err)
+		t.Fatalf("load variables: %v", err)
 	}
 	return vars
 }
@@ -253,6 +258,170 @@ variable "replicas" {
 	}
 	if v, ok := vals["name"]; !ok || v.AsString() != "ok" {
 		t.Errorf("name = %#v, want ok", vals["name"])
+	}
+}
+
+// TestWrite_tfvarsMode_idempotent guards the TUI's auto-save: Write is called
+// after every edit, so a second Write with unchanged values must produce
+// byte-identical files, or the wrapper churns on disk and in git.
+func TestWrite_tfvarsMode_idempotent(t *testing.T) {
+	vars := tfVarsVars(t, `
+variable "name" { type = string }
+variable "internal_tls" {
+  type    = bool
+  default = true
+}
+variable "labels" {
+  type    = map(string)
+  default = {}
+}
+variable "alertmanager" {
+  type = object({
+    app_name = optional(string, "alertmanager")
+    units    = optional(number, 1)
+  })
+  default = {}
+}
+`)
+	dir := t.TempDir()
+	s := &State{
+		Dir:             dir,
+		ModuleBlockName: "cos",
+		Source:          "git::https://example.com/m.git?ref=v1",
+		Vars:            vars,
+		TFVarsMode:      true,
+		Values: map[string]cty.Value{
+			"name":         cty.StringVal("demo"),
+			"internal_tls": cty.False,
+			"labels":       cty.MapVal(map[string]cty.Value{"env": cty.StringVal("dev")}),
+			"alertmanager": cty.ObjectVal(map[string]cty.Value{"units": cty.NumberIntVal(3)}),
+		},
+	}
+	if err := s.Write(); err != nil {
+		t.Fatalf("first Write: %v", err)
+	}
+	first := map[string]string{}
+	for _, f := range []string{MainTF, VariablesTF, TFVarsFile} {
+		first[f] = readFile(t, filepath.Join(dir, f))
+	}
+
+	if err := s.Write(); err != nil {
+		t.Fatalf("second Write: %v", err)
+	}
+	for _, f := range []string{MainTF, VariablesTF, TFVarsFile} {
+		if got := readFile(t, filepath.Join(dir, f)); got != first[f] {
+			t.Errorf("%s changed on an unchanged second Write:\n--- first ---\n%s\n--- second ---\n%s", f, first[f], got)
+		}
+	}
+}
+
+// TestReadTFVarsFileChecked_conversions is the false-positive guard for binding
+// diagnostics: ordinary typed values (map, list, bool, number) must be accepted
+// and coerced, not reported as mismatches. A false warning here would make
+// `--var-file` noisy for correct files.
+func TestReadTFVarsFileChecked_conversions(t *testing.T) {
+	vars := tfVarsVars(t, `
+variable "name" { type = string }
+variable "labels" { type = map(string) }
+variable "tags" { type = list(string) }
+variable "flag" { type = bool }
+variable "count" { type = number }
+variable "ref" { type = string }
+`)
+	path := filepath.Join(t.TempDir(), "ok.tfvars")
+	if err := os.WriteFile(path, []byte(`
+name   = "demo"
+labels = { env = "dev" }
+tags   = ["a", "b"]
+flag   = true
+count  = 2
+ref    = module.other.value
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	vals, diags, err := ReadTFVarsFileChecked(path, vars)
+	if err != nil {
+		t.Fatalf("ReadTFVarsFileChecked: %v", err)
+	}
+	if !diags.Empty() {
+		t.Fatalf("correctly-typed values must not warn: %+v", diags)
+	}
+	if v := vals["name"]; v.AsString() != "demo" {
+		t.Errorf("name = %#v", v)
+	}
+	if v, ok := vals["labels"]; !ok || !v.Type().IsMapType() {
+		t.Errorf("labels not coerced to a map: %#v", vals["labels"])
+	}
+	if v, ok := vals["tags"]; !ok || !v.Type().IsListType() {
+		t.Errorf("tags not coerced to a list: %#v", vals["tags"])
+	}
+	if v, ok := vals["flag"]; !ok || !v.True() {
+		t.Errorf("flag = %#v", vals["flag"])
+	}
+	if v, ok := vals["count"]; !ok || v.AsBigFloat().String() != "2" {
+		t.Errorf("count = %#v", vals["count"])
+	}
+	if _, ok := vals["ref"]; ok {
+		t.Error("a reference expression is not valid in .tfvars and must be skipped")
+	}
+}
+
+func TestReadTFVarsFileChecked_syntaxError(t *testing.T) {
+	vars := tfVarsVars(t, `variable "name" { type = string }`)
+	path := filepath.Join(t.TempDir(), "broken.tfvars")
+	if err := os.WriteFile(path, []byte("name = \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadTFVarsFileChecked(path, vars); err == nil {
+		t.Error("a syntactically invalid .tfvars must be an error, not silently empty")
+	}
+}
+
+// TestRenderTFVarsValues_sparse covers the TUI `S` sink directly: required
+// values are written, changed optionals are written, object values are written
+// partially (only fields that differ from their optional() default), and
+// at-default values are omitted.
+func TestRenderTFVarsValues_sparse(t *testing.T) {
+	vars := tfVarsVars(t, `
+variable "name" { type = string }
+variable "internal_tls" {
+  type    = bool
+  default = true
+}
+variable "alertmanager" {
+  type = object({
+    app_name = optional(string, "alertmanager")
+    units    = optional(number, 1)
+  })
+  default = {}
+}
+variable "labels" {
+  type    = map(string)
+  default = {}
+}
+`)
+	out := string(RenderTFVarsValues(vars, map[string]cty.Value{
+		"name":         cty.StringVal("demo"),
+		"internal_tls": cty.True, // at default -> omitted
+		"alertmanager": cty.ObjectVal(map[string]cty.Value{
+			"app_name": cty.StringVal("alertmanager"), // at default -> omitted
+			"units":    cty.NumberIntVal(3),
+		}),
+		"labels": cty.MapValEmpty(cty.String), // at default -> omitted
+	}))
+	if !strings.Contains(out, `name = "demo"`) {
+		t.Errorf("required value missing:\n%s", out)
+	}
+	mustMatch(t, out, `units\s*=\s*3`)
+	if strings.Contains(out, "internal_tls") {
+		t.Errorf("at-default internal_tls must be omitted:\n%s", out)
+	}
+	if strings.Contains(out, "app_name") {
+		t.Errorf("at-default object field must be omitted:\n%s", out)
+	}
+	if strings.Contains(out, "labels") {
+		t.Errorf("at-default map must be omitted:\n%s", out)
 	}
 }
 

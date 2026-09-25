@@ -273,6 +273,15 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	return nil
 }
 
+// preserveWrapperShape carries the on-disk wrapper shape (classic vs
+// pass-through) into a freshly built State before it is written. A ref switch
+// rebuilds State from the clone, which defaults to classic; without this, the
+// first `R` on a --tfvars wrapper would silently convert it back to a classic
+// module block and lose the mode marker (ADR-0031).
+func preserveWrapperShape(state *wrapper.State, wrapperDir string) {
+	state.TFVarsMode = wrapper.IsTFVarsMode(wrapperDir)
+}
+
 // presetsFromBundles discovers the `.tfvars` presets the TUI picker offers:
 // personal walk-up bundles (atelier.presets/) and examples committed to the
 // module repo, read against the primary module's schema. Undeclared names and
@@ -639,7 +648,7 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	// forwarding main.tf) and terraform.tfvars, not a classic module block.
 	// Without this, the first ref switch would silently convert the wrapper
 	// back to the classic shape and lose the mode marker.
-	state.TFVarsMode = wrapper.IsTFVarsMode(s.wrapperDir)
+	preserveWrapperShape(state, s.wrapperDir)
 	if err := state.Write(); err != nil {
 		return nil, fmt.Errorf("write wrapper: %w", err)
 	}

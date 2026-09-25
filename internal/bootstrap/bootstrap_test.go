@@ -292,6 +292,30 @@ variable "replicas" {
 	if len(res.State.UnknownAttrs) != 0 {
 		t.Errorf("generated forwards leaked as wired expressions: %+v", res.State.UnknownAttrs)
 	}
+
+	// AND a save through the real load path is idempotent: the first write
+	// normalises the file (adds the managed header), and a second leaves it
+	// byte-identical and keeps the mode marker.
+	if err := res.State.Write(); err != nil {
+		t.Fatalf("write after load: %v", err)
+	}
+	first, err := os.ReadFile(filepath.Join(wrapperDir, wrapper.TFVarsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := res.State.Write(); err != nil {
+		t.Fatalf("second write after load: %v", err)
+	}
+	second, err := os.ReadFile(filepath.Join(wrapperDir, wrapper.TFVarsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("terraform.tfvars changed on an unchanged second save:\n--- first ---\n%s\n--- second ---\n%s", first, second)
+	}
+	if !wrapper.IsTFVarsMode(wrapperDir) {
+		t.Error("mode marker lost after a save")
+	}
 }
 
 // TestPrepareModule_autoPicksSingleCandidate is the regression test for the
