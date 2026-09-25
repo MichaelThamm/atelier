@@ -46,4 +46,6 @@ models when a test fails, so you can inspect them.
 
 CI runs these in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) —
 after the `build · vet · test` job passes — against Juju + Canonical K8s
-prepared by [Concierge](https://github.com/canonical/concierge).
+prepared by [Concierge](https://github.com/canonical/concierge). Pull requests
+that change only documentation skip the integration tiers; pushes to `main` and
+manual runs always execute them.
