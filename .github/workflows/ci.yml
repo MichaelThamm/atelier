@@ -42,10 +42,43 @@ jobs:
       - name: Run the local gate
         run: just check
 
+  # Decide whether the integration tiers need to run. They build and exercise
+  # the real binary against Terraform and (for the cloud tiers) a Juju
+  # controller, so a documentation-only change cannot affect them. Non-PR runs
+  # (pushes to main, manual dispatch) always run them.
+  changes:
+    name: detect integration-relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      integration: ${{ steps.filter.outputs.integration }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Filter changed paths
+        id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" != "pull_request" ]]; then
+            echo "integration=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+          if [[ -z "$changed" ]] || ! grep -qvE '^(docs/|LICENSE$|.*\.(md|gif|png|svg|jpe?g)$)' <<<"$changed"; then
+            echo "integration=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "integration=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # Fast integration tier: `atelier module add` against a real module. No Juju model.
   wrapper:
     name: Fast integration tests
-    needs: build-test
+    needs: [build-test, changes]
+    if: needs.changes.outputs.integration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -75,7 +108,8 @@ jobs:
   # The deployment smoke test: needs a Juju controller on Kubernetes, prepared by Concierge.
   prometheus:
     name: Deploy prometheus-k8s with Atelier + Terraform
-    needs: build-test
+    needs: [build-test, changes]
+    if: needs.changes.outputs.integration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -122,7 +156,8 @@ jobs:
   # The import round-trip: module add, deploy, drop state, re-import.
   import:
     name: Recover COS-Lite state with Atelier import
-    needs: build-test
+    needs: [build-test, changes]
+    if: needs.changes.outputs.integration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
