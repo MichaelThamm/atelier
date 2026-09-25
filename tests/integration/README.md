@@ -10,27 +10,36 @@ They are grouped by what they need:
 | [`import/`](import/) | Juju + Canonical K8s | Deploy COS-Lite, delete the Terraform state, and `atelier import` rebuilds it with no drift on the resources that have a live counterpart. |
 
 The `prometheus/` and `import/` tiers are marked `cloud` and take tens of
-minutes; the `wrapper/` tier is quick.
+minutes; everything else is the fast tier and runs in a minute or two.
 
 ## Running locally
 
 Prerequisites: [uv](https://docs.astral.sh/uv/), Terraform ≥ 1.14, and — for the
-`cloud` tier — a Juju controller on a Kubernetes cloud. Build Atelier and point
-the suite at the binary:
+`cloud` tier — a Juju controller on a Kubernetes cloud. The
+[`justfile`](../../justfile) wraps both tiers:
+
+```bash
+just test-integration   # fast tier — no Juju model
+just test-cloud         # cloud tier — needs Juju + Canonical K8s
+```
+
+Without `just`, build Atelier and point the suite at the binary:
 
 ```bash
 go build -o /tmp/atelier ./cmd/atelier
 
 # Fast tier (no Juju model):
 ATELIER_BIN=/tmp/atelier \
-  uv run --project tests/integration --frozen pytest tests/integration/wrapper
+  uv run --project tests/integration --frozen pytest tests/integration
 
-# Cloud tier:
+# Cloud tier (opt in explicitly):
 ATELIER_BIN=/tmp/atelier \
-  uv run --project tests/integration --frozen pytest tests/integration/prometheus -m cloud
-ATELIER_BIN=/tmp/atelier \
-  uv run --project tests/integration --frozen pytest tests/integration/import -m cloud
+  uv run --project tests/integration --frozen pytest tests/integration -m cloud
 ```
+
+`cloud` tests are excluded by default: [`pyproject.toml`](pyproject.toml) sets
+`-m "not cloud"` in `addopts`, so an unscoped `pytest` run never creates a Juju
+model by accident. Passing `-m cloud` overrides it.
 
 Set `KEEP_MODELS=true` (or pass `--keep-models`) to keep the temporary Juju
 models when a test fails, so you can inspect them.

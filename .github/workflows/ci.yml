@@ -42,9 +42,9 @@ jobs:
       - name: Run the local gate
         run: just check
 
-  # Feature tests for `atelier module add` against a real module.
+  # Fast integration tier: `atelier module add` against a real module. No Juju model.
   wrapper:
-    name: Wrapper feature tests
+    name: Fast integration tests
     needs: build-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -69,8 +69,8 @@ jobs:
           sudo snap install just --classic
           echo "/snap/bin" >> "$GITHUB_PATH"
 
-      - name: Test wrapper features
-        run: just test-wrapper
+      - name: Test integration (fast tier)
+        run: just test-integration
 
   # The deployment smoke test: needs a Juju controller on Kubernetes, prepared by Concierge.
   prometheus:
