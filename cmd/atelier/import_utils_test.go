@@ -243,6 +243,18 @@ func TestConvertStringToCty_InvalidHCL(t *testing.T) {
 	}
 }
 
+func TestValidateImportFlags_VarFileRequiresSource(t *testing.T) {
+	if err := validateImportFlags([]string{"x.tfvars"}, ""); err == nil {
+		t.Error("expected an error for --var-file without --source")
+	}
+	if err := validateImportFlags([]string{"x.tfvars"}, "https://example.com/m.git"); err != nil {
+		t.Errorf("unexpected error with --source: %v", err)
+	}
+	if err := validateImportFlags(nil, ""); err != nil {
+		t.Errorf("unexpected error with no var files: %v", err)
+	}
+}
+
 // --- mergeWrapperStateIntoConfig ---
 
 func TestMergeWrapperStateIntoConfig_Basic(t *testing.T) {

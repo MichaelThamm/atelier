@@ -164,6 +164,10 @@ func runImport(args []string) error {
 		}
 	}
 
+	if err := validateImportFlags(varFiles, sourceArg); err != nil {
+		return err
+	}
+
 	dir := dirArg
 	if dir == "" {
 		cwd, err := os.Getwd()
@@ -656,6 +660,17 @@ func mergeWrapperStateIntoConfig(state *wrapper.State, config map[string]string)
 		}
 		config[k] = v.AsString()
 	}
+}
+
+// validateImportFlags rejects flag combinations that would otherwise be
+// silently ignored. --var-file seeds the wrapper's module inputs, which only
+// exists when import bootstraps one with --source; without it there is no
+// state to apply the values to.
+func validateImportFlags(varFiles []string, sourceArg string) error {
+	if len(varFiles) > 0 && sourceArg == "" {
+		return fmt.Errorf("--var-file requires --source: there is no wrapper to seed otherwise")
+	}
+	return nil
 }
 
 // applyVarFiles merges values from one or more Terraform variable files into
