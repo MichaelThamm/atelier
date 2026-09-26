@@ -35,7 +35,7 @@ atelier import juju \
 
 The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. `--query-var model_uuid` is required by the Juju provider's query engine — it selects which model to enumerate.
 
-### When you still need `--var` or `--preset`
+### When you still need `--var` or `--var-file`
 
 Atelier cannot invent values for variables the module requires:
 
@@ -48,7 +48,7 @@ Atelier cannot invent values for variables the module requires:
     --var channel=<value> --var model_uuid=<value> …
   ```
 
-  Supply them with `--var`, a `--preset`, or by editing the wrapper.
+  Supply them with `--var`, a `--var-file`, or by editing the wrapper.
 
 - **The model UUID is not one of them.** You never need to pass it twice. If the module declares a variable with the same name as one of your `--query-var` values — as `loki-operators` does with its required `model_uuid` — Atelier seeds the module input from the query variable before anything runs, and says so:
 
@@ -116,7 +116,7 @@ atelier import juju \
   --source https://github.com/canonical/loki-operators.git \
   --query-var model_uuid=a3592360-792b-412d-814f-8a29e82191b6 \
   --var channel=dev/edge \
-  --preset loki-vars
+  --var-file loki-vars
 ```
 
 `loki-operators` declares `channel`, `model_uuid` and the S3 settings without defaults, so they must all have values — but `model_uuid` is covered by the `--query-var` you already passed, so only `channel` and the S3 settings need supplying.

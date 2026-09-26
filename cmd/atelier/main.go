@@ -33,7 +33,6 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/gitops"
-	"github.com/MichaelThamm/atelier/internal/manifest"
 	"github.com/MichaelThamm/atelier/internal/session"
 	tfstate "github.com/MichaelThamm/atelier/internal/state"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
@@ -46,18 +45,23 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 
 Usage:
   atelier                                      Open the wrapper in the current directory.
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--preset NAME] [--yes]
+  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
+                                [--var-file PATH|NAME] [--list-var-files] [--strict] [--yes]
                                                Add a module to the wrapper (bootstraps if needed).
                                                Warns and asks before scaffolding into a directory that
                                                already holds other files; --yes skips the prompt.
-                                               --preset applies a named preset from atelier.local.yaml.
+                                               --var-file seeds values from a Terraform variable file: a local
+                                               path, a name in an ancestor atelier.presets/ directory, or a name
+                                               committed to the module repo. Comma-separate or repeat for several.
+                                               --list-var-files prints the local and repo .tfvars bundles available.
+                                               --strict makes var-file binding warnings fatal.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
   atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
-        [--dir PATH] [--type T] [--var K=V] [--query-var K=V] [--dry-run] [--list] [--yes]
+        [--dir PATH] [--type T] [--var K=V] [--var-file PATH|NAME] [--query-var K=V] [--dry-run] [--list] [--yes]
                                                 Import a running deployment into Terraform state. With --source,
                                                 clones a remote module, writes an Atelier wrapper, and imports
                                                 live resources into it. Without --source, imports into an
@@ -69,7 +73,7 @@ Usage:
                                                 list-resource types to query. For Juju the model UUID is
                                                 derived from the live deployment, so it need not be passed
                                                 as a --var. Variables the module declares without a default
-                                                must still be supplied via --var or --preset.
+                                                must still be supplied via --var or --var-file.
                                                 --dry-run writes an imports.tf artifact and previews the plan
                                                 without touching state.
   atelier --version                            Print the version and exit.
@@ -165,18 +169,10 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		return nil
 	}
 
-	// Load presets for the left pane from wrapper-local atelier.local.yaml
-	// files, discovered by walking up from the wrapper directory. Atelier does
-	// not read presets from the upstream module repository. A module entry
-	// with path "." matches this wrapper's primary module.
-	var presets []tui.ResolvedPreset
-	rawPresets, warns := manifest.LoadLocalPresets(wrapperDir, modulePathFromState(state))
-	for _, w := range warns {
-		fmt.Fprintln(os.Stderr, "warning:", w)
-	}
-	if len(rawPresets) > 0 {
-		presets = tui.ResolvePresets(rawPresets, state.Vars)
-	}
+	// Load presets (`.tfvars` bundles) for the left pane: personal walk-up
+	// bundles from atelier.presets/ ancestors, plus examples committed to the
+	// module repo (ADR-0032).
+	presets := presetsFromBundles(state, wrapperDir, res.CloneDir, res.ModulePath)
 
 	m := tui.New(state, state.ModuleBlockName)
 	m.LiteralRef = res.LiteralRef
@@ -272,6 +268,33 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		return err
 	}
 	return nil
+}
+
+// presetsFromBundles discovers the `.tfvars` presets the TUI picker offers:
+// personal walk-up bundles (atelier.presets/) and examples committed to the
+// module repo, read against the primary module's schema. Undeclared names and
+// type mismatches are excluded and surfaced as an "(N ignored)" note on the
+// description (ADR-0032).
+func presetsFromBundles(state *wrapper.State, wrapperDir, cloneDir, modulePath string) []tui.ResolvedPreset {
+	var out []tui.ResolvedPreset
+	for _, b := range bootstrap.ListAllVarFiles(wrapperDir, cloneDir, modulePath) {
+		vals, diags, err := wrapper.ReadTFVarsFileChecked(b.Path, state.Vars)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "warning:", err)
+			continue
+		}
+		desc := b.Description
+		if skipped := len(diags.Unknown) + len(diags.Mismatched); skipped > 0 {
+			desc = strings.TrimSpace(fmt.Sprintf("%s (%d ignored)", desc, skipped))
+		}
+		out = append(out, tui.ResolvedPreset{
+			Name:        b.Name,
+			Description: desc,
+			Values:      vals,
+			Source:      b.Source,
+		})
+	}
+	return out
 }
 
 // loadingMessage returns the startup spinner label for a wrapper, reflecting
@@ -608,6 +631,7 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		}
 		state.UnknownAttrs = carried
 	}
+	// Write the wrapper main.tf with the new source (ref) before running init.
 	if err := state.Write(); err != nil {
 		return nil, fmt.Errorf("write wrapper: %w", err)
 	}
@@ -679,6 +703,11 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		}
 	}
 
+	// Refresh the preset picker for the new ref: a repo can ship example
+	// bundles on one ref but not another (e.g. an examples/ directory added on
+	// a feature branch), and the list is otherwise only built at launch.
+	presets := presetsFromBundles(state, s.wrapperDir, cloneDir, s.modulePath)
+
 	return &tui.RefSwitchResult{
 		State:          state,
 		ResolvedSHA:    sha,
@@ -686,6 +715,7 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		OrphanedVars:   orphaned,
 		NewVars:        newVars,
 		InitIncomplete: initIncomplete,
+		Presets:        presets,
 	}, nil
 }
 

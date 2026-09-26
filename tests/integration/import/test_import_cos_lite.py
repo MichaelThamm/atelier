@@ -7,12 +7,12 @@ Flow under test — the end-to-end value of the provider registry
 
 1. Create a temporary Juju model (Jubilant).
 2. Shell out to Atelier to bootstrap a COS-Lite wrapper pinned to ``--ref``
-   and configured from a ``--preset`` (the model to deploy into, and
+   and configured from a ``--var-file`` bundle (the model to deploy into, and
    ``internal_tls = false``), non-interactively (``stdin=/dev/null`` skips the
    TUI).
 3. ``terraform init`` + ``apply`` to deploy COS-Lite into the model.
 4. Delete the Terraform state, leaving the live deployment orphaned.
-5. Run ``atelier import`` with the *same* ``--ref`` and ``--preset``, letting it
+5. Run ``atelier import`` with the *same* ``--ref`` and ``--var-file``, letting it
    rebuild the state from live resources — detection, discovery, matching,
    import-ID construction and the post-import steps all run through the
    registered Juju provider.
@@ -37,7 +37,7 @@ from pathlib import Path
 import jubilant
 import pytest
 
-from helpers import run_atelier, wait_for_active_idle_without_error, write_local_preset
+from helpers import run_atelier, wait_for_active_idle_without_error, write_var_file
 
 COS_REPO = "https://github.com/canonical/observability-stack.git"
 COS_MODULE = "terraform/cos-lite"
@@ -69,8 +69,8 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     # AND a fresh directory for Atelier to author a wrapper into
     wrapper_dir = tf_manager.new_wrapper_dir()
 
-    # AND a preset describing the deployment for that model.
-    preset = write_local_preset(
+    # AND a bundle describing the deployment for that model.
+    var_file = write_var_file(
         wrapper_dir,
         "ci",
         {
@@ -91,13 +91,13 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
         COS_MODULE,
         "--ref",
         COS_REF,
-        "--preset",
-        preset,
+        "--var-file",
+        var_file,
         "--yes",
     )
 
     # AND the wrapper really does reference the module at the ref, with the
-    # preset values written through
+    # bundle values written through
     main_tf = (Path(wrapper_dir) / "main.tf").read_text()
     assert "//terraform/cos-lite" in main_tf
     assert f"ref={COS_REF}" in main_tf
@@ -133,7 +133,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     (wrapper / "terraform.tfstate.backup").unlink(missing_ok=True)
 
     # WHEN Atelier imports the live deployment back into a fresh state, with
-    # the same --ref/--preset flags and the model UUID as a query variable
+    # the same --ref/--var-file flags and the model UUID as a query variable
     result = run_atelier(
         wrapper_dir,
         atelier_bin,
@@ -145,8 +145,8 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
         COS_MODULE,
         "--ref",
         COS_REF,
-        "--preset",
-        preset,
+        "--var-file",
+        var_file,
         "--query-var",
         f"model_uuid={model_uuid}",
         capture=True,

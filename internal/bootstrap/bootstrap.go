@@ -45,6 +45,13 @@ type Result struct {
 	LiteralRef  string
 	Warnings    []string
 
+	// CloneDir is the local path of the cloned module repository and
+	// ModulePath is the module's sub-path within it. Together they let the
+	// CLI resolve repo-local --var-file names (ADR-0032). Empty on the
+	// degraded path, where the clone is unavailable.
+	CloneDir   string
+	ModulePath string
+
 	// RefBump is non-nil when LoadExisting detects the ref resolved to a
 	// different SHA than session.json recorded. Empty when no session existed
 	// or when the SHA hasn't changed.
@@ -239,6 +246,10 @@ type ModulePrep struct {
 	ModulePath  string // the resolved candidate sub-path (empty when State is nil)
 	ResolvedSHA string
 	Warnings    []string
+
+	// CloneDir is the local checkout the module was read from, for repo-local
+	// --var-file resolution (ADR-0032).
+	CloneDir string
 }
 
 // PrepareModule clones opts.Source, discovers module candidates, resolves the
@@ -286,6 +297,7 @@ func PrepareModule(ctx context.Context, opts InitOptions) (*ModulePrep, error) {
 				Candidates:  cands,
 				ResolvedSHA: sha,
 				Warnings:    warnings,
+				CloneDir:    cloneDir,
 			}, nil
 		}
 	} else {
@@ -313,6 +325,7 @@ func PrepareModule(ctx context.Context, opts InitOptions) (*ModulePrep, error) {
 		ModulePath:  modulePath,
 		ResolvedSHA: sha,
 		Warnings:    warnings,
+		CloneDir:    cloneDir,
 	}, nil
 }
 
@@ -331,6 +344,8 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 			ResolvedSHA: prep.ResolvedSHA,
 			LiteralRef:  opts.Ref,
 			Warnings:    prep.Warnings,
+			CloneDir:    prep.CloneDir,
+			ModulePath:  prep.ModulePath,
 		}, nil
 	}
 
@@ -382,6 +397,8 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 		ResolvedSHA: sha,
 		LiteralRef:  opts.Ref,
 		Warnings:    warnings,
+		CloneDir:    prep.CloneDir,
+		ModulePath:  modulePath,
 	}, nil
 }
 
@@ -466,7 +483,8 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		return nil, err
 	}
 
-	// Overlay user values from main.tf.
+	// Overlay user values. In the classic shape they live in main.tf's module
+	// Overlay user values from main.tf's module block.
 	pm, err := wrapper.ReadMain(wrapperDir, state.Vars)
 	if err != nil {
 		return nil, err
@@ -482,6 +500,8 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		State:       state,
 		ResolvedSHA: currentSHA,
 		LiteralRef:  prev.LiteralRef,
+		CloneDir:    cloneDir,
+		ModulePath:  prev.ModuleCandidatePath,
 	}
 	if prev.RefBumpedSince(currentSHA) {
 		res.RefBump = &RefBump{
@@ -509,7 +529,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 func loadDegraded(wrapperDir string, prev *session.Session, unresolved *RefUnresolved) (*Result, error) {
 	state := PrepareStateFromMain(wrapperDir, prev.ModuleCandidatePath, prev.LiteralRef, prev.SourceURL)
 
-	// Overlay user values and wired expressions from main.tf. Vars is nil, so
+	// Overlay user values and wired expressions from disk. Vars is nil, so
 	// ReadMain can't type-check values against a schema; it recovers them
 	// verbatim, which is exactly what we want to carry through the switch.
 	if pm, err := wrapper.ReadMain(wrapperDir, state.Vars); err == nil && pm != nil {
