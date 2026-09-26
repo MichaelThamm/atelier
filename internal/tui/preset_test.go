@@ -151,6 +151,25 @@ func TestPresetPicker_view(t *testing.T) {
 	}
 }
 
+func TestApplyRefSwitch_refreshesPresets(t *testing.T) {
+	m := presetTestModel(t)
+	if len(m.presets) != 2 {
+		t.Fatalf("precondition: want 2 presets, got %d", len(m.presets))
+	}
+	m.refModuleIdx = 0
+	// A switch to a ref that ships different example bundles replaces the list.
+	m.applyRefSwitch(&RefSwitchResult{
+		State:      m.State,
+		LiteralRef: "feat/presets",
+		Presets: []ResolvedPreset{
+			{Name: "s3", Source: "repo", Values: map[string]cty.Value{}},
+		},
+	})
+	if len(m.presets) != 1 || m.presets[0].Name != "s3" || m.presets[0].Source != "repo" {
+		t.Errorf("presets not refreshed after ref switch: %+v", m.presets)
+	}
+}
+
 func TestApplyPreset_capturesSensitiveValues(t *testing.T) {
 	vars := []tfvars.Variable{
 		{Name: "endpoint", Type: mustParseType(t, "string"), HasDefault: true, Default: cty.StringVal("")},

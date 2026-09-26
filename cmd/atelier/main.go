@@ -720,6 +720,11 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		}
 	}
 
+	// Refresh the preset picker for the new ref: a repo can ship example
+	// bundles on one ref but not another (e.g. an examples/ directory added on
+	// a feature branch), and the list is otherwise only built at launch.
+	presets := presetsFromBundles(state, s.wrapperDir, cloneDir, s.modulePath)
+
 	return &tui.RefSwitchResult{
 		State:          state,
 		ResolvedSHA:    sha,
@@ -727,6 +732,7 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		OrphanedVars:   orphaned,
 		NewVars:        newVars,
 		InitIncomplete: initIncomplete,
+		Presets:        presets,
 	}, nil
 }
 
