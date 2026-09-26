@@ -72,6 +72,17 @@ def test_tfvars_mode_writes_a_valid_passthrough_wrapper(tmp_path, atelier_bin):
     tf.init()
     tf.validate()
 
+    # AND the single-module guards hold: `--tfvars` cannot convert an existing
+    # wrapper, and `tidy` has no defaulted module arguments to prune.
+    refused = run_atelier(
+        tmp_path, atelier_bin, "module", "add", PROM_REPO,
+        "--module", PROM_MODULE, "--tfvars", "--yes", capture=True, check=False,
+    )
+    assert refused.returncode != 0 and "fresh wrapper" in refused.stderr, refused.stderr
+
+    tidy = run_atelier(tmp_path, atelier_bin, "tidy", capture=True, check=False)
+    assert tidy.returncode != 0 and "tfvars" in tidy.stderr, tidy.stderr
+
 
 def test_walk_up_preset_bundle_resolves_by_name(tmp_path, atelier_bin):
     # GIVEN a shared atelier.presets/ directory above the wrapper

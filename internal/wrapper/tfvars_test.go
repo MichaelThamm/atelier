@@ -216,21 +216,6 @@ func TestRenderPassthroughMain_preservesWiredExpression(t *testing.T) {
 	}
 }
 
-func TestReadTFVarsFile_arbitraryName(t *testing.T) {
-	vars := tfVarsVars(t, `variable "name" { type = string }`)
-	path := filepath.Join(t.TempDir(), "test.tfvars")
-	if err := os.WriteFile(path, []byte("name = \"from-file\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadTFVarsFile(path, vars)
-	if err != nil {
-		t.Fatalf("ReadTFVarsFile: %v", err)
-	}
-	if v, ok := got["name"]; !ok || v.AsString() != "from-file" {
-		t.Errorf("name = %#v, want from-file", got["name"])
-	}
-}
-
 func TestReadTFVarsFileChecked_reportsUnknownAndMismatch(t *testing.T) {
 	vars := tfVarsVars(t, `
 variable "name" { type = string }

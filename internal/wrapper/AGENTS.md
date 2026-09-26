@@ -11,7 +11,7 @@ first; this file only adds what is local to the package.
 | `state.go` | `State` — the in-memory wrapper: directory, module, variables, values. |
 | `sparse.go` | `ShouldEmit` — the ADR-0007 sparse-plus-required decision. The single source of that rule. |
 | `write.go` | Managed filenames; `RenderMain` and writing `main.tf`. |
-| `tfvars.go` | Opt-in pass-through shape (ADR-0031): `variables.tf` mirroring, forwarding `main.tf`, and `terraform.tfvars` read/write + mode detection. |
+| `tfvars.go` | Opt-in pass-through shape (ADR-0031) and `.tfvars` handling: `variables.tf` mirroring, forwarding `main.tf`, `terraform.tfvars` read/write, binding diagnostics, mode detection, and `PresetsDir`. |
 | `read.go` | `ParsedMain` — structured view of an existing `main.tf`. |
 | `bootstrap.go` | First-run file creation (`versions.tf`, `providers.tf`, `.gitignore`, `README.md`). |
 | `scan.go` | Summary of Terraform declarations already present, for collision safety. |

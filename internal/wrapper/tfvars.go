@@ -227,14 +227,6 @@ func ReadTFVars(dir string, vars []tfvars.Variable) (map[string]cty.Value, error
 	return vals, err
 }
 
-// ReadTFVarsFile parses an arbitrary Terraform variable file at path and
-// returns the evaluable values for the declared variables, discarding
-// diagnostics. Used for the managed terraform.tfvars.
-func ReadTFVarsFile(path string, vars []tfvars.Variable) (map[string]cty.Value, error) {
-	vals, _, err := readTFVarsFile(path, vars)
-	return vals, err
-}
-
 // ReadTFVarsFileChecked is ReadTFVarsFile with diagnostics: it reports
 // undeclared names and type mismatches, and skips both rather than writing
 // values that would be silently ignored or produce an invalid .tfvars. Used
