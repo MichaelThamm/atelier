@@ -55,15 +55,6 @@ type BootstrapOptions struct {
 	RequiredProviders map[string]RequiredProvider
 	Providers         []ProviderBlock
 	Variables         []TFVar // tfvars.Variable satisfies this interface.
-
-	// TFVars selects the opt-in pass-through shape (ADR-0031): a mirrored
-	// variables.tf plus a forwarding main.tf, with values in terraform.tfvars.
-	TFVars bool
-
-	// VariableBlocks are the verbatim `variable` block sources used to mirror
-	// the module's input API into variables.tf when TFVars is set. Populated
-	// from tfvars.Variable.Raw.
-	VariableBlocks []string
 }
 
 // TFVar is the small interface bootstrap consumes from a tfvars.Variable —
@@ -221,9 +212,6 @@ func bootstrapMain(opts BootstrapOptions, rep *Report) error {
 		// already validates that this case is the error path (SPEC §6.1).
 		return nil
 	}
-	if opts.TFVars {
-		return bootstrapTFVarsWrapper(opts, rep)
-	}
 	file := hclwrite.NewEmptyFile()
 	block := file.Body().AppendNewBlock("module", []string{opts.ModuleBlockName})
 	body := block.Body()
@@ -239,43 +227,6 @@ func bootstrapMain(opts BootstrapOptions, rep *Report) error {
 		return err
 	}
 	rep.created(MainTF)
-	return nil
-}
-
-// bootstrapTFVarsWrapper writes the three files of the opt-in pass-through
-// shape (ADR-0031): the mirrored variables.tf, the forwarding main.tf, and an
-// empty terraform.tfvars header. main.tf is written here because the caller
-// has already confirmed it does not exist.
-func bootstrapTFVarsWrapper(opts BootstrapOptions, rep *Report) error {
-	if err := os.WriteFile(
-		filepath.Join(opts.Dir, VariablesTF),
-		RenderVariablesTFFromBlocks(opts.VariableBlocks),
-		0o644,
-	); err != nil {
-		return err
-	}
-	rep.created(VariablesTF)
-
-	names := make([]string, 0, len(opts.Variables))
-	for _, v := range opts.Variables {
-		names = append(names, v.VarName())
-	}
-	if err := os.WriteFile(
-		filepath.Join(opts.Dir, MainTF),
-		RenderPassthroughMainFromNames(opts.ModuleBlockName, opts.Source, names),
-		0o644,
-	); err != nil {
-		return err
-	}
-	rep.created(MainTF)
-
-	tfVarsPath := filepath.Join(opts.Dir, TFVarsFile)
-	if _, err := os.Stat(tfVarsPath); os.IsNotExist(err) {
-		if err := os.WriteFile(tfVarsPath, []byte(tfVarsHeader), 0o644); err != nil {
-			return err
-		}
-		rep.created(TFVarsFile)
-	}
 	return nil
 }
 

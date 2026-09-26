@@ -46,7 +46,7 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 Usage:
   atelier                                      Open the wrapper in the current directory.
   atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
-                                [--var-file PATH|NAME] [--list-var-files] [--strict] [--tfvars] [--yes]
+                                [--var-file PATH|NAME] [--list-var-files] [--strict] [--yes]
                                                Add a module to the wrapper (bootstraps if needed).
                                                Warns and asks before scaffolding into a directory that
                                                already holds other files; --yes skips the prompt.
@@ -55,8 +55,6 @@ Usage:
                                                committed to the module repo. Comma-separate or repeat for several.
                                                --list-var-files prints the local and repo .tfvars bundles available.
                                                --strict makes var-file binding warnings fatal.
-                                               --tfvars writes an opt-in pass-through wrapper (mirrored
-                                               variables.tf + forwarding main.tf; values in terraform.tfvars).
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
@@ -182,7 +180,6 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	m.SourceURL = sourceURLFromState(state)
 	m.WrapperDir = wrapperDir
 	m.SetPresets(presets)
-	m.SetTFVarsMode(state.TFVarsMode)
 
 	// When the wrapper opened with an unresolvable ref, carry the marker into
 	// the model so Init auto-opens the ref-switch modal with a recovery banner.
@@ -271,15 +268,6 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		return err
 	}
 	return nil
-}
-
-// preserveWrapperShape carries the on-disk wrapper shape (classic vs
-// pass-through) into a freshly built State before it is written. A ref switch
-// rebuilds State from the clone, which defaults to classic; without this, the
-// first `R` on a --tfvars wrapper would silently convert it back to a classic
-// module block and lose the mode marker (ADR-0031).
-func preserveWrapperShape(state *wrapper.State, wrapperDir string) {
-	state.TFVarsMode = wrapper.IsTFVarsMode(wrapperDir)
 }
 
 // presetsFromBundles discovers the `.tfvars` presets the TUI picker offers:
@@ -643,12 +631,7 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		}
 		state.UnknownAttrs = carried
 	}
-	// Preserve the wrapper shape across a ref switch: inside a --tfvars
-	// wrapper, Write must regenerate the pass-through files (variables.tf +
-	// forwarding main.tf) and terraform.tfvars, not a classic module block.
-	// Without this, the first ref switch would silently convert the wrapper
-	// back to the classic shape and lose the mode marker.
-	preserveWrapperShape(state, s.wrapperDir)
+	// Write the wrapper main.tf with the new source (ref) before running init.
 	if err := state.Write(); err != nil {
 		return nil, fmt.Errorf("write wrapper: %w", err)
 	}

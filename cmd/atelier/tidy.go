@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/MichaelThamm/atelier/internal/tidy"
-	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // runTidy implements `atelier tidy [PATH] [--write]`.
@@ -50,14 +49,6 @@ func runTidy(args []string) error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-
-	// tidy prunes defaulted arguments from a classic module block. A
-	// pass-through wrapper has no module arguments to prune (values live in
-	// terraform.tfvars and are already sparse), so refuse rather than rewrite
-	// the generated forwarding main.tf.
-	if wrapper.IsTFVarsMode(dir) {
-		return fmt.Errorf("tidy does not apply to a --tfvars wrapper: values already live in terraform.tfvars and are sparse")
-	}
 
 	stop := startSpinner("Resolving module schema…")
 	res, err := tidy.Run(ctx, tidy.Options{Dir: dir, Write: write})

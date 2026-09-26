@@ -65,9 +65,8 @@ If a name is not found, the error lists the `.tfvars` files discovered in the
 clone, so names are discoverable rather than guessed. `--list-var-files` prints
 that list without writing anything.
 
-Committed value files must not be named `*.auto.tfvars`: those auto-apply during
-`terraform test` and local development, which is the opposite of an opt-in
-example. `terraform.tfvars` is reserved for the wrapper's own managed values.
+Committed value files must not be named `terraform.tfvars` or `*.auto.tfvars`:
+a Terraform root auto-loads those, which is the opposite of an opt-in example.
 
 An upstream file can set any value, including `sensitive` ones. It is therefore
 never applied without the user naming it, and Atelier prints which resolved path
@@ -95,13 +94,12 @@ There will be one bundle mechanism: Terraform variable files.
 - **Personal values** live in an `atelier.presets/` directory at any ancestor
   of the wrapper, discovered by walking up (nearer wins), so one directory
   shared across sibling wrappers serves all of them. They are applied by name
-  with `--var-file <name>`, or with a local path (`--var-file ./path.tfvars`),
-  and can be edited directly in the pass-through shape's `terraform.tfvars`.
+  with `--var-file <name>`, or with a local path (`--var-file ./path.tfvars`).
 
 `atelier.local.yaml`, the `F` preset picker, the `S` save-preset flow,
 `--preset`, and the `internal/manifest` package are deprecated and will be
-removed. The wrapper-local pass-through shape (`--tfvars`) remains the place to
-customise values in the TUI.
+removed. Values are customised in the TUI's editors, which write to `main.tf`
+(the wrapper shape is unchanged; see [ADR-0033](0033-reject-pass-through-wrapper-shape.md)).
 
 ### Removal (implemented)
 

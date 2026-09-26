@@ -16,7 +16,7 @@ import (
 
 const moduleUsage = `Usage:
   atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
-                                [--var-file PATH|NAME] [--list-var-files] [--strict] [--tfvars] [--yes]
+                                [--var-file PATH|NAME] [--list-var-files] [--strict] [--yes]
                                                Add a module to the wrapper.
                                                --var-file seeds values from a Terraform variable file: a local
                                                path, a name in an ancestor atelier.presets/ directory (walk-up),
@@ -25,8 +25,6 @@ const moduleUsage = `Usage:
                                                --list-var-files prints the .tfvars files found in the module repo.
                                                --strict makes var-file binding warnings (unknown variables,
                                                type mismatches) fatal instead of warnings.
-                                               --tfvars writes an opt-in pass-through wrapper: a mirrored
-                                               variables.tf + forwarding main.tf, with values in terraform.tfvars.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
 `
@@ -57,7 +55,6 @@ type moduleAddOpts struct {
 	ModulePath   string   // --module: candidate subdir
 	VarFiles     []string // --var-file: seed values from a .tfvars file or repo-local name (repeatable)
 	Yes          bool     // --yes/-y: skip the target-directory confirmation
-	TFVars       bool     // --tfvars: opt-in pass-through wrapper shape (ADR-0031)
 	ListVarFiles bool     // --list-var-files: print the repo's .tfvars files and exit
 	Strict       bool     // --strict: make var-file binding warnings fatal
 }
@@ -70,8 +67,6 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 		switch a {
 		case "--yes", "-y":
 			opts.Yes = true
-		case "--tfvars":
-			opts.TFVars = true
 		case "--list-var-files":
 			opts.ListVarFiles = true
 		case "--strict":
@@ -180,15 +175,6 @@ func runModuleAdd(args []string) error {
 		wrapperExists = true
 	}
 
-	// --tfvars selects a whole-wrapper shape. The additive path appends a
-	// second module block to an existing main.tf, which cannot be reconciled
-	// with a generated pass-through interface (that is the multi-module
-	// namespacing problem ADR-0031 defers), so refuse rather than half-apply.
-	if wrapperExists && opts.TFVars {
-		return fmt.Errorf("--tfvars applies to a fresh wrapper; this directory already has a main.tf.\n" +
-			"       tfvars mode is single-module for now — bootstrap it in an empty directory")
-	}
-
 	// Confirm the target directory before writing anything into it. `module
 	// add` has no path argument, so the only thing standing between a
 	// mistyped `cd` and a main.tf in the user's home directory is this check.
@@ -224,7 +210,7 @@ func runModuleAdd(args []string) error {
 		// Fresh bootstrap of a new wrapper from the given module URL. Clone,
 		// wrapper authoring and failure cleanup are shared with `import
 		// --source` (bootstrapFreshWrapper) so the two stay in lockstep.
-		res, cleanup, err := bootstrapFreshWrapper(cwd, opts.Source, opts.Ref, opts.ModulePath, opts.TFVars)
+		res, cleanup, err := bootstrapFreshWrapper(cwd, opts.Source, opts.Ref, opts.ModulePath)
 		if err != nil {
 			return err
 		}
@@ -251,9 +237,8 @@ func runModuleAdd(args []string) error {
 		}
 
 		// Apply --var-file values (explicit files win), then persist. A name
-		// is resolved against the cloned module repo; a local path is used
-		// as-is. In TFVarsMode this lands in terraform.tfvars; in the classic
-		// shape it becomes module arguments.
+		// is resolved against the cloned module repo or a walk-up bundle; a
+		// local path is used as-is. Values become module arguments in main.tf.
 		if len(opts.VarFiles) > 0 {
 			resolved, rerr := bootstrap.ResolveVarFiles(cwd, res.CloneDir, res.ModulePath, opts.VarFiles)
 			if rerr != nil {
@@ -408,7 +393,7 @@ func runModuleAdd(args []string) error {
 // The returned cleanup closure does that removal; callers invoke it on their
 // own post-bootstrap failure paths (e.g. a rename or preset-write error),
 // matching `module add`'s previous behaviour.
-func bootstrapFreshWrapper(dir, source, ref, modulePath string, tfVars bool) (*bootstrap.Result, func(), error) {
+func bootstrapFreshWrapper(dir, source, ref, modulePath string) (*bootstrap.Result, func(), error) {
 	if _, err := tfexec.Locate(); err != nil {
 		return nil, nil, err
 	}
@@ -434,7 +419,6 @@ func bootstrapFreshWrapper(dir, source, ref, modulePath string, tfVars bool) (*b
 		Source:     source,
 		Ref:        ref,
 		ModulePath: modulePath,
-		TFVars:     tfVars,
 	})
 	stop()
 	if err != nil {

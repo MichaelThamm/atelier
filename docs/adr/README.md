@@ -37,8 +37,9 @@ Format follows the Michael Nygard template, lightly extended.
 | 0028 | [Provider-specific import IDs — scoped to Juju for v1](0028-provider-specific-import-ids.md) | Accepted |
 | 0029 | [Live logs view (`L`)](0029-live-logs-view.md)                                              | Accepted |
 | 0030 | [Target-directory preflight and duplicate-module refusal](0030-target-directory-preflight.md) | Accepted |
-| 0031 | [Opt-in `.tfvars` pass-through wrapper mode](0031-tfvars-passthrough-mode.md)                  | Proposed |
+| 0031 | [Opt-in `.tfvars` pass-through wrapper mode](0031-tfvars-passthrough-mode.md)                  | Superseded by ADR-0033 |
 | 0032 | [Upstream `.tfvars` discovery; retire `atelier.local.yaml` presets](0032-upstream-tfvars-discovery.md) | Accepted |
+| 0033 | [Reject the pass-through wrapper shape; keep the classic wrapper](0033-reject-pass-through-wrapper-shape.md) | Accepted |
 
 ## Conventions
 

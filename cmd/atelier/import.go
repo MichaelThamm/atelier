@@ -564,7 +564,7 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	// The clone, wrapper authoring and failure cleanup are the same fresh
 	// bootstrap `module add` runs (bootstrapFreshWrapper), so `import
 	// --source` cannot drift from it.
-	res, _, err := bootstrapFreshWrapper(dir, source, ref, modulePath, false)
+	res, _, err := bootstrapFreshWrapper(dir, source, ref, modulePath)
 	if err != nil {
 		return "", nil, "", "", err
 	}

@@ -33,11 +33,6 @@ type Model struct {
 	SourceURL    string
 	ManifestPath string
 
-	// TFVarsMode marks the opt-in pass-through wrapper shape (ADR-0031):
-	// values live in terraform.tfvars, not in main.tf's module block. The
-	// header shows a persistent chip so the shape is never a mystery.
-	TFVarsMode bool
-
 	// WrapperDir is the directory containing main.tf and terraform.tfstate.
 	// Used for reloading state after apply.
 	WrapperDir string
@@ -293,17 +288,6 @@ func (m *Model) AddModuleEntry(e ModuleEntry) {
 // press F from the left pane to open the preset picker.
 func (m *Model) SetPresets(p []ResolvedPreset) {
 	m.presets = p
-}
-
-// SetTFVarsMode marks the wrapper as the opt-in pass-through shape
-// (ADR-0031). The header then carries a persistent `tfvars` chip and the
-// footer opens with a one-line explanation of where values live, so the
-// generated forwards in main.tf aren't mistaken for user wiring.
-func (m *Model) SetTFVarsMode(on bool) {
-	m.TFVarsMode = on
-	if on {
-		m.flashStatus("tfvars mode — values live in terraform.tfvars", statusInfo)
-	}
 }
 
 // SetTFState sets the parsed terraform state for display in the plan view.

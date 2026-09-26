@@ -89,6 +89,12 @@ Design rules that recur in the ADRs and must stay true:
   bundles — personal ones in a walk-up `atelier.presets/` directory, product
   examples under `<module>/examples/`. Never read an Atelier-specific manifest
   from upstream.
+- **Lean by default; a feature must earn its maintenance.** Do not add a
+  feature for its own sake. A feature or fix is only worth its ongoing
+  maintenance cost if it delivers clear, current value. Prefer the smaller
+  change — fewer added lines and fewer moving parts is better — and extend an
+  existing mechanism rather than adding a parallel one
+  ([ADR-0033](docs/adr/0033-reject-pass-through-wrapper-shape.md)).
 
 Three subtrees carry their own `AGENTS.md` with a local file map, invariants,
 and test patterns: [`internal/wrapper/`](internal/wrapper/AGENTS.md),

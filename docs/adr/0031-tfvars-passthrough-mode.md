@@ -2,13 +2,7 @@
 
 ## Status
 
-Proposed
-
-This ADR scopes an **opt-in** alternative to the classic wrapper shape. It does
-not supersede [ADR-0007](0007-sparse-wrapper-write-rule.md) or
-[ADR-0022](0022-local-presets.md); the classic module-argument shape remains the
-default. A follow-up ADR would be needed to make the pass-through shape the
-default or to retire the classic one.
+Superseded by [ADR-0033](0033-reject-pass-through-wrapper-shape.md).
 
 ## Context
 

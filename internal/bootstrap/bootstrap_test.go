@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/MichaelThamm/atelier/internal/session"
-	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 func TestRepoBasename(t *testing.T) {
@@ -201,120 +200,6 @@ variable "name" {
 }
 `), 0o644); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestInitNew_tfvarsMode proves the opt-in pass-through shape (ADR-0031) is
-// materialized end to end: variables.tf mirrors the module, main.tf forwards
-// from the root variables, and terraform.tfvars exists for values.
-func TestInitNew_tfvarsMode(t *testing.T) {
-	modDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(modDir, "variables.tf"), []byte(`
-variable "name" {
-  type    = string
-  default = "x"
-}
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	wrapperDir := t.TempDir()
-	res, err := InitNew(context.Background(), InitOptions{
-		WrapperDir:  wrapperDir,
-		Source:      modDir,
-		LocalSource: true,
-		TFVars:      true,
-	})
-	if err != nil {
-		t.Fatalf("InitNew: %v", err)
-	}
-	if res.State == nil {
-		t.Fatal("nil State: expected a single auto-picked candidate")
-	}
-	if !res.State.TFVarsMode {
-		t.Error("State.TFVarsMode = false; expected true")
-	}
-	for _, f := range []string{wrapper.MainTF, wrapper.VariablesTF, wrapper.TFVarsFile} {
-		if _, err := os.Stat(filepath.Join(wrapperDir, f)); err != nil {
-			t.Errorf("expected %s to exist: %v", f, err)
-		}
-	}
-	if !wrapper.IsTFVarsMode(wrapperDir) {
-		t.Error("IsTFVarsMode = false after InitNew with TFVars")
-	}
-}
-
-// TestLoadExisting_tfvarsMode reproduces opening a pass-through wrapper: values
-// must come from terraform.tfvars, and the generated `x = var.x` forwards must
-// NOT be mistaken for user-authored wired expressions.
-func TestLoadExisting_tfvarsMode(t *testing.T) {
-	modDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(modDir, "variables.tf"), []byte(`
-variable "name" {
-  type = string
-}
-variable "replicas" {
-  type    = number
-  default = 1
-}
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	wrapperDir := t.TempDir()
-	if _, err := InitNew(context.Background(), InitOptions{
-		WrapperDir:  wrapperDir,
-		Source:      modDir,
-		LocalSource: true,
-		TFVars:      true,
-	}); err != nil {
-		t.Fatalf("InitNew: %v", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(wrapperDir, wrapper.TFVarsFile), []byte(
-		"name = \"demo\"\nreplicas = 3\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	res, err := LoadExisting(context.Background(), wrapperDir, nil)
-	if err != nil {
-		t.Fatalf("LoadExisting: %v", err)
-	}
-	if !res.State.TFVarsMode {
-		t.Fatal("LoadExisting did not detect TFVarsMode")
-	}
-	if v, ok := res.State.Values["name"]; !ok || v.AsString() != "demo" {
-		t.Errorf("name not loaded from terraform.tfvars: %#v", res.State.Values["name"])
-	}
-	if v, ok := res.State.Values["replicas"]; !ok || v.AsBigFloat().String() != "3" {
-		t.Errorf("replicas not loaded from terraform.tfvars: %#v", res.State.Values["replicas"])
-	}
-	if len(res.State.UnknownAttrs) != 0 {
-		t.Errorf("generated forwards leaked as wired expressions: %+v", res.State.UnknownAttrs)
-	}
-
-	// AND a save through the real load path is idempotent: the first write
-	// normalises the file (adds the managed header), and a second leaves it
-	// byte-identical and keeps the mode marker.
-	if err := res.State.Write(); err != nil {
-		t.Fatalf("write after load: %v", err)
-	}
-	first, err := os.ReadFile(filepath.Join(wrapperDir, wrapper.TFVarsFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := res.State.Write(); err != nil {
-		t.Fatalf("second write after load: %v", err)
-	}
-	second, err := os.ReadFile(filepath.Join(wrapperDir, wrapper.TFVarsFile))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(first) != string(second) {
-		t.Errorf("terraform.tfvars changed on an unchanged second save:\n--- first ---\n%s\n--- second ---\n%s", first, second)
-	}
-	if !wrapper.IsTFVarsMode(wrapperDir) {
-		t.Error("mode marker lost after a save")
 	}
 }
 

@@ -246,8 +246,7 @@ atelier module add <git-url> --ref <ref>   # add at a specific ref
 atelier module add <git-url> --module <subdir>  # skip the candidate picker
 atelier module add <git-url> --yes         # skip the target-directory confirmation (§6.5)
 atelier module add <git-url> --var-file <path|name>  # seed values from a .tfvars file (local path or repo-local name; repeatable)
-atelier module add <git-url> --list-var-files  # print the .tfvars files committed to the module repo
-atelier module add <git-url> --tfvars      # opt-in pass-through shape: mirrored variables.tf, values in terraform.tfvars (§6.8)
+atelier module add <git-url> --list-var-files  # print the .tfvars bundles available (local + module repo)
 atelier module rm <name> [--force]         # remove a module from the wrapper
 atelier module list                        # list modules in the wrapper
 atelier import [PROVIDER] [flags]          # import live resources into Terraform state
@@ -470,39 +469,27 @@ different-ref note covers the residual gap.
 
 See [ADR-0030](adr/0030-target-directory-preflight.md).
 
-### 6.8 Opt-in `.tfvars` pass-through mode
+### 6.8 `.tfvars` preset bundles
 
-`atelier module add <url> --tfvars` bootstraps a different wrapper shape
-([ADR-0031](adr/0031-tfvars-passthrough-mode.md)): a generated `variables.tf`
-mirrors the module's `variable` blocks, a generated `main.tf` forwards
-`name = var.name` for every variable, and user values live in a sparse
-`terraform.tfvars`. Standard Terraform tooling then applies directly to the
-wrapper (`terraform plan`, `-var-file`, `*.auto.tfvars`, `TF_VAR_*`).
+Presets are Terraform-native `.tfvars` files, not a bespoke format
+([ADR-0032](adr/0032-upstream-tfvars-discovery.md)). Atelier discovers them from
+two sources and applies them to the wrapper's module arguments; the wrapper
+shape is always the classic sparse `main.tf` (there is no pass-through mode —
+[ADR-0033](adr/0033-reject-pass-through-wrapper-shape.md)).
 
-- The mode is detected on later opens from a marker in `main.tf`, so it
-  survives deleting `.atelier/`.
-- `.tfvars` cannot hold reference expressions, so wired values are preserved in
-  the generated `main.tf` and override the forward.
-- `variables.tf`, `main.tf`, and `terraform.tfvars` are regenerated on save;
-  hand edits to them are not preserved in this mode.
-- Single-module only for now: `--tfvars` against an existing `main.tf` is
-  refused, and `atelier tidy` does not apply (values are already sparse).
-- Presets are `.tfvars` bundles: `F` applies one, `S` saves the current
-  non-default configuration to `atelier.presets/<name>.tfvars`.
 - `--var-file <path|name>` seeds values from a Terraform variable file
   (repeatable; comma-separated names accepted; later files win over earlier
-  ones). A local path is used as-is; a bare name is
-  resolved first against personal walk-up bundles
-  (`<ancestor>/atelier.presets/<name>.tfvars`, nearest ancestor wins), then in
-  the cloned module repository (`<module>/examples/`, `<repo>/terraform/examples/`,
-  `<repo>/examples/`) ([ADR-0032](adr/0032-upstream-tfvars-discovery.md)). A name
-  that does not resolve produces an error listing the bundles found locally and
-  in the repo. `--list-var-files` prints that list (source-labelled) without
-  writing anything. An attribute the module does not declare, or whose value
-  does not fit the declared type, is skipped with a warning; `--strict` makes
-  those binding problems fatal. Object/tuple values are not type-checked
-  (Atelier's cty view loses `optional()` metadata); Terraform catches
-  nested-shape errors.
+  ones). A local path is used as-is; a bare name is resolved first against
+  personal walk-up bundles (`<ancestor>/atelier.presets/<name>.tfvars`, nearest
+  ancestor wins), then in the cloned module repository (`<module>/examples/`,
+  `<repo>/terraform/examples/`, `<repo>/examples/`). A name that does not
+  resolve produces an error listing the bundles found locally and in the repo.
+- `--list-var-files` prints the available bundles (source-labelled) without
+  writing anything.
+- An attribute the module does not declare, or whose value does not fit the
+  declared type, is skipped with a warning; `--strict` makes those binding
+  problems fatal. Object/tuple values are not type-checked (Atelier's cty view
+  loses `optional()` metadata); Terraform catches nested-shape errors.
 - **The TUI uses these bundles directly.** `F` lists the discovered presets —
   personal `[local]` and repo `[repo]`, with the description taken from each
   file's leading comment — and applies the selected one. `S` saves the current

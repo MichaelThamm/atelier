@@ -27,13 +27,6 @@ type State struct {
 	// Dir is the wrapper directory (the user's CWD).
 	Dir string
 
-	// TFVarsMode selects the opt-in pass-through wrapper shape: a generated
-	// variables.tf mirrors the module's input API, main.tf forwards
-	// `x = var.x` for every variable, and user values live in
-	// terraform.tfvars instead of the module block. See ADR-0031. When false,
-	// the classic module-argument shape (ADR-0007) is used.
-	TFVarsMode bool
-
 	// ModuleBlockName is the HCL block name, e.g. `module "cos_lite"` →
 	// "cos_lite". Defaults to a sanitised version of the candidate directory
 	// basename.

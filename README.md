@@ -80,22 +80,6 @@ another wrapper, or looks like the root of a different project. Pass `--yes` to
 skip the prompt in scripts; without a terminal the command fails rather than
 proceeding.
 
-### Pass-through mode (`--tfvars`)
-
-`atelier module add <url> --tfvars` writes a different wrapper shape: a
-generated `variables.tf` mirrors the module's inputs, `main.tf` forwards each
-one, and your values live in a sparse `terraform.tfvars` you can drive with
-standard Terraform tooling (`-var-file`, `*.auto.tfvars`, `TF_VAR_*`). Seed it
-from a committed example with `--var-file s3` (resolved in the module repo),
-from your own shared bundles in an ancestor `atelier.presets/` directory
-(walk-up, nearest wins), or from any local file with `--var-file ./test.tfvars`.
-Combine several at once: `--var-file cos-s3,cos-units`. Run
-`--list-var-files` to see the local and repo bundles available. Undeclared
-variables and type mismatches are skipped with a warning — add `--strict` to
-make them fatal, so a stale example fails loudly. This is opt-in and
-single-module for now; see [ADR-0032](docs/adr/0032-upstream-tfvars-discovery.md)
-and [ADR-0031](docs/adr/0031-tfvars-passthrough-mode.md).
-
 > **Note:** run `atelier --help` for the full command list, including `atelier
 > module add|rm|list`, `atelier tidy`, and `atelier purge`.
 
@@ -178,7 +162,7 @@ more bundles and exits without opening the TUI — useful in scripts and CI:
 
 ```bash
 atelier module add https://github.com/canonical/observability-stack.git \
-  --module terraform/cos --tfvars --var-file s3,units --yes < /dev/null
+  --module terraform/cos --var-file s3,units --yes < /dev/null
 ```
 
 Names resolve against your walk-up `atelier.presets/` bundles first, then the
