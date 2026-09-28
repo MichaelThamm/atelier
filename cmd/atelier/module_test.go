@@ -81,7 +81,7 @@ func TestApplyVarFiles_LaterWinsAndMissingErrors(t *testing.T) {
 	}
 }
 
-// TestApplyVarFiles_warnsAndStrictFails pins the ADR-0032 binding behaviour:
+// TestApplyVarFiles_warnsAndStrictFails pins the ADR-0031 binding behaviour:
 // an undeclared name and a type-mismatched value are skipped and reported; no
 // invalid value reaches the wrapper, and --strict turns the report into an
 // error so a rotted example fails CI instead of silently under-applying.

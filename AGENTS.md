@@ -85,7 +85,7 @@ Design rules that recur in the ADRs and must stay true:
   Atelier configures one module's inputs and drives plan/apply. It is not
   Terragrunt and does not do cross-module orchestration.
 - **Read only Terraform-native `.tfvars` from upstream, and only when named**
-  ([ADR-0032](docs/adr/0032-upstream-tfvars-discovery.md)): presets are `.tfvars`
+  ([ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md)): presets are `.tfvars`
   bundles — personal ones in a walk-up `atelier.presets/` directory, product
   examples under `<module>/examples/`. Never read an Atelier-specific manifest
   from upstream.
@@ -94,7 +94,7 @@ Design rules that recur in the ADRs and must stay true:
   maintenance cost if it delivers clear, current value. Prefer the smaller
   change — fewer added lines and fewer moving parts is better — and extend an
   existing mechanism rather than adding a parallel one
-  ([ADR-0033](docs/adr/0033-reject-pass-through-wrapper-shape.md)).
+  ([ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md)).
 
 Three subtrees carry their own `AGENTS.md` with a local file map, invariants,
 and test patterns: [`internal/wrapper/`](internal/wrapper/AGENTS.md),

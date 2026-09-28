@@ -22,7 +22,7 @@ modules approachable for first-time and experienced Terraform users alike.
 - **User-owned presets.** Reusable variable bundles are `.tfvars` files in an
   `atelier.presets/` directory discovered by walking up from the wrapper
   directory, so one directory can be shared across sibling wrappers. Product
-  repos can also commit examples under `<module>/examples/`. See
+  repos can also commit presets under `<module>/presets/`. See
   [Presets](#presets).
 
 ## Requirements
@@ -143,12 +143,12 @@ one action, then customise. Atelier discovers presets from two sources:
 - **Personal** bundles in an `atelier.presets/` directory at any ancestor of the
   wrapper, discovered by walking up (nearest wins). One shared directory at a
   parent (e.g. `tf-testing/atelier.presets/`) serves every wrapper beneath it.
-- **Product** examples committed to the module repo, e.g.
-  `terraform/cos/examples/s3.tfvars`.
+- **Product** presets committed to the module repo, e.g.
+  `terraform/cos/presets/single-unit.tfvars`.
 
 Atelier reads only Terraform-native `.tfvars` files, and only when you name
 them; it never reads Atelier-specific manifests. See
-[ADR-0032](docs/adr/0032-upstream-tfvars-discovery.md).
+[ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md).
 
 The TUI lists both sources with `F` (source-labelled `[local]`/`[repo]`, with
 the description taken from each file's leading comment); `Enter` applies the
@@ -166,7 +166,7 @@ atelier module add https://github.com/canonical/observability-stack.git \
 ```
 
 Names resolve against your walk-up `atelier.presets/` bundles first, then the
-module repo's examples; a local path is also accepted. `--list-var-files`
+module repo's presets; a local path is also accepted. `--list-var-files`
 prints what is available. Piping stdin from `/dev/null` (or running without a
 terminal) makes Atelier skip the TUI rather than error, so the command never
 blocks.

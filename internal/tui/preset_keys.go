@@ -64,7 +64,7 @@ func (m *Model) applyPresetCmd(i int) tea.Cmd {
 // openSavePreset opens the save-preset modal, refusing early when the current
 // configuration has no non-default values (the bundle would be empty). The
 // bundle is written to atelier.presets/<name>.tfvars in the wrapper directory
-// (ADR-0032).
+// (ADR-0031).
 func (m *Model) openSavePreset() (tea.Model, tea.Cmd) {
 	if len(snapshotValues(m.State)) == 0 {
 		m.flashStatus("nothing to save — all values are at their defaults", statusInfo)

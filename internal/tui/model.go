@@ -130,7 +130,7 @@ type Model struct {
 	presetCursor int  // cursor within the picker list
 
 	// savePreset modal state: captures the current wrapper configuration into
-	// a new atelier.presets/<name>.tfvars bundle (ADR-0032). The snapshot is
+	// a new atelier.presets/<name>.tfvars bundle (ADR-0031). The snapshot is
 	// taken when the modal opens; name and description are collected via two
 	// readline cells.
 	savePresetModal bool

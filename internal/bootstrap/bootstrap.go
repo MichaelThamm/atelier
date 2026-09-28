@@ -47,7 +47,7 @@ type Result struct {
 
 	// CloneDir is the local path of the cloned module repository and
 	// ModulePath is the module's sub-path within it. Together they let the
-	// CLI resolve repo-local --var-file names (ADR-0032). Empty on the
+	// CLI resolve repo-local --var-file names (ADR-0031). Empty on the
 	// degraded path, where the clone is unavailable.
 	CloneDir   string
 	ModulePath string
@@ -248,7 +248,7 @@ type ModulePrep struct {
 	Warnings    []string
 
 	// CloneDir is the local checkout the module was read from, for repo-local
-	// --var-file resolution (ADR-0032).
+	// --var-file resolution (ADR-0031).
 	CloneDir string
 }
 

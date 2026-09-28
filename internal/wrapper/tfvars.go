@@ -17,7 +17,7 @@ import (
 )
 
 // PresetsDir is the directory Atelier walks up looking for personal `.tfvars`
-// bundles (ADR-0032). Shared with the TUI's save-preset flow.
+// bundles (ADR-0031). Shared with the TUI's save-preset flow.
 const PresetsDir = "atelier.presets"
 
 // RenderTFVarsValues renders a sparse `.tfvars` body from concrete values:
@@ -50,7 +50,7 @@ func RenderTFVarsValues(vars []tfvars.Variable, values map[string]cty.Value) []b
 // not apply: attribute names the module does not declare, and values that do
 // not fit the declared type. Both are skipped rather than written, and are
 // surfaced so a committed example cannot rot silently when a variable is
-// renamed or its type changes (ADR-0032).
+// renamed or its type changes (ADR-0031).
 type VarFileDiagnostics struct {
 	// Unknown lists attribute names the module does not declare.
 	Unknown []string
@@ -68,7 +68,7 @@ func (d VarFileDiagnostics) Empty() bool {
 // declared variables, plus diagnostics. It reports undeclared names and type
 // mismatches and skips both, rather than applying values that would be
 // silently ignored or produce an invalid file. Used by `module add --var-file`
-// and the TUI picker (ADR-0032).
+// and the TUI picker (ADR-0031).
 func ReadTFVarsFileChecked(path string, vars []tfvars.Variable) (map[string]cty.Value, VarFileDiagnostics, error) {
 	return readTFVarsFile(path, vars)
 }

@@ -14,7 +14,7 @@ import (
 // LocalPresetDirName is the directory Atelier walks up looking for personal
 // `.tfvars` bundles. One shared directory at a parent (e.g.
 // `tf-testing/atelier.presets/`) is inherited by every wrapper beneath it
-// (ADR-0032).
+// (ADR-0031).
 const LocalPresetDirName = wrapper.PresetsDir
 
 // VarFile is a discoverable bundle: the name used with `--var-file`, the file
@@ -79,7 +79,7 @@ func LocalVarFiles(wrapperDir string) []VarFile {
 
 // RepoVarFiles returns the `.tfvars` files committed to the cloned module
 // repository, as clone-relative entries. Search directories are as for
-// ResolveVarFile (module root, module examples, then repo-level examples).
+// ResolveVarFile (module root, then module and repo-level presets/examples).
 func RepoVarFiles(cloneDir, modulePath string) []VarFile {
 	if cloneDir == "" {
 		return nil
@@ -128,22 +128,22 @@ func ListAllVarFiles(wrapperDir, cloneDir, modulePath string) []VarFile {
 }
 
 // VarFileSearchDirs returns the directories searched for a repo-local
-// `--var-file <name>`, in priority order (ADR-0032):
-//
-//  1. the module directory itself,
-//  2. `<module>/examples/`,
-//  3. `<repo>/terraform/examples/`,
-//  4. `<repo>/examples/`.
-//
-// The module-adjacent locations are primary: a value file is bound to that
-// module's variable schema, so it belongs beside it. The repo-level fallbacks
-// exist for a shared catalog.
+// `--var-file <name>`, in priority order (ADR-0031): the module directory, then
+// its presets/ and examples/, then the repo-level terraform/presets/,
+// terraform/examples/, presets/, and examples/. presets/ precedes examples/ so
+// a preset shadows an example of the same name.
 func VarFileSearchDirs(cloneDir, modulePath string) []string {
 	moduleDir := filepath.Join(cloneDir, filepath.Clean(modulePath))
-	dirs := []string{moduleDir, filepath.Join(moduleDir, "examples")}
+	dirs := []string{
+		moduleDir,
+		filepath.Join(moduleDir, "presets"),
+		filepath.Join(moduleDir, "examples"),
+	}
 	if cloneDir != "" {
 		dirs = append(dirs,
+			filepath.Join(cloneDir, "terraform", "presets"),
 			filepath.Join(cloneDir, "terraform", "examples"),
+			filepath.Join(cloneDir, "presets"),
 			filepath.Join(cloneDir, "examples"),
 		)
 	}
@@ -151,7 +151,7 @@ func VarFileSearchDirs(cloneDir, modulePath string) []string {
 }
 
 // ResolveVarFile resolves one `--var-file` argument to a concrete path, in
-// precedence order (ADR-0032):
+// precedence order (ADR-0031):
 //
 //  1. an existing local filesystem path,
 //  2. a personal walk-up bundle in `atelier.presets/<name>.tfvars` (nearest

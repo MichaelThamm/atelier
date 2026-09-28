@@ -27,7 +27,7 @@ Concretely:
   round-tripping.
 - Module candidate discovery (purely heuristic; no upstream manifest).
 - Presets: named `.tfvars` bundles discovered from an ancestor
-  `atelier.presets/` directory (walk-up) and from the module repo's `examples/`,
+  `atelier.presets/` directory (walk-up) and from the module repo's `presets/`,
   applied via `--var-file` or the TUI `F` picker, and saved with `S`.
 - Provider configuration via `terraform providers schema -json`.
 - Debounced `terraform validate` for inline validation feedback.
@@ -134,7 +134,7 @@ question, not a mechanical one.
 
 ### Preset bundle discovery growth
 
-Presets are `.tfvars` bundles ([ADR-0032](adr/0032-upstream-tfvars-discovery.md)).
+Presets are `.tfvars` bundles ([ADR-0031](adr/0031-presets-as-tfvars-bundles.md)).
 Candidates for later:
 
 - A user-global bundle store (e.g. `~/.config/atelier/`) keyed by source URL,
@@ -153,9 +153,9 @@ named higher-level toggles that map to one or more variable settings, with a
 proposed mechanism of auto-discovery from `tftest.hcl` run blocks.
 
 **Presets are now shipped as `.tfvars` bundles.** Users keep personal bundles
-in an ancestor `atelier.presets/` directory, and product repos commit examples
-under `<module>/examples/`; both are applied with `--var-file` or the TUI `F`
-picker (see [ADR-0032](adr/0032-upstream-tfvars-discovery.md) and
+in an ancestor `atelier.presets/` directory, and product repos commit presets
+under `<module>/presets/`; both are applied with `--var-file` or the TUI `F`
+picker (see [ADR-0031](adr/0031-presets-as-tfvars-bundles.md) and
 [SPEC §11](SPEC.md)).
 
 What remains parked:

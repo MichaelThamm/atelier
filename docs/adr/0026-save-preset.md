@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded by [ADR-0032](0032-upstream-tfvars-discovery.md). (Historical:
+Superseded by [ADR-0031](0031-presets-as-tfvars-bundles.md). (Historical:
 amended [ADR-0022](0022-local-presets.md), which explicitly deferred a `preset
 save`; built on [ADR-0007](0007-sparse-wrapper-write-rule.md) and reused the
 ADR-0022 preset schema and `ResolvePresets`/`anyToCty` load path.)

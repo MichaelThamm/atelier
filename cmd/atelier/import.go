@@ -679,7 +679,7 @@ func validateImportFlags(varFiles []string, sourceArg string) error {
 // Undeclared names and type-mismatched values are skipped and returned as
 // warnings; when strict is set they become a hard error instead, so a
 // committed example cannot rot silently when a variable is renamed or its type
-// changes (ADR-0032). Persisting is the caller's job via state.Write().
+// changes (ADR-0031). Persisting is the caller's job via state.Write().
 func applyVarFiles(state *wrapper.State, paths []string, strict bool) ([]string, error) {
 	state.EnsureValues()
 	var warnings []string

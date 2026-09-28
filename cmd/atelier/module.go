@@ -144,7 +144,7 @@ func runModuleAdd(args []string) error {
 
 	// --list-var-files clones the module (without writing a wrapper) and
 	// prints the `.tfvars` files committed to the repository, then exits
-	// (ADR-0032). It needs no preflight because nothing is written.
+	// (ADR-0031). It needs no preflight because nothing is written.
 	if opts.ListVarFiles {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer cancel()

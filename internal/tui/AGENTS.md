@@ -38,8 +38,8 @@ file only adds what is local to the package.
   interfaces.
 - **Plan tree construction in `plan.go` is pure.** Keep rendering out of it;
   it is what makes plan logic unit-testable without a terminal.
-- **Presets are `.tfvars` bundles** ([ADR-0032](../../docs/adr/0032-upstream-tfvars-discovery.md)):
-  the picker lists personal walk-up and repo example bundles (local does not
+- **Presets are `.tfvars` bundles** ([ADR-0031](../../docs/adr/0031-presets-as-tfvars-bundles.md)):
+  the picker lists personal walk-up and repo preset bundles (local does not
   hide a same-named repo bundle — the source is shown and the user picks), `S`
   writes `atelier.presets/<name>.tfvars`, and the list must be refreshed after
   a ref switch.

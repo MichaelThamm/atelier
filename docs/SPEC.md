@@ -43,8 +43,8 @@ module (typically a public git repository), and Atelier:
 - Round-trip cleanly: a user can hand-edit `main.tf` between sessions and
   Atelier respects the edits (modulo Atelier's own write rules; see §10).
 - Let users curate their own reusable presets as `.tfvars` bundles in a walk-up
-  `atelier.presets/` directory, and let product repos commit examples under
-  `<module>/examples/`. Atelier reads only Terraform-native `.tfvars` from
+  `atelier.presets/` directory, and let product repos commit presets under
+  `<module>/presets/`. Atelier reads only Terraform-native `.tfvars` from
   upstream, and only when named.
 - Distribute as a single static Go binary.
 
@@ -94,7 +94,7 @@ environment manager. The following are permanently out of scope (see
   files.
 - **Preset bundle** — a named `.tfvars` file. Personal bundles live in an
   `atelier.presets/` directory discovered by walking up from the wrapper
-  directory; product examples live in the module repo under `<module>/examples/`.
+  directory; product presets live in the module repo under `<module>/presets/`.
   Applied with `--var-file` or the TUI `F` picker. See §11.
 - **Session** — one invocation of `atelier` against a wrapper directory.
 - **`.atelier/`** — a hidden subdirectory inside the wrapper holding
@@ -472,18 +472,20 @@ See [ADR-0030](adr/0030-target-directory-preflight.md).
 ### 6.8 `.tfvars` preset bundles
 
 Presets are Terraform-native `.tfvars` files, not a bespoke format
-([ADR-0032](adr/0032-upstream-tfvars-discovery.md)). Atelier discovers them from
+([ADR-0031](adr/0031-presets-as-tfvars-bundles.md)). Atelier discovers them from
 two sources and applies them to the wrapper's module arguments; the wrapper
 shape is always the classic sparse `main.tf` (there is no pass-through mode —
-[ADR-0033](adr/0033-reject-pass-through-wrapper-shape.md)).
+[ADR-0031](adr/0031-presets-as-tfvars-bundles.md)).
 
 - `--var-file <path|name>` seeds values from a Terraform variable file
   (repeatable; comma-separated names accepted; later files win over earlier
   ones). A local path is used as-is; a bare name is resolved first against
   personal walk-up bundles (`<ancestor>/atelier.presets/<name>.tfvars`, nearest
-  ancestor wins), then in the cloned module repository (`<module>/examples/`,
-  `<repo>/terraform/examples/`, `<repo>/examples/`). A name that does not
-  resolve produces an error listing the bundles found locally and in the repo.
+  ancestor wins), then in the cloned module repository (`<module>/presets/`,
+  `<module>/examples/`, `<repo>/terraform/presets/`,
+  `<repo>/terraform/examples/`, `<repo>/presets/`, `<repo>/examples/`). A name
+  that does not resolve produces an error listing the bundles found locally and
+  in the repo.
 - `--list-var-files` prints the available bundles (source-labelled) without
   writing anything.
 - An attribute the module does not declare, or whose value does not fit the
@@ -889,12 +891,14 @@ See [ADR-0007](adr/0007-sparse-wrapper-write-rule.md).
 ## 11. Presets (`.tfvars` bundles)
 
 Presets are named `.tfvars` bundles. Atelier discovers them from two sources
-([ADR-0032](adr/0032-upstream-tfvars-discovery.md)):
+([ADR-0031](adr/0031-presets-as-tfvars-bundles.md)):
 
 - **Personal** bundles in an `atelier.presets/` directory at any ancestor of the
   wrapper, discovered by walking up (nearest wins). One shared directory at a
   parent serves every wrapper beneath it.
-- **Product** examples committed to the module repo (`<module>/examples/`).
+- **Product** presets committed to the module repo (`<module>/presets/`; the
+  older `<module>/examples/` location is still supported for runnable examples
+  and existing value files, and `presets/` wins on a name collision).
 
 The TUI `F` picker lists both sources (source-labelled, with the description
 from each file's leading comment) and applies the selected bundle; `S` saves
@@ -903,7 +907,7 @@ the current non-default configuration as a new
 (§6.8); `--list-var-files` prints what is available.
 
 The `atelier.local.yaml` mechanism this section used to describe has been
-removed; [ADR-0022](adr/0022-local-presets.md) is superseded by ADR-0032.
+removed; [ADR-0022](adr/0022-local-presets.md) is superseded by ADR-0031.
 
 ## 12. Provider configuration
 

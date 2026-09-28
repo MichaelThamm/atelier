@@ -20,9 +20,9 @@ func writeTestFile(t *testing.T, path, content string) {
 	}
 }
 
-// TestPresetsFromBundles_discoversLocalAndRepo pins the TUI repoint (ADR-0032):
+// TestPresetsFromBundles_discoversLocalAndRepo pins the TUI repoint (ADR-0031):
 // the picker is fed by `.tfvars` bundles from a personal walk-up
-// atelier.presets/ directory and from the module repo's examples, read against
+// atelier.presets/ directory and from the module repo's presets, read against
 // the module schema.
 func TestPresetsFromBundles_discoversLocalAndRepo(t *testing.T) {
 	base := t.TempDir()

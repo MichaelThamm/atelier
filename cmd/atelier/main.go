@@ -170,8 +170,8 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	}
 
 	// Load presets (`.tfvars` bundles) for the left pane: personal walk-up
-	// bundles from atelier.presets/ ancestors, plus examples committed to the
-	// module repo (ADR-0032).
+	// bundles from atelier.presets/ ancestors, plus presets committed to the
+	// module repo (ADR-0031).
 	presets := presetsFromBundles(state, wrapperDir, res.CloneDir, res.ModulePath)
 
 	m := tui.New(state, state.ModuleBlockName)
@@ -271,10 +271,10 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 }
 
 // presetsFromBundles discovers the `.tfvars` presets the TUI picker offers:
-// personal walk-up bundles (atelier.presets/) and examples committed to the
+// personal walk-up bundles (atelier.presets/) and presets committed to the
 // module repo, read against the primary module's schema. Undeclared names and
 // type mismatches are excluded and surfaced as an "(N ignored)" note on the
-// description (ADR-0032).
+// description (ADR-0031).
 func presetsFromBundles(state *wrapper.State, wrapperDir, cloneDir, modulePath string) []tui.ResolvedPreset {
 	var out []tui.ResolvedPreset
 	for _, b := range bootstrap.ListAllVarFiles(wrapperDir, cloneDir, modulePath) {
@@ -703,8 +703,8 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		}
 	}
 
-	// Refresh the preset picker for the new ref: a repo can ship example
-	// bundles on one ref but not another (e.g. an examples/ directory added on
+	// Refresh the preset picker for the new ref: a repo can ship preset
+	// bundles on one ref but not another (e.g. a presets/ directory added on
 	// a feature branch), and the list is otherwise only built at launch.
 	presets := presetsFromBundles(state, s.wrapperDir, cloneDir, s.modulePath)
 

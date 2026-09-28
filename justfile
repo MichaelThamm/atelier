@@ -50,13 +50,11 @@ test-pkg pkg:
 docs-check:
     go test ./tools/docscheck/...
 
-# Build the dev binary used by the integration tiers. Repo-local (./atelier);
-# does not touch $GOBIN or your PATH — use `just install` for that.
+# Build the dev binary
 build-bin:
     go build -o {{atelier_bin}} ./cmd/atelier
 
-# Install into $GOBIN (default ~/go/bin) so `atelier` on PATH is this build.
-# Use this when dogfooding; `build-bin` stays repo-local.
+# Install into $GOBIN
 install:
     go install ./cmd/atelier
 

@@ -47,6 +47,36 @@ func TestResolveVarFile_moduleAndRepoExamples(t *testing.T) {
 	}
 }
 
+func TestResolveVarFile_modulePresets(t *testing.T) {
+	clone := t.TempDir()
+	mod := filepath.Join(clone, "terraform", "cos")
+	writeAt(t, filepath.Join(mod, "presets", "single-unit.tfvars"), "alertmanager = { units = 1 }\n")
+
+	got, ok := ResolveVarFile("", clone, "terraform/cos", "single-unit")
+	if !ok {
+		t.Fatal("single-unit not resolved from <module>/presets")
+	}
+	if got != filepath.Join(mod, "presets", "single-unit.tfvars") {
+		t.Errorf("got %s", got)
+	}
+	if _, ok := ResolveVarFile("", clone, "terraform/cos", "single-unit.tfvars"); !ok {
+		t.Error("extension should be optional")
+	}
+}
+
+// A preset shadows an example of the same name.
+func TestResolveVarFile_presetsWinOverExamples(t *testing.T) {
+	clone := t.TempDir()
+	mod := filepath.Join(clone, "terraform", "cos")
+	writeAt(t, filepath.Join(mod, "presets", "units.tfvars"), "a = 1\n")
+	writeAt(t, filepath.Join(mod, "examples", "units.tfvars"), "a = 2\n")
+
+	got, ok := ResolveVarFile("", clone, "terraform/cos", "units")
+	if !ok || got != filepath.Join(mod, "presets", "units.tfvars") {
+		t.Fatalf("got %q ok=%v, want the presets/ file", got, ok)
+	}
+}
+
 func TestResolveVarFile_localPathWins(t *testing.T) {
 	local := filepath.Join(t.TempDir(), "s3.tfvars")
 	writeAt(t, local, "x = 1\n")

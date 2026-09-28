@@ -15,10 +15,7 @@ Keep one logical change per PR. The repo contract is in ../AGENTS.md.
 
 ## Scope check
 
-- [ ] Fits Atelier's boundaries — configuring a module's variables, not orchestration ([ADR-0016](../docs/adr/0016-scope-boundaries-no-orchestration.md)).
-- [ ] No new configuration language and no web UI ([ROADMAP](../docs/ROADMAP.md), "Out of scope").
-- [ ] The wrapper stays independently runnable without Atelier installed.
-- [ ] Atelier files are never read from the upstream module repo.
+- [ ] Fits Atelier's boundaries in ([SPEC.md](../docs/SPEC.md)).
 
 ## Tests
 
