@@ -3,9 +3,11 @@ package importer
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -55,7 +57,7 @@ func PlanCreates(ctx context.Context, opts Options) (*PlanResult, error) {
 		// No wrapper state — write a temporary .auto.tfvars file so terraform
 		// plan can resolve module input variables (e.g. model_uuid).
 		var sb strings.Builder
-		for _, k := range sortedKeys(opts.Config) {
+		for _, k := range slices.Sorted(maps.Keys(opts.Config)) {
 			fmt.Fprintf(&sb, "%s = %q\n", k, opts.Config[k])
 		}
 		if err := os.WriteFile(tfvarsPath, []byte(sb.String()), 0o644); err != nil {

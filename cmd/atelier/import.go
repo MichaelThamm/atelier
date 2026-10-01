@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/zclconf/go-cty/cty"
@@ -379,7 +380,7 @@ func runImport(args []string) error {
 	switch {
 	case len(res.IDs) > 0:
 		fmt.Fprintf(os.Stderr, "Matched %d resource(s):\n", len(res.IDs))
-		for _, addr := range sortedKeys(res.IDs) {
+		for _, addr := range slices.Sorted(maps.Keys(res.IDs)) {
 			fmt.Fprintf(os.Stderr, "  %s  (import ID: %s)\n", addr, res.IDs[addr])
 		}
 	case res.MatchedCount > 0:
@@ -497,16 +498,7 @@ func reportUnmatchedLive(res *importer.Result) {
 	fmt.Fprintln(os.Stderr, "  (--verbose lists every live object in full.)")
 }
 
-// sortedKeys returns a map's keys in sorted order, so reports are stable across
-// runs rather than following Go's randomised map iteration.
-func sortedKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
+// --- report helpers ---
 
 // reportUnmatchedPlanned lists module resources for which no single live object
 // could be identified. Reported on every run, including those that imported
@@ -619,7 +611,7 @@ func seedFromQueryVars(state *wrapper.State, queryConfig map[string]string) []st
 		return nil
 	}
 	var seeded []string
-	for _, name := range sortedKeys(queryConfig) {
+	for _, name := range slices.Sorted(maps.Keys(queryConfig)) {
 		v := state.FindVar(name)
 		if v == nil {
 			continue // not a module input; nothing to do

@@ -50,9 +50,9 @@ test-pkg pkg:
 docs-check:
     go test ./tools/docscheck/...
 
-# Structural checks: no internal package unreachable from the built binary.
+# Structural checks: no dead internal packages, no unreachable functions.
 code-check:
-    go test -count=1 ./tools/codecheck/...
+    go test -count=1 ./tools/codecheck/... ./tools/deadcodecheck/...
 
 # Build the dev binary
 build-bin:
