@@ -6,24 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/MichaelThamm/atelier/internal/tfexec"
 )
-
-// writeTimestampHeader seeks to the end of the log file and writes a separator
-// line with the current time so each plan/apply/init action is clearly delimited.
-// Subsequent stderr output appends naturally after the header.
-func writeTimestampHeader(f *os.File) {
-	if f == nil {
-		return
-	}
-	f.Seek(0, 2) // seek to end
-	ts := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Fprintf(f, "\n=== action started at %s ===\n", ts)
-}
 
 // Planner is the narrow interface the TUI needs from a terraform executor.
 // Defined here (rather than depending on tfexec.Terraform directly) so tests
@@ -91,8 +78,10 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	// Stream init output to progress tracker if available.
 	if p.Progress != nil {
 		p.Progress.SetPhase("Running terraform init…")
-		p.Tf.SetStdout(&ProgressWriter{Tracker: p.Progress})
+		p.Tf.SetStdout(&ProgressWriter{Tracker: p.Progress, FileWriter: p.Tf.StdoutFile()})
 		p.Tf.SetStderr(&ErrorLogWriter{Tracker: p.Progress, FileWriter: p.Tf.StderrFile()})
+		tfexec.WriteTimestampHeader(p.Tf.StderrFile())
+		tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
 		defer p.Tf.SetStdout(nil)
 		defer p.Tf.SetStderr(nil)
 	}
@@ -134,10 +123,11 @@ func (p *TfexecPlanner) Plan(ctx context.Context) (*tfjson.Plan, error) {
 	var stderr *ErrorLogWriter
 	if p.Progress != nil {
 		p.Progress.SetPhase("Running terraform plan…")
-		stdout = &ProgressWriter{Tracker: p.Progress}
+		stdout = &ProgressWriter{Tracker: p.Progress, FileWriter: p.Tf.StdoutFile()}
 		stderr = &ErrorLogWriter{Tracker: p.Progress, FileWriter: p.Tf.StderrFile()}
 		p.Tf.SetStderr(stderr)
-		writeTimestampHeader(p.Tf.StderrFile())
+		tfexec.WriteTimestampHeader(p.Tf.StderrFile())
+		tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
 		defer p.Tf.SetStderr(nil)
 	}
 	plan, _, err := p.Tf.Plan(ctx, planFile, stdout)
@@ -161,10 +151,11 @@ func (p *TfexecPlanner) Apply(ctx context.Context) error {
 	var stderr *ErrorLogWriter
 	if p.Progress != nil {
 		p.Progress.SetPhase("Running terraform apply…")
-		stdout = &ProgressWriter{Tracker: p.Progress}
+		stdout = &ProgressWriter{Tracker: p.Progress, FileWriter: p.Tf.StdoutFile()}
 		stderr = &ErrorLogWriter{Tracker: p.Progress, FileWriter: p.Tf.StderrFile()}
 		p.Tf.SetStderr(stderr)
-		writeTimestampHeader(p.Tf.StderrFile())
+		tfexec.WriteTimestampHeader(p.Tf.StderrFile())
+		tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
 		defer p.Tf.SetStderr(nil)
 	}
 	return p.Tf.Apply(ctx, planFile, stdout)

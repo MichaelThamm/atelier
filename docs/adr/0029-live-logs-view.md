@@ -122,6 +122,46 @@ The old `[E]` keybinding, `errorDetail` bool field, and `renderErrorDetail()`
 function are removed. Errors are now shown in the Errors tab of the unified
 logs view, which is more discoverable and consistent.
 
+## Amendment: stdout log file and log path banner
+
+The decision above persisted only stderr (§12) and never told the user *where*
+any of it went. A user who suspected an intermittent failure had no in-TUI
+pointer to `.atelier/logs/`; they had to read the README or already know the
+wrapper layout. And the Logs tab showed stdout that had no on-disk counterpart.
+
+Two changes close that gap:
+
+1. **stdout is now persisted too.** `ProgressWriter` gains the same optional
+   `FileWriter` as `ErrorLogWriter`, writing terraform's stdout to
+   `tf-stdout.log` (always on, appended, timestamped per action) alongside the
+   in-memory tracker. §12's "stderr only" is extended, not reversed: stderr and
+   stdout now have symmetric durable files.
+
+2. **The logs view names where the files are.** A one-line banner under the tab
+   bar shows the wrapper's diagnostics directory with its **absolute** path and
+   the files that actually exist:
+
+   ```
+   Files: /home/me/proj/.atelier/logs/  (tf-stderr.log · tf-stdout.log)
+   ```
+
+   `tfexec.LogDirPath` resolves the directory against the process CWD, so the
+   path is openable outside the TUI. Only files present on disk are named, so
+   `tf-trace.log` appears only when `ATELIER_DEBUG` was set. On a narrow
+   terminal the path middle-truncates (root and tail survive) before the
+   filename list is dropped, so the filenames survive the longest. On a panel
+   too short to fit the tab bar, the banner, and one content line, the banner is
+   omitted.
+
+3. **init output is delimited like plan and apply.** §12 said "(plan, apply)",
+   but `init` also writes to both files; it previously did so without a header,
+   leaving the first block of a session's log undelimited. `EnsureInit` and the
+   ref-switch `init -upgrade` path now write the same timestamp header first,
+   via the shared `tfexec.WriteTimestampHeader`.
+
+This refines §6 and §12 rather than reversing them: §12 gains stdout, and the
+banner points at the files those sections write.
+
 ## Consequences
 
 - Users can review full terraform output post-mortem without re-running.

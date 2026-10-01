@@ -335,12 +335,17 @@ The pieces that make this work:
 ## Troubleshooting
 
 Atelier persists terraform's diagnostics under the wrapper's
-`.atelier/logs/` directory (gitignored, regenerable):
+`.atelier/logs/` directory (gitignored, regenerable). The `L` logs view prints
+this directory's absolute path at the top, along with the files that actually
+exist there, so you can open them from a shell without guessing where the
+wrapper lives:
 
 - `tf-stderr.log` — terraform's stderr, appended across runs. Always on. It
   stays small because successful commands write little to stderr, so it
   mostly captures the warnings and errors worth keeping. This is the first
   place to look after an intermittent `plan`/`apply` failure.
+- `tf-stdout.log` — terraform's stdout (plan/apply progress), appended across
+  runs. Always on. This is the on-disk counterpart to the logs view's Logs tab.
 - `tf-trace.log` — terraform's full `TRACE` log, written only when the
   `ATELIER_DEBUG` environment variable is set to a truthy value
   (`ATELIER_DEBUG=1 atelier`). It is verbose, so it is off by default; leave

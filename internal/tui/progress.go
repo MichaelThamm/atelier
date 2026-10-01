@@ -138,13 +138,21 @@ func (p *ProgressTracker) Reset() {
 
 // ProgressWriter is an io.Writer that parses terraform's human-readable
 // stdout line-by-line and updates a ProgressTracker with meaningful phase
-// information.
+// information. When a file writer is provided, it also writes to the log file
+// so .atelier/logs/tf-stdout.log stays populated.
 type ProgressWriter struct {
-	Tracker *ProgressTracker
-	buf     []byte
+	Tracker    *ProgressTracker
+	FileWriter io.Writer // optional: also write stdout to the log file
+	buf        []byte
 }
 
 func (w *ProgressWriter) Write(p []byte) (n int, err error) {
+	// Write to log file if provided
+	if w.FileWriter != nil {
+		if _, ferr := w.FileWriter.Write(p); ferr != nil && err == nil {
+			err = ferr
+		}
+	}
 	w.buf = append(w.buf, p...)
 	for {
 		idx := bytes.IndexByte(w.buf, '\n')
@@ -160,7 +168,7 @@ func (w *ProgressWriter) Write(p []byte) (n int, err error) {
 			w.Tracker.SetPhase(phase)
 		}
 	}
-	return len(p), nil
+	return len(p), err
 }
 
 // ErrorLogWriter is an io.Writer that captures stderr lines into the

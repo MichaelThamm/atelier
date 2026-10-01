@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	hcversion "github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-exec/tfexec"
@@ -43,9 +44,41 @@ const DebugEnvVar = "ATELIER_DEBUG"
 const LogDir = ".atelier/logs"
 
 const (
-	stderrLogName = "tf-stderr.log"
-	traceLogName  = "tf-trace.log"
+	// StderrLogName is the always-on persistent copy of terraform's stderr,
+	// written under LogDir.
+	StderrLogName = "tf-stderr.log"
+	// StdoutLogName is the always-on persistent copy of terraform's stdout
+	// (plan/apply progress), written under LogDir.
+	StdoutLogName = "tf-stdout.log"
+	// TraceLogName is terraform's full TRACE log, written under LogDir only
+	// when DebugEnvVar is truthy.
+	TraceLogName = "tf-trace.log"
 )
+
+// LogDirPath returns the absolute path of a wrapper's persistent terraform
+// diagnostics directory (<workdir>/.atelier/logs). The TUI surfaces it so a
+// user can find the log files after a failure. Resolution is best-effort: if
+// the path cannot be made absolute, the joined relative path is returned.
+func LogDirPath(workdir string) string {
+	dir := filepath.Join(workdir, LogDir)
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
+}
+
+// WriteTimestampHeader appends a separator line with the current wall-clock
+// time to a persistent log file, delimiting one action's output (init, plan,
+// apply) from the next. It is a no-op for a nil handle (logging not
+// configured). The files are opened O_APPEND, so the explicit seek to the end
+// is only a fallback for a handle opened without it.
+func WriteTimestampHeader(f *os.File) {
+	if f == nil {
+		return
+	}
+	_, _ = f.Seek(0, 2) // seek to end
+	fmt.Fprintf(f, "\n=== action started at %s ===\n", time.Now().Format("2006-01-02 15:04:05"))
+}
 
 // Locate returns the path to the terraform (or tofu) binary on $PATH, or an
 // actionable error message if it isn't installed.
@@ -65,6 +98,7 @@ func Locate() (string, error) {
 type Terraform struct {
 	tf         *tfexec.Terraform
 	stderrFile *os.File // log file handle for .atelier/logs/tf-stderr.log
+	stdoutFile *os.File // log file handle for .atelier/logs/tf-stdout.log
 }
 
 // New returns a Terraform pinned to the wrapper directory `workdir`. If
@@ -95,11 +129,13 @@ func New(workdir, binPath string) (*Terraform, error) {
 // <workdir>/.atelier/logs/. It is best-effort: any failure to set up logging
 // is swallowed, because diagnostics must never prevent terraform from running.
 //
-//   - Always on: terraform's stderr is teed to tf-stderr.log (appended).
-//     terraform-exec still captures stderr internally for its error messages,
-//     so this only adds a durable copy — it changes nothing the caller sees.
-//     Successful commands write little or nothing to stderr, so the file stays
-//     small and fills mainly with the warnings and errors worth keeping.
+//   - Always on: terraform's stderr is teed to tf-stderr.log and its stdout to
+//     tf-stdout.log (both appended). terraform-exec still captures them
+//     internally for its error messages and progress, so this only adds a
+//     durable copy — it changes nothing the caller sees. Successful commands
+//     write little or nothing to stderr, so tf-stderr.log stays small and fills
+//     mainly with the warnings and errors worth keeping; tf-stdout.log holds
+//     the plan/apply progress the logs view shows.
 //   - Opt-in (ATELIER_DEBUG truthy): terraform's own TRACE log is written to
 //     tf-trace.log via TF_LOG_PATH. This is verbose, so it stays off by
 //     default; leave it enabled and the next failure records the exact git
@@ -109,14 +145,20 @@ func (t *Terraform) configureLogging(workdir string) {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return
 	}
-	// Open (or create) the log file and store the handle. The file is NOT
-	// set as stderr here — the planner truncates, writes a timestamp header,
-	// and sets stderr before each action so binary junk never precedes the header.
-	if f, err := os.OpenFile(filepath.Join(logDir, stderrLogName), os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+	// Open (or create) the log files and store the handles. O_APPEND keeps
+	// every session's output: init writes without seeking first, and the
+	// planner's timestamp header seeks to the end, so without append a fresh
+	// session would clobber the start of the previous one's log. The handles
+	// are NOT set as stdout/stderr here — the planner writes a timestamp header
+	// and sets them before each action so binary junk never precedes the header.
+	if f, err := os.OpenFile(filepath.Join(logDir, StderrLogName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		t.stderrFile = f
 	}
+	if f, err := os.OpenFile(filepath.Join(logDir, StdoutLogName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		t.stdoutFile = f
+	}
 	if debugEnabled() {
-		_ = t.tf.SetLogPath(filepath.Join(logDir, traceLogName))
+		_ = t.tf.SetLogPath(filepath.Join(logDir, TraceLogName))
 	}
 }
 
@@ -187,6 +229,13 @@ func (t *Terraform) SetStderr(w io.Writer) {
 // stderr to both the file and a progress tracker.
 func (t *Terraform) StderrFile() *os.File {
 	return t.stderrFile
+}
+
+// StdoutFile returns the log file handle for .atelier/logs/tf-stdout.log,
+// or nil if logging is not configured. Used by callers that need to tee
+// stdout to both the file and a progress tracker.
+func (t *Terraform) StdoutFile() *os.File {
+	return t.stdoutFile
 }
 
 // Validate runs `terraform validate -json`.
