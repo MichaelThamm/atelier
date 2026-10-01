@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +49,83 @@ func TestNewAndVersion_integration(t *testing.T) {
 	}
 }
 
+func TestWriteTimestampHeader(t *testing.T) {
+	// nil is a no-op (logging not configured).
+	WriteTimestampHeader(nil)
+
+	f, err := os.CreateTemp(t.TempDir(), "log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString("prior\n"); err != nil {
+		t.Fatal(err)
+	}
+	WriteTimestampHeader(f)
+	got, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	if !strings.HasPrefix(s, "prior\n") {
+		t.Errorf("header overwrote prior content: %q", s)
+	}
+	if !strings.Contains(s, "=== action started at ") {
+		t.Errorf("missing timestamp header: %q", s)
+	}
+}
+
+func TestLogDirPath(t *testing.T) {
+	wd := t.TempDir()
+	if got, want := LogDirPath(wd), filepath.Join(wd, LogDir); got != want {
+		t.Errorf("LogDirPath(%q) = %q; want %q", wd, got, want)
+	}
+	// A relative workdir still resolves to an absolute path so the TUI can show
+	// a location the user can open from anywhere.
+	if rel := LogDirPath("."); !filepath.IsAbs(rel) {
+		t.Errorf("LogDirPath(%q) = %q; want an absolute path", ".", rel)
+	}
+}
+
+// TestConfigureLogging_appendsAcrossSessions guards the durable-log contract:
+// a later Atelier session must not overwrite the start of an earlier one's
+// logs (init writes before the planner seeks to the end).
+func TestConfigureLogging_appendsAcrossSessions(t *testing.T) {
+	if _, err := exec.LookPath("terraform"); err != nil {
+		t.Skip("terraform not on PATH")
+	}
+	wd := t.TempDir()
+	tf1, err := New(wd, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []*os.File{tf1.StderrFile(), tf1.StdoutFile()} {
+		if _, err := f.WriteString("session-one\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tf2, err := New(wd, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []*os.File{tf2.StderrFile(), tf2.StdoutFile()} {
+		if _, err := f.WriteString("session-two\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{StderrLogName, StdoutLogName} {
+		got, err := os.ReadFile(filepath.Join(wd, LogDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"session-one", "session-two"} {
+			if !strings.Contains(string(got), want) {
+				t.Errorf("%s missing %q; a session overwrote an earlier one: %q", name, want, got)
+			}
+		}
+	}
+}
+
 func TestDebugEnabled(t *testing.T) {
 	cases := map[string]bool{
 		"":      false,
@@ -79,12 +157,16 @@ func TestConfigureLogging_integration(t *testing.T) {
 	if _, err := New(wd, ""); err != nil {
 		t.Fatal(err)
 	}
-	stderrLog := filepath.Join(wd, LogDir, stderrLogName)
+	stderrLog := filepath.Join(wd, LogDir, StderrLogName)
 	if _, err := os.Stat(stderrLog); err != nil {
 		t.Errorf("expected stderr log at %s: %v", stderrLog, err)
 	}
+	stdoutLog := filepath.Join(wd, LogDir, StdoutLogName)
+	if _, err := os.Stat(stdoutLog); err != nil {
+		t.Errorf("expected stdout log at %s: %v", stdoutLog, err)
+	}
 	// Without ATELIER_DEBUG the trace log must not be created.
-	traceLog := filepath.Join(wd, LogDir, traceLogName)
+	traceLog := filepath.Join(wd, LogDir, TraceLogName)
 	if _, err := os.Stat(traceLog); err == nil {
 		t.Errorf("trace log %s created without %s set", traceLog, DebugEnvVar)
 	}

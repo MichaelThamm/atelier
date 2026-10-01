@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"sync"
 	"testing"
 	"time"
@@ -240,6 +241,21 @@ func TestProgressWriter_LastPhaseWins(t *testing.T) {
 	pw.Write([]byte("module.y: Destroying...\n"))
 	if got := tracker.Phase(); got != "module.y: Destroying" {
 		t.Errorf("phase: got %q, want module.y: Destroying", got)
+	}
+}
+
+// TestProgressWriter_TeesToFile guards the stdout log: when a FileWriter is
+// set, the raw bytes must land in the file as well as the tracker.
+func TestProgressWriter_TeesToFile(t *testing.T) {
+	tracker := NewProgressTracker()
+	var file bytes.Buffer
+	pw := &ProgressWriter{Tracker: tracker, FileWriter: &file}
+	pw.Write([]byte("Refreshing state...\n"))
+	if got := file.String(); got != "Refreshing state...\n" {
+		t.Errorf("file = %q; want the raw stdout bytes", got)
+	}
+	if len(tracker.StdoutLines()) != 1 {
+		t.Errorf("tracker stdout lines = %d; want 1", len(tracker.StdoutLines()))
 	}
 }
 

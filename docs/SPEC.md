@@ -756,6 +756,19 @@ Errors (3)  Logs (15)  (started 14:32:05)
 - The active tab is highlighted with `styleTabActive` (bold, primary colour).
 - Empty tabs show a descriptive message ("No errors captured." / "No logs captured.").
 
+**Log path banner**: below the tab bar, a one-line banner names the wrapper's
+persistent diagnostics directory with its **absolute** path, e.g.
+```
+Files: /home/me/proj/.atelier/logs/  (tf-stderr.log · tf-stdout.log)
+```
+The absolute path lets the user open the files outside the TUI without
+guessing where the wrapper is. Only files that exist on disk are named, so
+`tf-trace.log` appears only when `ATELIER_DEBUG` was set. On a narrow terminal
+the path middle-truncates (root and tail survive) before the filename list is
+dropped, so the more specific information survives the longest. On a panel too
+short to fit the tab bar, the banner, and at least one content line, the banner
+is omitted.
+
 **Navigation**:
 - `Tab` switches between Errors and Logs tabs (scroll resets to bottom).
 - `j`/`k` scroll line-by-line, `Ctrl+D`/`Ctrl+U` or `PgDn`/`PgUp`
@@ -778,19 +791,26 @@ Errors (3)  Logs (15)  (started 14:32:05)
 **Log capture**:
 
 The `ProgressTracker` accumulates terraform output via two writers:
-- `ProgressWriter` (stdout): captures phase progress and resource operations.
-- `ErrorLogWriter` (stderr): captures errors and diagnostics.
+- `ProgressWriter` (stdout): captures phase progress and resource operations,
+  and tees them to `tf-stdout.log`.
+- `ErrorLogWriter` (stderr): captures errors and diagnostics, and tees them to
+  `tf-stderr.log`.
 
 Both writers feed into a unified `LogLine` buffer (with `IsStderr` flag and
 timestamp). Lines persist after the operation completes, so logs remain
 available for review until the next operation replaces the tracker.
 
-**Log files** (`.atelier/logs/tf-stderr.log`):
+**Log files** (`.atelier/logs/`):
 
-Terraform stderr is also written to a persistent log file. Each action
-(plan, apply) appends a timestamp header (`=== action started at HH:MM:SS ===`)
-followed by the raw stderr output. This provides a durable record of errors
-across sessions.
+Terraform's stdout and stderr are also written to persistent log files,
+`tf-stdout.log` and `tf-stderr.log`. Each action (init, plan, apply) appends a
+timestamp header (`=== action started at HH:MM:SS ===`) followed by the raw
+output. This provides a durable record across sessions, so the Logs tab is
+backed by a file as well as the in-memory buffer.
+
+The opt-in `tf-trace.log` (written only when `ATELIER_DEBUG` is truthy) lives in
+the same directory. The log path banner above names each of these files, with
+the directory's absolute path, but only those that exist on disk.
 
 See [ADR-0029](adr/0029-live-logs-view.md).
 

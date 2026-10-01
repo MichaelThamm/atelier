@@ -2,8 +2,14 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/MichaelThamm/atelier/internal/tfexec"
 )
 
 // renderLogsView renders a scrollable panel of live terraform output with
@@ -29,11 +35,21 @@ func (m *Model) renderLogsView() string {
 		formattedLines[i] = l.Content
 	}
 
-	h := m.panelHeight() - 1 // tab bar takes one line
+	// Banner naming the absolute log directory. It is dropped on panels too
+	// short to spare the line, so the log content keeps at least one row.
+	banner := ""
+	if m.panelHeight() >= 3 {
+		banner = m.logFilesBanner()
+	}
+	headerLines := 1 // tab bar
+	if banner != "" {
+		headerLines++
+	}
+
+	h := m.panelHeight() - headerLines
 	if h < 1 {
 		h = 1
 	}
-
 	// Clamp scroll and height to valid range.
 	if len(formattedLines) == 0 {
 		m.logScroll = 0
@@ -88,9 +104,61 @@ func (m *Model) renderLogsView() string {
 	startTime := m.progress.StartTime().Format("15:04:05")
 	tabBar.WriteString(styleDescription.Render(fmt.Sprintf("  (started %s)", startTime)))
 
-	// Combine tab bar and content
+	// Combine tab bar, log-path banner, and content.
+	head := tabBar.String()
+	if banner != "" {
+		head += "\n" + styleDescription.Render(banner)
+	}
 	return stylePanelFocused.Width(m.width - 2).Height(m.panelHeight()).
-		Render(tabBar.String() + "\n" + content)
+		Render(head + "\n" + content)
+}
+
+// logFilesBanner returns the one-line hint naming the wrapper's persistent
+// terraform diagnostics directory and the files that exist in it, or "" when
+// the wrapper directory is unknown. The directory is absolute so it can be
+// opened outside the TUI. Only files actually on disk are named: tf-stderr.log
+// and tf-stdout.log are created eagerly, but tf-trace.log appears only when
+// ATELIER_DEBUG is set, so naming it unconditionally would be a lie.
+//
+// When the line does not fit, the path middle-truncates (keeping its root and
+// tail) before the filename list is dropped, so the more specific information
+// survives the longest.
+func (m *Model) logFilesBanner() string {
+	if m.WrapperDir == "" {
+		return ""
+	}
+	const (
+		prefix = "Files: "
+		// Below this, a middle-truncated path reads as noise, so drop the
+		// filename list instead and spend the whole line on the path.
+		minPathWidth = 16
+	)
+	dir := tfexec.LogDirPath(m.WrapperDir)
+
+	var names []string
+	for _, name := range []string{tfexec.StderrLogName, tfexec.StdoutLogName, tfexec.TraceLogName} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+			names = append(names, name)
+		}
+	}
+	suffix := ""
+	if len(names) > 0 {
+		suffix = "  (" + strings.Join(names, " · ") + ")"
+	}
+
+	innerW := m.width - 4 // panel border (2) + padding (2)
+	if innerW < 1 {
+		return ""
+	}
+	pathBudget := innerW - lipgloss.Width(prefix) - lipgloss.Width(suffix)
+	if suffix != "" && pathBudget < minPathWidth {
+		suffix = ""
+		pathBudget = innerW - lipgloss.Width(prefix)
+	}
+	if pathBudget < 1 {
+		return ""
+	}
+	return prefix + truncateMiddle(dir+"/", pathBudget) + suffix
 }
 
 // progressSuffix returns a formatted string with elapsed time and current
