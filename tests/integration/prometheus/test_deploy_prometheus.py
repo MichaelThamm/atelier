@@ -40,7 +40,9 @@ def test_deploy_prometheus_k8s(tf_manager, juju: jubilant.Juju, atelier_bin: str
         {"model_uuid": model_uuid, "channel": "dev/edge", "units": 1},
     )
 
-    # WHEN Atelier bootstraps the module, non-interactively, from the bundle
+    # WHEN Atelier bootstraps the module, non-interactively, from the bundle.
+    # `--dir .` targets the directory the test prepared, rather than letting
+    # `module add` derive one from the module candidate.
     run_atelier(
         wrapper_dir,
         atelier_bin,
@@ -49,6 +51,8 @@ def test_deploy_prometheus_k8s(tf_manager, juju: jubilant.Juju, atelier_bin: str
         PROM_REPO,
         "--module",
         PROM_MODULE,
+        "--dir",
+        ".",
         "--var-file",
         var_file,
         "--yes",

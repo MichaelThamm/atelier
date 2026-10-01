@@ -121,7 +121,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
 
     # WHEN Atelier bootstraps the module, non-interactively, pinned to --ref
     # and configured from both bundles: the explicit ci values, then the
-    # module's own no-ingress preset
+    # module's own no-ingress preset. `--dir .` targets the prepared directory.
     run_atelier(
         wrapper_dir,
         atelier_bin,
@@ -130,6 +130,8 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
         COS_REPO,
         "--module",
         COS_MODULE,
+        "--dir",
+        ".",
         "--ref",
         COS_REF,
         "--var-file",

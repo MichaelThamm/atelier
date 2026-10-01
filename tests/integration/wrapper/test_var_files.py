@@ -26,7 +26,9 @@ def test_walk_up_preset_bundle_resolves_by_name(tmp_path, atelier_bin):
     wrapper = tmp_path / "wrap"
     wrapper.mkdir()
 
-    # WHEN the bundle is applied by name (walk-up, not a path)
+    # WHEN the bundle is applied by name (walk-up, not a path). --dir names the
+    # directory `module add` writes into, which is otherwise derived from the
+    # module candidate.
     run_atelier(
         wrapper,
         atelier_bin,
@@ -35,6 +37,8 @@ def test_walk_up_preset_bundle_resolves_by_name(tmp_path, atelier_bin):
         PROM_REPO,
         "--module",
         PROM_MODULE,
+        "--dir",
+        ".",
         "--var-file",
         "ci",
         "--yes",

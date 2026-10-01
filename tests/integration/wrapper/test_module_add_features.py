@@ -23,6 +23,10 @@ PROM_REF = "main"
 # `terraform` is a generic directory name, so Atelier names the block after the
 # repository instead (see internal/bootstrap.ModuleBlockName).
 PROM_BLOCK = "prometheus_k8s_operator"
+
+# `module add` creates a directory of its own unless the current directory is
+# already a wrapper, so the tests name it with --dir to keep it predictable.
+WRAPPER_DIR = "wrapper"
 PROM_SOURCE = "git::https://github.com/canonical/prometheus-k8s-operator.git//terraform"
 
 DEFAULT_VALUES = {
@@ -32,7 +36,11 @@ DEFAULT_VALUES = {
 
 
 def _add(wrapper_dir, atelier_bin, *extra: str, check: bool = True):
-    """Run ``atelier module add`` for the prometheus module and return the process."""
+    """Run ``atelier module add`` for the prometheus module and return the process.
+
+    ``--dir`` names the wrapper directory Atelier creates, so the caller knows
+    where to find ``main.tf`` regardless of the candidate-derived name.
+    """
     return run_atelier(
         wrapper_dir,
         atelier_bin,
@@ -41,6 +49,8 @@ def _add(wrapper_dir, atelier_bin, *extra: str, check: bool = True):
         PROM_REPO,
         "--module",
         PROM_MODULE,
+        "--dir",
+        WRAPPER_DIR,
         "--yes",
         *extra,
         capture=True,
@@ -48,8 +58,13 @@ def _add(wrapper_dir, atelier_bin, *extra: str, check: bool = True):
     )
 
 
+def _wrapper(wrapper_dir):
+    """The directory Atelier wrote the wrapper into."""
+    return wrapper_dir / WRAPPER_DIR
+
+
 def _main_tf(wrapper_dir) -> str:
-    return (wrapper_dir / "main.tf").read_text()
+    return (_wrapper(wrapper_dir) / "main.tf").read_text()
 
 
 def _source(main_tf: str) -> str:
@@ -120,7 +135,7 @@ def test_module_list_and_rm(tmp_path, atelier_bin):
     _add(tmp_path, atelier_bin, "--as", "prom", "--ref", PROM_REF)
 
     # WHEN listing the wrapper
-    listed = run_atelier(tmp_path, atelier_bin, "module", "list", capture=True).stdout
+    listed = run_atelier(_wrapper(tmp_path), atelier_bin, "module", "list", capture=True).stdout
 
     # THEN the module, its source and its ref are shown
     assert "prom" in listed
@@ -128,7 +143,7 @@ def test_module_list_and_rm(tmp_path, atelier_bin):
     assert PROM_REF in listed
 
     # WHEN removing it
-    run_atelier(tmp_path, atelier_bin, "module", "rm", "prom", "--force", capture=True)
+    run_atelier(_wrapper(tmp_path), atelier_bin, "module", "rm", "prom", "--force", capture=True)
 
     # THEN its block is gone
     assert not re.search(r'module\s+"prom"', _main_tf(tmp_path))
@@ -168,10 +183,21 @@ def test_duplicate_add_is_refused(tmp_path, atelier_bin):
     # GIVEN the module is already present
     _add(tmp_path, atelier_bin)
 
-    # WHEN adding the same module at the same ref again
-    # THEN it is refused rather than declaring a second copy
+    # WHEN adding the same module at the same ref again, into the same wrapper.
+    # THEN it is refused rather than declaring a second copy. (Running in the
+    # wrapper directory is the additive path: the existing wrapper's CWD.)
     with pytest.raises(subprocess.CalledProcessError):
-        _add(tmp_path, atelier_bin)
+        run_atelier(
+            _wrapper(tmp_path),
+            atelier_bin,
+            "module",
+            "add",
+            PROM_REPO,
+            "--module",
+            PROM_MODULE,
+            "--yes",
+            capture=True,
+        )
 
     # AND the wrapper still declares exactly one module
     assert len(re.findall(r'^module\s+"', _main_tf(tmp_path), re.M)) == 1
@@ -184,7 +210,7 @@ def test_wrapper_initialises_and_validates(tmp_path, atelier_bin):
 
     # WHEN Terraform initialises it (fetching the module and provider)
     tf = TfDirManager(tmp_path)
-    tf.latch(tmp_path)
+    tf.latch(_wrapper(tmp_path))
     tf.init()
 
     # THEN the configuration is valid — the wrapper is deployable
