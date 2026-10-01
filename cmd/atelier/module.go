@@ -324,6 +324,9 @@ func runModuleAdd(args []string) error {
 	// own, named after the candidate (or --dir/--as), exactly as `module apply`
 	// does — but stops before init/apply.
 	if mainTFExists(cwd) {
+		if opts.Dir != "" {
+			return fmt.Errorf("--dir is only valid when creating a new wrapper; %s already holds one", cwd)
+		}
 		return addModuleToWrapper(cwd, opts)
 	}
 	return addModuleInNewDir(cwd, opts)

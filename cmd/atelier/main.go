@@ -3,8 +3,8 @@
 // Surface (SPEC §6):
 //
 //	atelier                                     open the wrapper in CWD
-//	atelier module add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR] [--yes]
-//	                                            add a module (bootstraps if needed)
+//	atelier module add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR] [--dir PATH] [--yes]
+//	                                            add a module and open the editor (bootstraps if needed)
 //	atelier module rm <name> [--force]          remove a module from the wrapper
 //	atelier module list                         list modules in the wrapper
 //	atelier module apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH]
@@ -51,7 +51,7 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 Usage:
   atelier                                      Open the wrapper in the current directory.
   atelier module add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR]
-                                [--dir PATH] [--var-file PATH|NAME] [--var KEY=VALUE]
+                                [--var-file PATH|NAME] [--var KEY=VALUE]
                                 [--list-var-files] [--strict] [--yes]
                                                Add a module and open the editor on it. If the current
                                                directory is already a wrapper, appends a module block to
