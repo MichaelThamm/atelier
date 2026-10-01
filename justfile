@@ -79,26 +79,48 @@ gallery-check: build-bin
     #!/usr/bin/env bash
     set -euo pipefail
     atelier="{{atelier_bin}}"
-    commands="$("$atelier" gallery list --commands)"
+    presets="{{justfile_directory()}}/internal/gallery/presets"
+    scan="$("$atelier" gallery list --commands)"
     fail=0
     while IFS= read -r line; do
       [ -n "$line" ] || continue
-      echo "==> $line"
+      # The scaffold command is `atelier module add <name> …`; the entry name is
+      # the third token after stripping the leading `atelier`.
+      name="$(awk '{print $3}' <<< "${line#atelier }")"
       scratch="$(mktemp -d)"
       if ! (
         cd "$scratch"
-        # Run the gallery's own scaffold command with the binary under test,
+        # Publish the gallery's presets as a walk-up atelier.presets/ so the
+        # entry's --var-file resolves the way it does for a user who copied it,
+        # then run the entry's own scaffold command with the binary under test,
         # stdin closed so the TUI never starts. `read -a` splits the generated
         # line on whitespace without globbing or evaluating shell syntax.
+        mkdir -p atelier.presets
+        cp "$presets"/*.tfvars atelier.presets/
         read -r -a add_args <<< "${line#atelier }"
-        "$atelier" "${add_args[@]}" < /dev/null
+        # Entries whose module declares deployment-specific inputs without a
+        # default (a Juju model UUID, S3 credentials) cannot validate against
+        # the preset alone. Supply a placeholder for exactly those, read from
+        # the entry's own `requires` list; the preset stays free of fake values,
+        # and a real user supplies the real ones. `presets lint` already checked
+        # the preset's keys.
+        vars=()
+        while IFS= read -r req; do
+          [ -n "$req" ] || continue
+          case "$req" in
+            *uuid*) vars+=(--var "$req=00000000-0000-0000-0000-000000000000") ;;
+            *) vars+=(--var "$req=placeholder") ;;
+          esac
+        done < <("$atelier" gallery requires "$name")
+        echo "==> atelier ${add_args[*]} ${vars[*]}"
+        "$atelier" "${add_args[@]}" "${vars[@]}" < /dev/null
         terraform init -backend=false -no-color >/dev/null
         terraform validate -no-color
       ); then
         fail=1
       fi
       rm -rf "$scratch"
-    done <<< "$commands"
+    done <<< "$scan"
     exit "$fail"
 
 # Both cloud tiers (local convenience; CI runs them as separate jobs).

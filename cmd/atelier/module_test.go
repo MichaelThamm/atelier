@@ -130,11 +130,29 @@ func TestApplyVarFlags_VarWinsOverVarFile(t *testing.T) {
 	}
 }
 
-// A missing --var-file is an error, not a silent skip.
-func TestApplyVarFlags_MissingFileErrors(t *testing.T) {
-	state := &wrapper.State{Values: map[string]cty.Value{}}
-	if err := applyVarFlags(state, t.TempDir(), "", "", []string{"nope.tfvars"}, nil, false); err == nil {
-		t.Error("expected an error for a missing --var-file")
+// A --var-file name that matches nothing is skipped with a warning, not fatal:
+// a gallery entry's preset may be superseded by a bundle the user supplies.
+func TestApplyVarFlags_MissingFileIsSkipped(t *testing.T) {
+	state := &wrapper.State{
+		Vars: []tfvars.Variable{
+			{Name: "name", Type: &tftypes.Type{Kind: tftypes.KindString}},
+		},
+		Values: map[string]cty.Value{},
+	}
+	if err := applyVarFlags(state, t.TempDir(), "", "", []string{"nope.tfvars"}, nil, false); err != nil {
+		t.Fatalf("a missing --var-file must be skipped, not fatal: %v", err)
+	}
+	// A name that resolves in a later source must still apply.
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, "seed.tfvars")
+	if err := os.WriteFile(bundle, []byte("name = \"from-file\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyVarFlags(state, dir, "", "", []string{bundle}, nil, false); err != nil {
+		t.Fatalf("applyVarFlags: %v", err)
+	}
+	if v := state.Values["name"]; v.AsString() != "from-file" {
+		t.Errorf("name = %v, want from-file", v)
 	}
 }
 

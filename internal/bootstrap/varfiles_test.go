@@ -132,19 +132,24 @@ func TestResolveVarFile_localWalkUpOverridesRepo(t *testing.T) {
 	}
 }
 
-func TestResolveVarFiles_errorListsAvailable(t *testing.T) {
+// A name that resolves nowhere is skipped so a gallery entry's preset can be
+// superseded; only names that resolve are returned, in order.
+func TestResolveVarFiles_skipsUnresolved(t *testing.T) {
 	clone := t.TempDir()
 	mod := filepath.Join(clone, "terraform", "cos")
 	writeAt(t, filepath.Join(mod, "examples", "s3.tfvars"), "x = 1\n")
 	writeAt(t, filepath.Join(mod, "examples", "units.tfvars"), "y = 2\n")
 
-	_, err := ResolveVarFiles("", clone, "terraform/cos", []string{"missing"})
-	if err == nil {
-		t.Fatal("expected an error for a missing name")
+	got, err := ResolveVarFiles("", clone, "terraform/cos", []string{"missing", "s3", "units"})
+	if err != nil {
+		t.Fatalf("ResolveVarFiles: %v", err)
 	}
-	for _, want := range []string{"s3", "units"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error should list %q; got: %s", want, err)
+	if len(got) != 2 {
+		t.Fatalf("got %d paths, want 2 (the unresolved name is skipped): %v", len(got), got)
+	}
+	for i, want := range []string{"s3.tfvars", "units.tfvars"} {
+		if filepath.Base(got[i]) != want {
+			t.Errorf("got[%d] = %q, want %q", i, got[i], want)
 		}
 	}
 }

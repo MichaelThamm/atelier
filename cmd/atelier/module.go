@@ -255,9 +255,21 @@ func printCandidates(w io.Writer, cands []candidate.Candidate) {
 // it interleaves seeding from query variables.
 func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string, varFiles, vars []string, strict bool) error {
 	if len(varFiles) > 0 {
-		resolved, err := bootstrap.ResolveVarFiles(wrapperDir, cloneDir, modulePath, varFiles)
-		if err != nil {
-			return err
+		// Names the walk-up, the module repo, and the gallery do not resolve are
+		// skipped with a warning: a gallery entry's preset may be superseded by a
+		// --var-file the user supplies (for example one that also carries the
+		// model_uuid and S3 credentials the gallery preset omits).
+		resolved := make([]string, 0, len(varFiles))
+		for _, ref := range varFiles {
+			if p, ok := bootstrap.ResolveVarFile(wrapperDir, cloneDir, modulePath, ref); ok {
+				resolved = append(resolved, p)
+				continue
+			}
+			if _, err := os.Stat(ref); err == nil {
+				resolved = append(resolved, ref)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "warning: var-file %q not found; ignored\n", ref)
 		}
 		warns, err := wrapper.ApplyVarFiles(state, resolved, strict)
 		if err != nil {

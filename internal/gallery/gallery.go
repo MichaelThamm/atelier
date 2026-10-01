@@ -40,17 +40,26 @@ type Entry struct {
 	Block string `json:"block,omitempty"`
 	// Preset is the `.tfvars` bundle name in presets/, without the suffix.
 	Preset string `json:"preset,omitempty"`
+	// Requires lists inputs the preset cannot supply — deployment-specific
+	// values such as a Juju model UUID or S3 credentials. They are not settable
+	// statically, so the rendered command appends a `--var` placeholder for
+	// each and the scaffold command omits them (CI cannot supply them either).
+	Requires []string `json:"requires,omitempty"`
 }
 
 // ApplyCommand renders the user-facing one-liner: apply the gallery entry by
-// name. `atelier module add`/`apply` expand the name back to the module, ref,
-// block, and preset below.
+// name, with a `--var` placeholder for each deployment-specific input.
 func (e Entry) ApplyCommand() string {
-	return "atelier apply " + e.Name
+	cmd := "atelier apply " + e.Name
+	for _, r := range e.Requires {
+		cmd += " --var " + r + "=<" + r + ">"
+	}
+	return cmd
 }
 
 // ScaffoldCommand renders the non-applying form CI runs: scaffold the entry by
-// name, failing on any preset binding problem.
+// name, failing on any preset binding problem. Required inputs the gallery
+// cannot supply are omitted, so the entry's static preset is still validated.
 func (e Entry) ScaffoldCommand() string {
 	return "atelier module add " + e.Name + " --strict --yes"
 }

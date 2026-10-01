@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -257,24 +256,17 @@ func ResolveVarFile(wrapperDir, cloneDir, modulePath, ref string) (string, bool)
 	return "", false
 }
 
-// ResolveVarFiles resolves every `--var-file` argument in order. On the first
-// miss it returns an error that lists the bundles discoverable local and in
-// the clone, so names are discoverable rather than guessed.
+// ResolveVarFiles resolves every `--var-file` argument in order. A bare name
+// that matches nothing is not fatal: a gallery entry may carry a preset whose
+// values a prefix file already satisfies, so the name is skipped so later
+// `--var-file`s and `--var` overrides still apply. The caller warns. Errors are
+// reserved for a malformed name.
 func ResolveVarFiles(wrapperDir, cloneDir, modulePath string, refs []string) ([]string, error) {
 	out := make([]string, 0, len(refs))
 	for _, ref := range refs {
 		p, ok := ResolveVarFile(wrapperDir, cloneDir, modulePath, ref)
 		if !ok {
-			avail := ListAllVarFiles(wrapperDir, cloneDir, modulePath)
-			if len(avail) == 0 {
-				return nil, fmt.Errorf("var-file %q not found (no .tfvars bundles discovered)", ref)
-			}
-			lines := make([]string, 0, len(avail))
-			for _, f := range avail {
-				lines = append(lines, fmt.Sprintf("[%s] %s (%s)", f.Source, f.Name, f.Display))
-			}
-			return nil, fmt.Errorf("var-file %q not found; available:\n  %s",
-				ref, strings.Join(lines, "\n  "))
+			continue
 		}
 		out = append(out, p)
 	}

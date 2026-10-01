@@ -517,15 +517,20 @@ and a gallery entry may *name* a preset.
   `<module>/examples/`, `<repo>/terraform/presets/`,
   `<repo>/terraform/examples/`, `<repo>/presets/`, `<repo>/examples/`), and
   finally a preset bundled with Atelier's gallery
-  ([ADR-0035](adr/0035-bundled-module-gallery.md)). A name that does not
-  resolve produces an error listing every bundle found in all three sources.
+  ([ADR-0035](adr/0035-bundled-module-gallery.md)). A name that resolves
+  nowhere is skipped with a warning rather than fatal, so a gallery entry's
+  preset can be superseded by a bundle the user supplies.
 - `--list-var-files` prints the available bundles (source-labelled) without
   writing anything. On `module add` it needs no other flag; on `import` it
   requires `--source`, since the repo is only searched after a clone.
 - `atelier gallery list [--commands]` renders Atelier's bundled gallery: the
-  module, pinned ref, preset (if any), and the command to deploy it.
+  module, pinned ref, preset (if any), and the command to deploy it. An entry
+  whose module needs deployment-specific inputs (a Juju model UUID, S3
+  credentials) lists them under `requires`; `gallery list` renders a `--var`
+  placeholder for each, so the required inputs are visible before running.
   `--commands` prints the non-applying scaffold form, one per entry, which is
-  what `just gallery-check` and CI run. The gallery is the lowest-precedence
+  what `just gallery-check` and CI run; `atelier gallery requires <name>` prints
+  an entry's `requires` list one per line. The gallery is the lowest-precedence
   `--var-file` source, so a local or module-repo bundle of the same name wins.
 - A gallery entry's **name** may be given to `atelier module add` / `atelier
   apply` in place of a URL. It expands to the entry's module, ref, block, and

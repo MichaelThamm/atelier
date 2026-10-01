@@ -55,6 +55,19 @@ TUI, not committed per-example Markdown:
 A module that deploys with its defaults needs no preset: the entry simply omits
 it.
 
+### Deployment-specific inputs are metadata, not preset values
+
+Some modules declare an input that is real but cannot be known statically — a
+Juju model UUID, S3 credentials. A gallery entry lists them under `requires`; its
+preset stays free of fake values, because a seeded placeholder looks configured
+(the failure ADR-0007's sparse rule exists to avoid). `gallery list` renders a
+`--var` placeholder for each required input, so they are visible before anything
+runs, and `gallery-check` fills them with placeholders so it can still validate
+the entry. Atelier does not synthesize these values and does not probe a provider
+for them: how to obtain a model UUID is provider-specific know-how that belongs
+to the user's deployment, not to the gallery. `gallery requires <name>` prints
+the list, one per line, for the check.
+
 ### The gallery is the lowest-precedence `--var-file` source
 
 `--var-file <name>` resolves in four steps, first match wins (ADR-0031

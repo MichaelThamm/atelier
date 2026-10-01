@@ -32,6 +32,19 @@ func TestEntry_commands(t *testing.T) {
 	}
 }
 
+func TestEntry_requiresAppendedToApply(t *testing.T) {
+	e := Entry{Name: "x", Requires: []string{"model_uuid", "s3_endpoint"}}
+	want := "atelier apply x --var model_uuid=<model_uuid> --var s3_endpoint=<s3_endpoint>"
+	if got := e.ApplyCommand(); got != want {
+		t.Errorf("ApplyCommand = %q, want %q", got, want)
+	}
+	// The scaffold form CI runs omits them: CI cannot supply deployment-specific
+	// values, and the entry's static preset must still be validated.
+	if got, want := e.ScaffoldCommand(), "atelier module add x --strict --yes"; got != want {
+		t.Errorf("ScaffoldCommand = %q, want %q", got, want)
+	}
+}
+
 func TestFind(t *testing.T) {
 	e, ok := Find("haproxy-product")
 	if !ok || e.Module == "" {

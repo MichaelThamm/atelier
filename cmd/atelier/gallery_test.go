@@ -24,6 +24,22 @@ func TestRenderGallery(t *testing.T) {
 	}
 }
 
+// A long command wraps under the description without reflowing the name column.
+func TestRenderGallery_longCommand(t *testing.T) {
+	entries := []gallery.Entry{
+		{Name: "loki-operators", Description: "Loki", Requires: []string{"model_uuid", "s3_endpoint"}},
+	}
+	var buf bytes.Buffer
+	if err := renderGallery(&buf, entries, false); err != nil {
+		t.Fatal(err)
+	}
+	want := "loki-operators  Loki\n" +
+		"                atelier apply loki-operators --var model_uuid=<model_uuid> --var s3_endpoint=<s3_endpoint>\n"
+	if got := buf.String(); got != want {
+		t.Errorf("renderGallery:\n%q\nwant:\n%q", got, want)
+	}
+}
+
 func TestRenderGallery_commands(t *testing.T) {
 	entries := []gallery.Entry{{Name: "x"}}
 	var buf bytes.Buffer

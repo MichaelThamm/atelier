@@ -15,6 +15,10 @@ const galleryUsage = `Usage:
                                                module, pinned ref, preset, and the command to deploy them.
                                                --commands prints one non-applying scaffold command per
                                                entry, for scripts and CI.
+  atelier gallery requires <name>
+                                               Print the inputs an entry cannot supply (a Juju model
+                                               UUID, S3 credentials), one per line. Used by the gallery
+                                               check.
 `
 
 // runGallery dispatches the `atelier gallery` subcommand. The gallery is
@@ -28,9 +32,29 @@ func runGallery(args []string) error {
 	switch args[0] {
 	case "list", "ls":
 		return runGalleryList(args[1:])
+	case "requires":
+		return runGalleryRequires(args[1:])
 	default:
 		return fmt.Errorf("unknown gallery subcommand %q\n\n%s", args[0], galleryUsage)
 	}
+}
+
+// runGalleryRequires prints, one per line, the inputs an entry's preset cannot
+// supply. It is a machine-readable helper for `gallery-check`, which fills them
+// with placeholders so it can validate an entry whose module declares
+// deployment-specific required inputs.
+func runGalleryRequires(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("gallery requires takes exactly one entry name")
+	}
+	entry, ok := gallery.Find(args[0])
+	if !ok {
+		return fmt.Errorf("no gallery entry named %q", args[0])
+	}
+	for _, r := range entry.Requires {
+		fmt.Println(r)
+	}
+	return nil
 }
 
 func runGalleryList(args []string) error {
