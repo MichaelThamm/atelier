@@ -9,9 +9,11 @@ import (
 
 // deadcodeVersion pins the analyzer so the gate is reproducible: deadcode is a
 // main package, not an importable library, so it is run via `go run` at a fixed
-// version. An older x/tools (v0.43.0, the repo's indirect pin) panics on this
-// module's syntax, so the version is deliberate rather than "latest".
-const deadcodeVersion = "v0.50.0"
+// version. The pin matters twice over: v0.43.0 (the repo's indirect x/tools)
+// panics on this module's syntax, and v0.50.0 requires Go 1.26, which would
+// force a toolchain download. v0.49.0 is the newest that builds on the module's
+// Go version.
+const deadcodeVersion = "v0.49.0"
 
 // repoRoot returns the module root (the directory holding go.mod), so deadcode
 // analyzes the whole module regardless of the test's working directory.
@@ -39,11 +41,14 @@ func TestNoUnreachableFunctions(t *testing.T) {
 
 	cmd := exec.Command("go", "run", "golang.org/x/tools/cmd/deadcode@"+deadcodeVersion, "-test", "./...")
 	cmd.Dir = root
-	out, err := cmd.CombinedOutput()
+	// Findings go to stdout; `go run`'s download and toolchain progress go to
+	// stderr. Reading stdout alone keeps that chatter out of the report (and
+	// out of CombinedOutput, which would misread a cold cache as a finding).
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		// A run failure (network, version resolution) is not a finding; fail
-		// loudly so it is not mistaken for either a pass or a real result.
-		t.Fatalf("deadcode@%s failed to run: %v\n%s", deadcodeVersion, err, out)
+		t.Fatalf("deadcode@%s failed to run: %v\n%s", deadcodeVersion, err, stderr.String())
 	}
 
 	// deadcode exits 0 even when it finds dead code, so the finding is the
