@@ -151,7 +151,7 @@ func runOpen() error {
 		return err
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := interruptContext()
 	defer cancel()
 	// LoadExisting may re-resolve and (cold) re-clone the primary module before
 	// the alt-screen comes up. Show a spinner labelled with the total module
@@ -597,6 +597,13 @@ func isTerminal(f *os.File) bool {
 		return false
 	}
 	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
+}
+
+// interruptContext returns a context cancelled by Ctrl-C. Every command that
+// can be interrupted mid-clone or mid-plan uses this one prologue, so the
+// SIGINT policy is defined in a single place.
+func interruptContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt)
 }
 
 // startSpinner prints a progress message to stderr and returns a stop function.

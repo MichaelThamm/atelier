@@ -2,11 +2,9 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"maps"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -190,19 +188,7 @@ func runImport(args []string) error {
 	// there is no repo to search. It honours --dir so the local walk-up is the
 	// same one the import itself would see.
 	if listVarFiles {
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-		defer cancel()
-		files, err := bootstrap.ListVarFiles(ctx, bootstrap.InitOptions{
-			WrapperDir: dir,
-			Source:     sourceArg,
-			Ref:        refArg,
-			ModulePath: moduleArg,
-		})
-		if err != nil {
-			return err
-		}
-		printVarFiles(files)
-		return nil
+		return listVarFileBundles(dir, sourceArg, refArg, moduleArg)
 	}
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return fmt.Errorf("directory does not exist: %s", dir)
@@ -288,7 +274,7 @@ func runImport(args []string) error {
 		provider = resolveProviderSource(promptProvider())
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := interruptContext()
 	defer cancel()
 
 	opts := importer.Options{
@@ -566,7 +552,7 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	// post-import normalisation).
 	if mainTFExists(dir) {
 		fmt.Fprintln(os.Stderr, "Wrapper already exists; loading module variables…")
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		ctx, cancel := interruptContext()
 		defer cancel()
 		res, err := bootstrap.LoadExisting(ctx, dir, nil)
 		if err != nil {
