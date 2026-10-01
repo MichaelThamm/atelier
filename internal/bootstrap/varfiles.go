@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/MichaelThamm/atelier/internal/gallery"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -119,12 +120,42 @@ func RepoVarFiles(cloneDir, modulePath string) []VarFile {
 	return out
 }
 
-// ListAllVarFiles returns the union of local (walk-up) and repo bundles, local
-// first. Names present in both sources are shown twice so `--list-var-files`
-// makes the override relationship visible.
+// ListAllVarFiles returns the union of local (walk-up), repo, and gallery
+// bundles, in that order. Names present in more than one source are shown once
+// per source so `--list-var-files` makes the override relationship visible.
 func ListAllVarFiles(wrapperDir, cloneDir, modulePath string) []VarFile {
 	out := LocalVarFiles(wrapperDir)
 	out = append(out, RepoVarFiles(cloneDir, modulePath)...)
+	out = append(out, GalleryVarFiles()...)
+	return out
+}
+
+// GalleryVarFiles returns the presets bundled with Atelier (ADR-0035), as
+// entries whose Path points into the materialized cache directory. They are the
+// lowest-precedence source: a local or module-repo bundle of the same name wins.
+func GalleryVarFiles() []VarFile {
+	entries, err := gallery.List()
+	if err != nil {
+		return nil
+	}
+	var out []VarFile
+	for _, e := range entries {
+		if e.Preset == "" {
+			continue
+		}
+		p, ok := gallery.PresetPath(e.Preset)
+		if !ok {
+			continue
+		}
+		out = append(out, VarFile{
+			Name:        e.Preset,
+			Path:        p,
+			Source:      "gallery",
+			Display:     "bundled with atelier",
+			Description: bundleDescription(p),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
@@ -178,12 +209,13 @@ func VarFileSearchDirs(cloneDir, modulePath string) []string {
 }
 
 // ResolveVarFile resolves one `--var-file` argument to a concrete path, in
-// precedence order (ADR-0031):
+// precedence order (ADR-0031, ADR-0035):
 //
 //  1. an existing local filesystem path,
 //  2. a personal walk-up bundle in `atelier.presets/<name>.tfvars` (nearest
 //     ancestor wins), so a user can override a product example by name,
-//  3. a bundle committed to the cloned module repo.
+//  3. a bundle committed to the cloned module repo,
+//  4. a preset bundled with Atelier's gallery.
 //
 // Reports false when nothing matches.
 func ResolveVarFile(wrapperDir, cloneDir, modulePath, ref string) (string, bool) {
@@ -206,16 +238,21 @@ func ResolveVarFile(wrapperDir, cloneDir, modulePath, ref string) (string, bool)
 		}
 	}
 
-	if cloneDir == "" {
-		return "", false
-	}
-	for _, dir := range VarFileSearchDirs(cloneDir, modulePath) {
-		for _, cand := range varFileNameCandidates(ref) {
-			p := filepath.Join(dir, cand)
-			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-				return p, true
+	if cloneDir != "" {
+		for _, dir := range VarFileSearchDirs(cloneDir, modulePath) {
+			for _, cand := range varFileNameCandidates(ref) {
+				p := filepath.Join(dir, cand)
+				if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+					return p, true
+				}
 			}
 		}
+	}
+
+	// The gallery is the lowest-precedence source (ADR-0035): a local or
+	// module-repo bundle of the same name has already won above.
+	if p, ok := gallery.PresetPath(name); ok {
+		return p, true
 	}
 	return "", false
 }

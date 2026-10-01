@@ -1,0 +1,208 @@
+// Package gallery is Atelier's curated set of quick starts for real Terraform
+// modules: the module address, a pinned revision, an optional preset, and the
+// one-liner that uses them. The data is embedded so `--var-file` can resolve a
+// gallery preset and `atelier gallery list` can render it with no network and no
+// checkout.
+//
+// A gallery entry is machine-first; the human interface is the CLI and the TUI
+// preset picker, not committed Markdown. See ADR-0035.
+package gallery
+
+import (
+	"crypto/sha256"
+	"embed"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+)
+
+//go:embed gallery.json
+var manifestJSON []byte
+
+//go:embed presets
+var presetsFS embed.FS
+
+// Entry is one gallery quick start. Preset is optional: a module that deploys
+// with its defaults needs no preset.
+type Entry struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Module      string `json:"module"`
+	Subdir      string `json:"subdir"`
+	Ref         string `json:"ref"`
+	// Block is the explicit HCL block name (`--as`), for a module whose
+	// candidate directory gives a poor derived name (e.g. `product`).
+	Block string `json:"block,omitempty"`
+	// Preset is the `.tfvars` bundle name in presets/, without the suffix.
+	Preset string `json:"preset,omitempty"`
+}
+
+// ApplyCommand renders the user-facing one-liner: apply the gallery entry by
+// name. `atelier module add`/`apply` expand the name back to the module, ref,
+// block, and preset below.
+func (e Entry) ApplyCommand() string {
+	return "atelier apply " + e.Name
+}
+
+// ScaffoldCommand renders the non-applying form CI runs: scaffold the entry by
+// name, failing on any preset binding problem.
+func (e Entry) ScaffoldCommand() string {
+	return "atelier module add " + e.Name + " --strict --yes"
+}
+
+// Find returns the entry with this name.
+func Find(name string) (Entry, bool) {
+	entries, err := List()
+	if err != nil {
+		return Entry{}, false
+	}
+	for _, e := range entries {
+		if e.Name == name {
+			return e, true
+		}
+	}
+	return Entry{}, false
+}
+
+// List returns the gallery entries in name order. It fails if the embedded
+// manifest is malformed, so a bad manifest is caught wherever the gallery is
+// read rather than producing a partial list.
+func List() ([]Entry, error) {
+	var entries []Entry
+	if err := json.Unmarshal(manifestJSON, &entries); err != nil {
+		return nil, fmt.Errorf("gallery manifest: %w", err)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	if err := validate(entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func validate(entries []Entry) error {
+	seen := map[string]bool{}
+	referenced := map[string]bool{}
+	for _, e := range entries {
+		switch {
+		case e.Name == "":
+			return fmt.Errorf("gallery manifest: entry with empty name")
+		case seen[e.Name]:
+			return fmt.Errorf("gallery manifest: duplicate name %q", e.Name)
+		case e.Module == "":
+			return fmt.Errorf("gallery manifest: %q has no module", e.Name)
+		case e.Ref == "":
+			return fmt.Errorf("gallery manifest: %q has no ref", e.Name)
+		case e.Preset != "" && !HasPreset(e.Preset):
+			return fmt.Errorf("gallery manifest: %q names preset %q, which is not embedded", e.Name, e.Preset)
+		}
+		seen[e.Name] = true
+		if e.Preset != "" {
+			referenced[e.Preset] = true
+		}
+	}
+	// An embedded preset no entry references would never be exercised by
+	// `gallery-check`, so it could rot unnoticed.
+	files, err := presetsFS.ReadDir("presets")
+	if err != nil {
+		return fmt.Errorf("gallery presets: %w", err)
+	}
+	for _, f := range files {
+		name := strings.TrimSuffix(f.Name(), ".tfvars")
+		if !referenced[name] {
+			return fmt.Errorf("gallery: preset %q is embedded but no entry references it", name)
+		}
+	}
+	return nil
+}
+
+// Lookup returns the named preset's contents.
+func Lookup(name string) ([]byte, bool) {
+	data, err := presetsFS.ReadFile("presets/" + name + ".tfvars")
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// HasPreset reports whether the gallery ships a preset with this name.
+func HasPreset(name string) bool {
+	_, ok := Lookup(name)
+	return ok
+}
+
+var (
+	presetDirOnce sync.Once
+	presetDirPath string
+	presetDirErr  error
+)
+
+// PresetDir materializes the embedded presets into a content-addressed cache
+// directory and returns it. Callers that need a filesystem path — the var-file
+// resolver and the TUI picker — use this; the embedded bytes remain the source
+// of truth. The directory is keyed by a hash of the manifest and preset
+// contents, so a new binary never reuses a stale one.
+func PresetDir() (string, error) {
+	presetDirOnce.Do(func() {
+		presetDirPath, presetDirErr = materialize()
+	})
+	return presetDirPath, presetDirErr
+}
+
+// PresetPath returns the materialized path for a preset, if the gallery has it.
+func PresetPath(name string) (string, bool) {
+	if !HasPreset(name) {
+		return "", false
+	}
+	dir, err := PresetDir()
+	if err != nil {
+		return "", false
+	}
+	return filepath.Join(dir, name+".tfvars"), true
+}
+
+func materialize() (string, error) {
+	entries, err := List()
+	if err != nil {
+		return "", err
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		base = os.TempDir()
+	}
+
+	h := sha256.New()
+	h.Write(manifestJSON)
+	for _, e := range entries {
+		if e.Preset == "" {
+			continue
+		}
+		data, ok := Lookup(e.Preset)
+		if !ok {
+			return "", fmt.Errorf("gallery: preset %q listed but not embedded", e.Preset)
+		}
+		h.Write(data)
+	}
+	dir := filepath.Join(base, "atelier", "gallery", hex.EncodeToString(h.Sum(nil))[:16])
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if e.Preset == "" {
+			continue
+		}
+		path := filepath.Join(dir, e.Preset+".tfvars")
+		if _, err := os.Stat(path); err == nil {
+			continue
+		}
+		data, _ := Lookup(e.Preset)
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}

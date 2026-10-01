@@ -289,6 +289,12 @@ func runModuleAdd(args []string) error {
 		return err
 	}
 
+	// A positional that is neither a URL nor a local path is a gallery entry
+	// name; expand it before anything reads the source (ADR-0035).
+	if err := resolveModuleSource(&opts); err != nil {
+		return err
+	}
+
 	// --list-var-files clones the module to a scratch directory, prints the
 	// `.tfvars` bundles discoverable locally and in the repository, then exits
 	// (ADR-0031). The clone is removed before returning, so nothing is written
@@ -496,6 +502,9 @@ func runModuleApply(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := resolveModuleSource(&opts); err != nil {
+		return err
+	}
 	if opts.ListVarFiles {
 		return listVarFileBundles(cwd, opts.Source, opts.Ref, opts.ModulePath)
 	}
@@ -664,14 +673,16 @@ func applyWrapper(dir string, autoApprove bool) error {
 		return err
 	}
 
-	// init is non-interactive; stream its progress so module and provider
-	// fetches are visible. Clear the writers before apply, which attaches the
-	// terminal itself when interactive.
-	stop := startSpinner("Running terraform init…")
+	// init is non-interactive; stream Terraform's own progress (module and
+	// provider fetches) rather than animating a spinner alongside it. The two
+	// would race on the same terminal: the spinner writes carriage-return frames
+	// with no newline while Terraform writes newline-terminated lines, so a frame
+	// and Terraform's output land on the same line. Clear the writers before
+	// apply, which attaches the terminal itself when interactive.
+	fmt.Fprintln(os.Stderr, "Running terraform init…")
 	tf.SetStdout(os.Stdout)
 	tf.SetStderr(os.Stderr)
 	err = tf.Init(ctx)
-	stop()
 	tf.SetStdout(nil)
 	tf.SetStderr(nil)
 	if err != nil {

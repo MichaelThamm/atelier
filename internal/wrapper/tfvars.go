@@ -52,7 +52,9 @@ func RenderTFVarsValues(vars []tfvars.Variable, values map[string]cty.Value) []b
 // surfaced so a committed example cannot rot silently when a variable is
 // renamed or its type changes (ADR-0031).
 type VarFileDiagnostics struct {
-	// Unknown lists attribute names the module does not declare.
+	// Unknown lists attribute names the module does not declare. From
+	// LintTFVars it also carries keys nested inside object values as dotted
+	// paths (e.g. "worker.resources").
 	Unknown []string
 	// Mismatched lists "<name>: <reason>" for values that are not convertible
 	// to the declared variable type.
@@ -75,22 +77,9 @@ func ReadTFVarsFileChecked(path string, vars []tfvars.Variable) (map[string]cty.
 
 func readTFVarsFile(path string, vars []tfvars.Variable) (map[string]cty.Value, VarFileDiagnostics, error) {
 	var diags VarFileDiagnostics
-	data, err := os.ReadFile(path)
+	raw, err := rawTFVarsValues(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return map[string]cty.Value{}, diags, nil
-		}
-		return nil, diags, fmt.Errorf("read %s: %w", filepath.Base(path), err)
-	}
-
-	parser := hclparse.NewParser()
-	f, hclDiags := parser.ParseHCL(data, path)
-	if hclDiags.HasErrors() {
-		return nil, diags, fmt.Errorf("parse %s: %s", filepath.Base(path), hclDiags.Error())
-	}
-	body, ok := f.Body.(*hclsyntax.Body)
-	if !ok {
-		return nil, diags, fmt.Errorf("parse %s: unexpected body type", filepath.Base(path))
+		return nil, diags, err
 	}
 
 	var declared map[string]*tfvars.Variable
@@ -102,15 +91,10 @@ func readTFVarsFile(path string, vars []tfvars.Variable) (map[string]cty.Value, 
 	}
 
 	out := map[string]cty.Value{}
-	for name, attr := range body.Attributes {
+	for name, val := range raw {
 		decl, known := declared[name]
 		if declared != nil && !known {
 			diags.Unknown = append(diags.Unknown, name)
-			continue
-		}
-		val, dd := attr.Expr.Value(nil)
-		if dd.HasErrors() {
-			// Reference expressions are not valid in a .tfvars file; skip.
 			continue
 		}
 		if decl != nil {
@@ -128,6 +112,152 @@ func readTFVarsFile(path string, vars []tfvars.Variable) (map[string]cty.Value, 
 	return out, diags, nil
 }
 
+// rawTFVarsValues parses a `.tfvars` file and evaluates each attribute to a
+// concrete cty value, without consulting a module schema. Reference
+// expressions are skipped: `.tfvars` is constants-only. The apply path
+// (readTFVarsFile) then coerces each value to its declared type; the lint path
+// (LintTFVars) walks the raw value against the declared type instead, so it
+// keeps the optional() metadata that coercion discards.
+func rawTFVarsValues(path string) (map[string]cty.Value, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]cty.Value{}, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", filepath.Base(path), err)
+	}
+
+	parser := hclparse.NewParser()
+	f, hclDiags := parser.ParseHCL(data, path)
+	if hclDiags.HasErrors() {
+		return nil, fmt.Errorf("parse %s: %s", filepath.Base(path), hclDiags.Error())
+	}
+	body, ok := f.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, fmt.Errorf("parse %s: unexpected body type", filepath.Base(path))
+	}
+
+	out := map[string]cty.Value{}
+	for name, attr := range body.Attributes {
+		val, dd := attr.Expr.Value(nil)
+		if dd.HasErrors() {
+			continue
+		}
+		out[name] = val
+	}
+	return out, nil
+}
+
+// LintTFVars checks a `.tfvars` bundle against a module's declared variables
+// and reports what Terraform would reject: attribute names the module does not
+// declare, keys nested inside object values that the object type does not
+// declare, and values that do not fit a scalar (or scalar-collection) type.
+// Unknown nested keys are reported as dotted paths (e.g. "worker.resources").
+//
+// Nested object values are checked for key existence only, never for type:
+// Atelier's cty view drops optional() metadata, so shape-checking a legitimate
+// partial object would produce false mismatches (ADR-0031). Object-containing
+// types are walked for undeclared keys and left to Terraform for shape errors.
+// Used by `atelier presets lint` to keep a committed bundle from rotting when a
+// field is renamed.
+func LintTFVars(path string, vars []tfvars.Variable) (VarFileDiagnostics, error) {
+	var diags VarFileDiagnostics
+	if _, err := os.Stat(path); err != nil {
+		return diags, fmt.Errorf("var-file %s: %w", path, err)
+	}
+	raw, err := rawTFVarsValues(path)
+	if err != nil {
+		return diags, err
+	}
+
+	declared := make(map[string]*tfvars.Variable, len(vars))
+	for i := range vars {
+		declared[vars[i].Name] = &vars[i]
+	}
+	for name, val := range raw {
+		decl, known := declared[name]
+		if !known {
+			diags.Unknown = append(diags.Unknown, name)
+			continue
+		}
+		if !hasComplexShape(decl.Type) {
+			if _, cerr := coerceToDeclaredType(decl, val); cerr != nil {
+				diags.Mismatched = append(diags.Mismatched, fmt.Sprintf("%s: %v", name, cerr))
+				continue
+			}
+		}
+		lintValueAgainstType(name, val, decl.Type, &diags)
+	}
+	sort.Strings(diags.Unknown)
+	sort.Strings(diags.Mismatched)
+	return diags, nil
+}
+
+// hasComplexShape reports whether a declared type contains an object or tuple
+// anywhere. Atelier deliberately does not type-check those (ADR-0031): the
+// apply path skips cty conversion for them, and the lint path checks key
+// existence instead.
+func hasComplexShape(t *tftypes.Type) bool {
+	if t == nil {
+		return false
+	}
+	switch t.Kind {
+	case tftypes.KindObject, tftypes.KindTuple:
+		return true
+	case tftypes.KindList, tftypes.KindSet, tftypes.KindMap:
+		return hasComplexShape(t.Element)
+	}
+	return false
+}
+
+// lintValueAgainstType walks a parsed value against the declared type and
+// records object keys the type does not declare. It descends through objects,
+// maps, lists, sets, and tuples, so a mistyped field is caught at any depth;
+// scalar and any types are leaves.
+func lintValueAgainstType(path string, val cty.Value, typ *tftypes.Type, diags *VarFileDiagnostics) {
+	if typ == nil || val == cty.NilVal || val.IsNull() || !val.IsKnown() {
+		return
+	}
+	switch typ.Kind {
+	case tftypes.KindObject:
+		if typ.Attributes == nil || !isObjectish(val) {
+			return
+		}
+		for k, v := range val.AsValueMap() {
+			attr, ok := typ.Attributes[k]
+			if !ok {
+				diags.Unknown = append(diags.Unknown, path+"."+k)
+				continue
+			}
+			lintValueAgainstType(path+"."+k, v, attr.Type, diags)
+		}
+	case tftypes.KindMap:
+		if !isObjectish(val) {
+			return
+		}
+		for k, v := range val.AsValueMap() {
+			lintValueAgainstType(path+"."+k, v, typ.Element, diags)
+		}
+	case tftypes.KindList, tftypes.KindSet, tftypes.KindTuple:
+		if !val.CanIterateElements() {
+			return
+		}
+		i := 0
+		for it := val.ElementIterator(); it.Next(); {
+			_, v := it.Element()
+			el := typ.Element
+			if typ.Kind == tftypes.KindTuple {
+				if i >= len(typ.Tuple) {
+					break
+				}
+				el = typ.Tuple[i]
+			}
+			lintValueAgainstType(fmt.Sprintf("%s[%d]", path, i), v, el, diags)
+			i++
+		}
+	}
+}
+
 // coerceToDeclaredType converts a parsed value to the variable's declared
 // type, returning an error when it does not fit. Types containing an object or
 // tuple are left as-is: cty.Types built from Atelier's model lose optional-field
@@ -142,20 +272,4 @@ func coerceToDeclaredType(decl *tfvars.Variable, val cty.Value) (cty.Value, erro
 		return val, nil
 	}
 	return convert.Convert(val, tftypes.CtyType(decl.Type))
-}
-
-// hasComplexShape reports whether a declared type contains an object or tuple
-// anywhere. Atelier deliberately does not type-check those (ADR-0031), so
-// conversion is skipped for them and Terraform reports nested-shape errors.
-func hasComplexShape(t *tftypes.Type) bool {
-	if t == nil {
-		return false
-	}
-	switch t.Kind {
-	case tftypes.KindObject, tftypes.KindTuple:
-		return true
-	case tftypes.KindList, tftypes.KindSet, tftypes.KindMap:
-		return hasComplexShape(t.Element)
-	}
-	return false
 }
