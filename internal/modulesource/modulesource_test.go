@@ -139,27 +139,6 @@ func TestIsLocal(t *testing.T) {
 	}
 }
 
-func TestIsGitSource(t *testing.T) {
-	cases := []struct {
-		in   string
-		want bool
-	}{
-		{"git::https://github.com/org/repo.git//path?ref=v1", true},
-		{"https://github.com/org/repo.git//path", true},
-		{"github.com/org/repo//path", true},
-		{"./modules/vpc", false},
-		{"../shared/network", false},
-		{"/absolute/path", false},
-		{"hashicorp/consul/aws", false}, // registry source
-		{"file:///tmp/module", false},
-	}
-	for _, c := range cases {
-		if got := IsGitSource(c.in); got != c.want {
-			t.Errorf("IsGitSource(%q) = %v, want %v", c.in, got, c.want)
-		}
-	}
-}
-
 func TestIsFullSHA(t *testing.T) {
 	cases := []struct {
 		name string

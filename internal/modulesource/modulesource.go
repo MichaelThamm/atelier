@@ -116,22 +116,6 @@ func IsLocal(source string) bool {
 		strings.HasPrefix(source, "/")
 }
 
-// IsGitSource reports whether source looks like a git remote rather than a
-// local path or a registry source. It is intentionally looser than !IsLocal:
-// it also rejects registry references such as "hashicorp/consul/aws".
-func IsGitSource(source string) bool {
-	if strings.HasPrefix(source, gitPrefix) {
-		return true
-	}
-	if strings.HasPrefix(source, "github.com/") {
-		return true
-	}
-	if strings.Contains(source, "://") && !strings.HasPrefix(source, "file://") {
-		return true
-	}
-	return false
-}
-
 // IsFullSHA reports whether s is a full 40-character lowercase hex commit SHA.
 // It deliberately does not accept git's short forms: callers use it to decide
 // whether a module's pinned ref is an immutable commit. gitops keeps a

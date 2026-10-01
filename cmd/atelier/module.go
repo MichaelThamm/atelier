@@ -160,8 +160,9 @@ func validateVarPair(pair string) error {
 	return validateVarKey(k)
 }
 
-// varsToMap turns validated `KEY=VALUE` pairs into the map applyVarOverrides
-// expects. A value may itself contain `=`; only the first one splits.
+// varsToMap turns validated `KEY=VALUE` pairs into the map
+// wrapper.ApplyVarOverrides expects. A value may itself contain `=`; only the
+// first one splits.
 func varsToMap(pairs []string) map[string]string {
 	out := make(map[string]string, len(pairs))
 	for _, p := range pairs {
