@@ -38,6 +38,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0029 | [Live logs view (`L`)](0029-live-logs-view.md)                                              | Accepted |
 | 0030 | [Target-directory preflight and duplicate-module refusal](0030-target-directory-preflight.md) | Accepted |
 | 0031 | [Presets as Terraform-native `.tfvars` bundles](0031-presets-as-tfvars-bundles.md)          | Accepted |
+| 0032 | [Nested-wrapper preflight distinguishes deliberate nesting from stray `cd`](0032-nested-wrapper-preflight-scope.md) | Accepted |
 
 ## Conventions
 

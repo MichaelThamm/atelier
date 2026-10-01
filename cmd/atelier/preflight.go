@@ -269,9 +269,20 @@ func specialDirConcern(dir string) (concern, bool) {
 // on a deep path costs a stat per level for no benefit.
 const nestedWrapperMaxDepth = 8
 
-// nestedWrapperConcern flags a target that sits inside an existing wrapper.
-// Nesting produces two wrappers whose clones and Terraform state overlap in
-// ways neither Atelier nor Terraform will make sense of.
+// nestedWrapperConcern reports a target that sits inside an existing wrapper.
+//
+// Two cases are distinguished, because only one is actually a hazard:
+//
+//   - The target is inside the wrapper's own machinery (`.atelier/`,
+//     `.terraform/`). That is almost certainly a stray `cd`; scaffolding a root
+//     inside Atelier's state or Terraform's module cache is never intended, so
+//     this alarms and prompts.
+//   - The target is an ordinary directory below a wrapper. Creating an
+//     independent wrapper there is a supported layout — a parent holding
+//     several related wrappers is exactly what the walk-up `atelier.presets/`
+//     discovery is for (§11). Terraform state is per-directory, so sibling
+//     roots do not interfere. This is reported as a note: printed for context,
+//     never prompting.
 func nestedWrapperConcern(dir string) (concern, bool) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -285,10 +296,16 @@ func nestedWrapperConcern(dir string) (concern, bool) {
 		}
 		cur = parent
 		if isWrapperDir(cur) {
+			if insideWrapperMachinery(abs, cur) {
+				return concern{
+					level:  levelAlarm,
+					detail: fmt.Sprintf("this directory is inside an existing wrapper's internal state (%s)", cur),
+					hint:   "scaffolding here would nest a root inside Atelier's or Terraform's own files; choose a normal directory instead.",
+				}, true
+			}
 			return concern{
-				level:  levelAlarm,
-				detail: fmt.Sprintf("this directory is inside an existing wrapper (%s)", cur),
-				hint:   "nested wrappers share nothing and confuse Terraform state; add the module to the outer wrapper instead.",
+				level:  levelNote,
+				detail: fmt.Sprintf("this directory is inside another wrapper (%s); it will be an independent root", cur),
 			}, true
 		}
 		// Stop at a repository boundary: crossing it would report a wrapper
@@ -298,6 +315,21 @@ func nestedWrapperConcern(dir string) (concern, bool) {
 		}
 	}
 	return concern{}, false
+}
+
+// insideWrapperMachinery reports whether target lies within an Atelier or
+// Terraform internal directory of the wrapper rooted at wrapperDir.
+func insideWrapperMachinery(target, wrapperDir string) bool {
+	rel, err := filepath.Rel(wrapperDir, target)
+	if err != nil {
+		return false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if part == wrapper.AtelierDir || part == ".terraform" {
+			return true
+		}
+	}
+	return false
 }
 
 // isWrapperDir reports whether dir is an Atelier wrapper: a main.tf plus
