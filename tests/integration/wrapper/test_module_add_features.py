@@ -106,8 +106,13 @@ def test_as_names_the_module_block(tmp_path, atelier_bin):
     # WHEN an explicit block name is given
     _add(tmp_path, atelier_bin, "--as", "prom")
 
-    # THEN the block uses it
-    assert re.search(r'module\s+"prom"', _main_tf(tmp_path))
+    # THEN exactly one module block uses it, and the candidate-derived name is
+    # gone. A rename that left the derived block behind would declare the module
+    # twice and fail later at apply, on colliding resource names.
+    main_tf = _main_tf(tmp_path)
+    assert re.search(r'module\s+"prom"', main_tf), main_tf
+    assert len(re.findall(r'^module\s+"', main_tf, re.M)) == 1, main_tf
+    assert not re.search(rf'module\s+"{PROM_BLOCK}"', main_tf), main_tf
 
 
 def test_module_list_and_rm(tmp_path, atelier_bin):

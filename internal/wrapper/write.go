@@ -34,6 +34,42 @@ func (s *State) Write() error {
 	return nil
 }
 
+// RenameModuleBlock changes this State's module block label in main.tf from its
+// current name to newName, and updates State.ModuleBlockName. A fresh bootstrap
+// writes the block under the candidate-derived name before `--as` is known, so
+// re-writing the state under the new name would append a second block
+// (findOrCreateModuleBlock matches by name) rather than rename the first.
+func (s *State) RenameModuleBlock(newName string) error {
+	old := s.ModuleBlockName
+	if old == newName {
+		return nil
+	}
+	mainPath := filepath.Join(s.Dir, MainTF)
+	existing, err := os.ReadFile(mainPath)
+	if err != nil {
+		return err
+	}
+	file, diags := hclwrite.ParseConfig(existing, mainPath, hcl.Pos{Line: 1, Column: 1})
+	if diags.HasErrors() {
+		return fmt.Errorf("parse existing main.tf: %s", diags.Error())
+	}
+	for _, b := range file.Body().Blocks() {
+		if b.Type() != "module" {
+			continue
+		}
+		labels := b.Labels()
+		if len(labels) == 1 && labels[0] == old {
+			b.SetLabels([]string{newName})
+			if err := WriteMain(s.Dir, hclwrite.Format(file.Bytes())); err != nil {
+				return err
+			}
+			s.ModuleBlockName = newName
+			return nil
+		}
+	}
+	return fmt.Errorf("module block %q not found in %s", old, MainTF)
+}
+
 func (s *State) writeMain() error {
 	out, err := s.RenderMain()
 	if err != nil {

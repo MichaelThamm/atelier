@@ -319,10 +319,11 @@ func runModuleAdd(args []string) error {
 			return nil
 		}
 
-		// If --as was provided, rename the module block.
+		// If --as was provided, rename the block the bootstrap just wrote under
+		// the candidate-derived name. Re-writing the state under the new name
+		// would append a second block rather than rename the first.
 		if opts.As != "" {
-			res.State.ModuleBlockName = sanitizeBlockName(opts.As)
-			if err := res.State.Write(); err != nil {
+			if err := res.State.RenameModuleBlock(sanitizeBlockName(opts.As)); err != nil {
 				cleanup()
 				return err
 			}
