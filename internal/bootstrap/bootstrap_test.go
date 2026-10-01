@@ -36,6 +36,27 @@ func TestModuleBlockName(t *testing.T) {
 	}
 }
 
+func TestModuleDirName(t *testing.T) {
+	cases := []struct{ in, fallback, want string }{
+		// Separators are preserved: the directory reads like the module, not
+		// like the HCL identifier.
+		{"terraform/cos-lite", "", "cos-lite"},
+		{"cos", "", "cos"},
+		{"weird-name!", "", "weird-name"},
+		{".", "", "this"},
+		{".", "terraform-aws-s3-bucket", "terraform-aws-s3-bucket"},
+		// A bare terraform/ sub-path is uninformative: prefer the repo name.
+		{"terraform", "mimir-operators", "mimir-operators"},
+		{"tf", "loki-operators", "loki-operators"},
+		{"terraform/cos", "observability-stack", "cos"},
+	}
+	for _, c := range cases {
+		if got := ModuleDirName(c.in, c.fallback); got != c.want {
+			t.Errorf("ModuleDirName(%q, %q) = %q, want %q", c.in, c.fallback, got, c.want)
+		}
+	}
+}
+
 func TestReadRequiredProviders(t *testing.T) {
 	dir := t.TempDir()
 	const tf = `

@@ -25,7 +25,7 @@ func TestParseModuleAddArgs_VarFile(t *testing.T) {
 		{[]string{"url", "--var-file", "a.tfvars", "--var-file=b.tfvars"}, []string{"a.tfvars", "b.tfvars"}},
 	}
 	for _, c := range cases {
-		opts, err := parseModuleAddArgs(c.args)
+		opts, err := parseModuleArgs(c.args)
 		if err != nil {
 			t.Fatalf("parse(%v): %v", c.args, err)
 		}
@@ -33,13 +33,13 @@ func TestParseModuleAddArgs_VarFile(t *testing.T) {
 			t.Errorf("parse(%v) var files = %v, want %v", c.args, opts.VarFiles, c.want)
 		}
 	}
-	if _, err := parseModuleAddArgs([]string{"url", "--var-file"}); err == nil {
+	if _, err := parseModuleArgs([]string{"url", "--var-file"}); err == nil {
 		t.Error("expected error for --var-file with no value")
 	}
 }
 
 func TestParseModuleAddArgs_VarFileCommaList(t *testing.T) {
-	opts, err := parseModuleAddArgs([]string{"url", "--var-file", "a,b", "--var-file=c"})
+	opts, err := parseModuleArgs([]string{"url", "--var-file", "a,b", "--var-file=c"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestParseModuleAddArgs_Var(t *testing.T) {
 		{[]string{"url", "--var", "url=http://host:8333/x?a=b"}, []string{"url=http://host:8333/x?a=b"}},
 	}
 	for _, c := range cases {
-		opts, err := parseModuleAddArgs(c.args)
+		opts, err := parseModuleArgs(c.args)
 		if err != nil {
 			t.Fatalf("parse(%v): %v", c.args, err)
 		}
@@ -70,10 +70,10 @@ func TestParseModuleAddArgs_Var(t *testing.T) {
 			t.Errorf("parse(%v) vars = %v, want %v", c.args, opts.Vars, c.want)
 		}
 	}
-	if _, err := parseModuleAddArgs([]string{"url", "--var"}); err == nil {
+	if _, err := parseModuleArgs([]string{"url", "--var"}); err == nil {
 		t.Error("expected error for --var with no value")
 	}
-	if _, err := parseModuleAddArgs([]string{"url", "--var", "novalue"}); err == nil {
+	if _, err := parseModuleArgs([]string{"url", "--var", "novalue"}); err == nil {
 		t.Error("expected error for --var without =")
 	}
 }
@@ -89,7 +89,7 @@ func TestVarsToMap_SplitsOnFirstEquals(t *testing.T) {
 }
 
 func TestParseModuleAddArgs_ListVarFiles(t *testing.T) {
-	opts, err := parseModuleAddArgs([]string{"url", "--list-var-files"})
+	opts, err := parseModuleArgs([]string{"url", "--list-var-files"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,5 +238,98 @@ func TestUniqueBlockName_EmptyExisting(t *testing.T) {
 	got := uniqueBlockName("anything", []wrapper.ModuleBlockInfo{})
 	if got != "anything" {
 		t.Errorf("got %q, want anything", got)
+	}
+}
+
+// --- parseModuleArgs: --dir ---
+
+func TestParseModuleArgs_Dir(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"url", "--dir", "cos-lite"}, "cos-lite"},
+		{[]string{"url", "--dir=cos-lite"}, "cos-lite"},
+		{[]string{"url"}, ""},
+	} {
+		opts, err := parseModuleArgs(c.args)
+		if err != nil {
+			t.Fatalf("parse(%v): %v", c.args, err)
+		}
+		if opts.Dir != c.want {
+			t.Errorf("parse(%v) Dir = %q, want %q", c.args, opts.Dir, c.want)
+		}
+	}
+	if _, err := parseModuleArgs([]string{"url", "--dir"}); err == nil {
+		t.Error("expected error for --dir with no value")
+	}
+}
+
+// --- unsetRequiredVars ---
+
+func TestUnsetRequiredVars(t *testing.T) {
+	state := &wrapper.State{
+		Vars: []tfvars.Variable{
+			{Name: "required_unset"},
+			{Name: "required_set"},
+			{Name: "required_null"},
+			{Name: "optional", HasDefault: true, Default: cty.StringVal("x")},
+		},
+		Values: map[string]cty.Value{
+			"required_set":  cty.StringVal("v"),
+			"required_null": cty.NullVal(cty.String),
+		},
+	}
+	got := unsetRequiredVars(state)
+	want := []string{"required_unset", "required_null"}
+	if !slices.Equal(got, want) {
+		t.Errorf("unsetRequiredVars = %v, want %v", got, want)
+	}
+}
+
+func TestUnsetRequiredVars_none(t *testing.T) {
+	state := &wrapper.State{
+		Vars:   []tfvars.Variable{{Name: "a"}, {Name: "b", HasDefault: true, Default: cty.NumberIntVal(1)}},
+		Values: map[string]cty.Value{"a": cty.StringVal("v")},
+	}
+	if got := unsetRequiredVars(state); len(got) != 0 {
+		t.Errorf("unsetRequiredVars = %v, want none", got)
+	}
+}
+
+// --- checkApplyTarget ---
+
+func TestCheckApplyTarget(t *testing.T) {
+	base := t.TempDir()
+
+	if err := checkApplyTarget(filepath.Join(base, "new")); err != nil {
+		t.Errorf("missing target: %v", err)
+	}
+
+	empty := filepath.Join(base, "empty")
+	if err := os.Mkdir(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkApplyTarget(empty); err != nil {
+		t.Errorf("empty target: %v", err)
+	}
+
+	nonEmpty := filepath.Join(base, "full")
+	if err := os.Mkdir(nonEmpty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nonEmpty, "main.tf"), []byte("# existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkApplyTarget(nonEmpty); err == nil {
+		t.Error("expected an error for a non-empty target")
+	}
+
+	file := filepath.Join(base, "afile")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkApplyTarget(file); err == nil {
+		t.Error("expected an error when the target is a file")
 	}
 }

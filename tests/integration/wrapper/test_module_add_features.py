@@ -134,6 +134,36 @@ def test_module_list_and_rm(tmp_path, atelier_bin):
     assert not re.search(r'module\s+"prom"', _main_tf(tmp_path))
 
 
+def test_apply_as_names_the_module_block_and_dir(tmp_path, atelier_bin):
+    # GIVEN the apply one-liner against a module with required variables that
+    # no --var supplies, so it writes the wrapper and stops before applying
+    # (non-interactive stdin, no terminal needed).
+    # WHEN --as names the block and the target directory
+    run_atelier(
+        tmp_path,
+        atelier_bin,
+        "apply",
+        PROM_REPO,
+        "--module",
+        PROM_MODULE,
+        "--as",
+        "prom",
+        capture=True,
+        # Exits non-zero on purpose: the module's required variables are unset,
+        # so it writes the wrapper and stops before applying.
+        check=False,
+    )
+
+    # THEN the wrapper lives in a directory named after --as, and main.tf
+    # declares exactly one module block under that name. Re-writing the state
+    # under the new name would leave the candidate-derived block behind and
+    # declare the module twice — the bug this guards.
+    main_tf = (tmp_path / "prom" / "main.tf").read_text()
+    assert re.search(r'module\s+"prom"', main_tf), main_tf
+    assert len(re.findall(r'^module\s+"', main_tf, re.M)) == 1, main_tf
+    assert not re.search(rf'module\s+"{PROM_BLOCK}"', main_tf), main_tf
+
+
 def test_duplicate_add_is_refused(tmp_path, atelier_bin):
     # GIVEN the module is already present
     _add(tmp_path, atelier_bin)

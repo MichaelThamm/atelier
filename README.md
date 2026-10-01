@@ -106,6 +106,28 @@ it first. An empty directory (as `mkdir` makes) never prompts; a non-empty one
 is confirmed before anything is written, and `--yes` skips that prompt
 ([ADR-0030](docs/adr/0030-target-directory-preflight.md)).
 
+### Just apply it
+
+For the common "I only want this module running" case, `module apply` does the
+`mkdir && cd` and the `terraform init && terraform apply` for you: it creates a
+directory named after the module, writes the wrapper, initialises it, and runs
+`terraform apply`.
+
+```bash
+atelier module apply \
+  https://github.com/canonical/observability-stack.git \
+  --module terraform/cos-lite --var model_uuid=<MODEL_UUID>
+```
+
+At a terminal it uses Terraform's **interactive** apply, so you review the plan
+and confirm it at Terraform's own prompt (there is no `--yes`). With no terminal
+— a script, CI, or `… < /dev/null` — it applies with `-auto-approve` instead, so
+the same command runs unattended. `atelier apply <git-url>` is an alias. The
+directory is named after the module (`cos-lite` above); `--as`/`--dir` override
+it, and a non-empty target is refused rather than scaffolded over. The result is
+an ordinary wrapper — `cd` into it and run `atelier` to configure further, or
+`terraform` directly. See [ADR-0034](docs/adr/0034-module-apply-one-liner.md).
+
 Re-open an existing wrapper (run with no arguments in the wrapper dir):
 ```bash
 atelier

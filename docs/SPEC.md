@@ -249,6 +249,12 @@ atelier module add <git-url> --var <K=V>   # set a single module input (repeatab
 atelier module add <git-url> --list-var-files  # print the .tfvars bundles available (local + module repo)
 atelier module rm <name> [--force]         # remove a module from the wrapper
 atelier module list                        # list modules in the wrapper
+atelier module apply <git-url>             # scaffold a wrapper in a new dir, init, then apply interactively
+atelier module apply <git-url> --module <subdir>  # skip the candidate picker
+atelier module apply <git-url> --ref <ref>  # pin a ref
+atelier module apply <git-url> --as <name>  # target directory / HCL block name
+atelier module apply <git-url> --dir <path> # explicit target directory
+atelier module apply <git-url> --var <K=V>  # set a module input (repeatable; wins over --var-file)
 atelier tidy [PATH] [--write]              # prune module arguments left at their default value
 atelier import [PROVIDER] [flags]          # import live resources into Terraform state
 atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ directories
@@ -256,16 +262,22 @@ atelier --help                             # print usage
 ```
 
 See [ADR-0018](adr/0018-additive-module-command.md) for the `module`
-subcommand design and [ADR-0027](adr/0027-atelier-import.md) for the
-`import` subcommand design.
+subcommand design, [ADR-0027](adr/0027-atelier-import.md) for the `import`
+subcommand design, and [ADR-0034](adr/0034-module-apply-one-liner.md) for
+`module apply`.
 
 There is no `atelier init`. A wrapper is created and modules are added through
 `atelier module add <url>`.
 
 That is the complete CLI surface. Notably absent:
 
-- No `atelier plan` / `atelier apply` (use `terraform` directly in the
-  wrapper, or press `P`/`A` within the TUI).
+- No `atelier plan` (use `terraform plan` directly in the wrapper, or press
+  `P` within the TUI).
+- No `atelier apply` command. `atelier module apply` is not that: it is the
+  `mkdir && cd && terraform init && terraform apply` shortcut for the very
+  first deployment of a module, driven by Terraform's own interactive approval
+  (see §6.9). Applying an *existing* wrapper is done with `terraform apply`
+  directly or with `A` from the TUI plan view.
 - No daemon mode or persistent sessions.
 
 There is no `atelier output` subcommand; run `terraform output` directly in the
@@ -517,6 +529,63 @@ shape is always the classic sparse `main.tf` (there is no pass-through mode —
   non-default configuration as a new `atelier.presets/<name>.tfvars` in the
   wrapper directory. The `atelier.local.yaml` mechanism is no longer used by the
   TUI (see §11).
+
+### 6.9 `atelier module apply` — the one-liner
+
+`atelier module apply <git-url>` is the shortest path from a module URL to
+running infrastructure. It does the `mkdir && cd` and the `terraform init &&
+terraform apply` a user would otherwise do by hand, so "just apply this module"
+is one command. See [ADR-0034](adr/0034-module-apply-one-liner.md).
+
+```
+atelier module apply https://github.com/canonical/observability-stack.git \
+  --module terraform/cos-lite --var model_uuid=<MODEL_UUID>
+```
+
+`atelier apply <git-url>` is an **undocumented alias** for this command. It is
+not listed in the surface above on purpose: a documented `atelier apply` would
+read as Atelier owning the apply lifecycle, which ADR-0002 and §6 deny. The
+operation is unchanged — scaffold a module and hand Terraform the console.
+
+Sequence:
+
+1. Clone the module and discover candidates, exactly as `module add` does
+   (same `--module`, `--ref`, `--var-file`, `--var`, `--as`, and candidate
+   picker).
+2. Choose a **target directory** and create it. By default it is named after
+   the module candidate (`terraform/cos-lite` → `cos-lite`; a generic
+   `terraform/` candidate falls back to the repository name), with `--as` or
+   `--dir <path>` overriding. `--as` names both the directory and the HCL
+   block, so a hyphenated `--as my-prom` gives directory `my-prom` and block
+   `my_prom` (HCL identifiers cannot contain hyphens). The clone is staged next
+   to the target and renamed into place, so there is exactly one clone.
+3. Write the wrapper (bootstrap) into the target.
+4. Run `terraform init`, then **`terraform apply`**.
+
+The apply is **not auto-approved when a terminal is present**: Terraform prints
+the plan and asks `Do you want to perform these actions?`, and the user answers.
+There is no `--yes` for this command — that flag means "don't prompt", and here
+the prompt *is* the confirmation ([ADR-0002](adr/0002-author-and-plan-scope.md)).
+
+When stdin is **not** a terminal — a script, CI, or the usual
+`atelier module apply … < /dev/null` — there is no one to answer, so the apply
+runs as `terraform apply -auto-approve -input=false`. The scaffolding steps are
+non-interactive either way, so the command never needs `< /dev/null` to avoid a
+TUI; the redirect only decides whether the final apply prompts.
+
+Rules:
+
+- The target directory must be new or empty. A non-empty target is refused
+  (naming `--dir`/`--as`) instead of scaffolded over, because `module apply`
+  creates a fresh wrapper — unlike `module add`, which may append into an
+  existing one.
+- If the module declares a required variable with no value, `module apply`
+  writes the wrapper and stops before applying, naming the variable and
+  suggesting `--var`. Terraform would otherwise reject the run with a less
+  direct message.
+- The wrapper is a normal Atelier wrapper: re-open it with `atelier`, or run
+  `terraform` in it directly (SPEC §4). `module apply` is a convenience, not a
+  new artifact shape.
 
 ## 7. TUI layout
 

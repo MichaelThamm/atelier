@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -123,6 +124,61 @@ func TestConfigureLogging_appendsAcrossSessions(t *testing.T) {
 				t.Errorf("%s missing %q; a session overwrote an earlier one: %q", name, want, got)
 			}
 		}
+	}
+}
+
+// TestApply_autoApprove pins both apply modes of the `atelier module apply`
+// one-liner. Interactive (autoApprove=false) must let Terraform ask, so the
+// argv has no -auto-approve/-input=false; autoApprove=true must pass both, for
+// the non-interactive case. The stub binary records its argv, so this fails if
+// someone routes the interactive path back through terraform-exec's
+// always-auto-approving Apply.
+func TestApplyDirect_autoApprove(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		autoApprove bool
+		want        []string
+		unwant      []string
+	}{
+		{name: "interactive", autoApprove: false, unwant: []string{"-auto-approve", "-input=false"}},
+		{name: "non-interactive", autoApprove: true, want: []string{"-auto-approve", "-input=false"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			argsFile := filepath.Join(dir, "argv")
+			script := filepath.Join(dir, "fake-terraform")
+			body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argsFile + "\"\n"
+			if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			tf, err := New(dir, script)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := tf.ApplyDirect(context.Background(), c.autoApprove); err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+
+			got, err := os.ReadFile(argsFile)
+			if err != nil {
+				t.Fatalf("read recorded argv: %v", err)
+			}
+			args := strings.Fields(string(got))
+			if len(args) == 0 || args[0] != "apply" {
+				t.Fatalf("argv = %q, want it to start with 'apply'", string(got))
+			}
+			for _, a := range c.want {
+				if !slices.Contains(args, a) {
+					t.Errorf("argv = %q; want %s", string(got), a)
+				}
+			}
+			for _, a := range c.unwant {
+				if slices.Contains(args, a) {
+					t.Errorf("argv = %q; must not pass %s", string(got), a)
+				}
+			}
+		})
 	}
 }
 
