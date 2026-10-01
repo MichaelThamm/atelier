@@ -1,12 +1,15 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/candidate"
@@ -31,6 +34,14 @@ const moduleUsage = `Usage:
                                                type mismatches) fatal instead of warnings.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
+  atelier module apply <git-url> [--module SUBDIR] [--ref REF] [--as NAME]
+                                [--dir PATH] [--var-file PATH|NAME]
+                                [--var KEY=VALUE] [--list-var-files] [--strict]
+                                               Scaffold a wrapper in a new directory (named after the
+                                               module candidate, or --as/--dir), then run
+                                               'terraform init' and Terraform's own interactive
+                                               'terraform apply'. The user confirms the plan at
+                                               Terraform's prompt; there is no auto-approve.
 `
 
 // runModule dispatches the `atelier module` subcommand.
@@ -42,6 +53,8 @@ func runModule(args []string) error {
 	switch args[0] {
 	case "add":
 		return runModuleAdd(args[1:])
+	case "apply":
+		return runModuleApply(args[1:])
 	case "rm", "remove":
 		return runModuleRm(args[1:])
 	case "list", "ls":
@@ -51,12 +64,14 @@ func runModule(args []string) error {
 	}
 }
 
-// moduleAddOpts holds parsed flags for `atelier module add`.
-type moduleAddOpts struct {
+// moduleOpts holds the flags shared by `atelier module add` and
+// `atelier module apply`.
+type moduleOpts struct {
 	Source       string   // positional git URL
 	As           string   // --as: explicit HCL block name
 	Ref          string   // --ref: git ref
 	ModulePath   string   // --module: candidate subdir
+	Dir          string   // --dir: target directory (module apply only)
 	VarFiles     []string // --var-file: seed values from a .tfvars file or repo-local name (repeatable)
 	Vars         []string // --var: KEY=VALUE overrides applied after all var-files (repeatable)
 	Yes          bool     // --yes/-y: skip the target-directory confirmation
@@ -64,8 +79,8 @@ type moduleAddOpts struct {
 	Strict       bool     // --strict: make var-file binding warnings fatal
 }
 
-func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
-	var opts moduleAddOpts
+func parseModuleArgs(args []string) (moduleOpts, error) {
+	var opts moduleOpts
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -94,6 +109,12 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 				return opts, fmt.Errorf("--module requires a path")
 			}
 			opts.ModulePath = args[i]
+		case "--dir":
+			i++
+			if i >= len(args) {
+				return opts, fmt.Errorf("--dir requires a path")
+			}
+			opts.Dir = args[i]
 		case "--var-file":
 			i++
 			if i >= len(args) {
@@ -122,17 +143,21 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 				opts.Vars = append(opts.Vars, pair)
 				continue
 			}
+			if strings.HasPrefix(a, "--dir=") {
+				opts.Dir = strings.TrimPrefix(a, "--dir=")
+				continue
+			}
 			if strings.HasPrefix(a, "-") {
-				return opts, fmt.Errorf("unknown flag %q for module add", a)
+				return opts, fmt.Errorf("unknown flag %q for module command", a)
 			}
 			positional = append(positional, a)
 		}
 	}
 	if len(positional) == 0 {
-		return opts, fmt.Errorf("module add requires a git URL argument")
+		return opts, fmt.Errorf("module command requires a git URL argument")
 	}
 	if len(positional) > 1 {
-		return opts, fmt.Errorf("module add takes exactly one URL argument; got %v", positional)
+		return opts, fmt.Errorf("module command takes exactly one URL argument; got %v", positional)
 	}
 	opts.Source = positional[0]
 	return opts, nil
@@ -196,10 +221,11 @@ func listVarFileBundles(wrapperDir, source, ref, modulePath string) error {
 	ctx, cancel := interruptContext()
 	defer cancel()
 	files, err := bootstrap.ListVarFiles(ctx, bootstrap.InitOptions{
-		WrapperDir: wrapperDir,
-		Source:     source,
-		Ref:        ref,
-		ModulePath: modulePath,
+		WrapperDir:  wrapperDir,
+		Source:      source,
+		LocalSource: modulesource.IsLocal(source),
+		Ref:         ref,
+		ModulePath:  modulePath,
 	})
 	if err != nil {
 		return err
@@ -249,9 +275,14 @@ func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string
 
 // runModuleAdd implements `atelier module add <url>`.
 func runModuleAdd(args []string) error {
-	opts, err := parseModuleAddArgs(args)
+	opts, err := parseModuleArgs(args)
 	if err != nil {
 		return err
+	}
+	// `module add` writes into the current directory; only `module apply`
+	// creates and moves into a directory of its own.
+	if opts.Dir != "" {
+		return fmt.Errorf("--dir is only valid for 'atelier module apply'; 'module add' writes to the current directory")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -309,7 +340,7 @@ func runModuleAdd(args []string) error {
 		// Fresh bootstrap of a new wrapper from the given module URL. Clone,
 		// wrapper authoring and failure cleanup are shared with `import
 		// --source` (bootstrapFreshWrapper) so the two stay in lockstep.
-		res, cleanup, err := bootstrapFreshWrapper(cwd, opts.Source, opts.Ref, opts.ModulePath)
+		res, cleanup, err := bootstrapFreshWrapper(cwd, cwd, opts.Source, opts.Ref, opts.ModulePath)
 		if err != nil {
 			return err
 		}
@@ -319,11 +350,10 @@ func runModuleAdd(args []string) error {
 			return nil
 		}
 
-		// If --as was provided, rename the block the bootstrap just wrote under
-		// the candidate-derived name. Re-writing the state under the new name
-		// would append a second block rather than rename the first.
+		// If --as was provided, rename the module block.
 		if opts.As != "" {
-			if err := res.State.RenameModuleBlock(sanitizeBlockName(opts.As)); err != nil {
+			res.State.ModuleBlockName = sanitizeBlockName(opts.As)
+			if err := res.State.Write(); err != nil {
 				cleanup()
 				return err
 			}
@@ -351,10 +381,11 @@ func runModuleAdd(args []string) error {
 	// module whose Terraform lives in a subdirectory (e.g. `terraform/`) is
 	// appended with the correct `//<subdir>` source and shows its variables.
 	prep, err := bootstrap.PrepareModule(ctx, bootstrap.InitOptions{
-		WrapperDir: cwd,
-		Source:     opts.Source,
-		Ref:        opts.Ref,
-		ModulePath: opts.ModulePath,
+		WrapperDir:  cwd,
+		Source:      opts.Source,
+		LocalSource: modulesource.IsLocal(opts.Source),
+		Ref:         opts.Ref,
+		ModulePath:  opts.ModulePath,
 	})
 	stop()
 	if err != nil {
@@ -440,6 +471,213 @@ func runModuleAdd(args []string) error {
 	return launchTUI(res, cwd)
 }
 
+// runModuleApply implements `atelier module apply <url>`: scaffold a wrapper in
+// a new directory, then run `terraform init` and Terraform's own interactive
+// `terraform apply` (ADR-0034). It saves the user from `mkdir && cd &&
+// terraform init && terraform apply`.
+func runModuleApply(args []string) error {
+	opts, err := parseModuleArgs(args)
+	if err != nil {
+		return err
+	}
+	// The apply approval comes from Terraform's own prompt, so it only has a
+	// gate to show when stdin is a terminal. Detect that here: an
+	// auto-approved apply is used otherwise (see applyWrapper), so a pipe,
+	// CI, or `atelier module apply … < /dev/null` still runs unattended.
+	// --yes is still rejected below: the flag means "don't prompt", and here
+	// the prompt is the confirmation, so it would be a second, confusing
+	// spelling of auto-approve.
+	interactive := isTerminal(os.Stdin)
+	if opts.Yes {
+		return fmt.Errorf("--yes is not valid for 'module apply': Terraform's apply prompt is the confirmation; apply runs without one when stdin is not a terminal")
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if opts.ListVarFiles {
+		return listVarFileBundles(cwd, opts.Source, opts.Ref, opts.ModulePath)
+	}
+	if _, err := tfexec.Locate(); err != nil {
+		return err
+	}
+
+	// Resolve an explicit target now so a collision is caught before the
+	// clone. A derived name is only known after candidate discovery.
+	explicitTarget := ""
+	if opts.Dir != "" || opts.As != "" {
+		explicitTarget = opts.Dir
+		if explicitTarget == "" {
+			explicitTarget = opts.As
+		}
+		if !filepath.IsAbs(explicitTarget) {
+			explicitTarget = filepath.Join(cwd, explicitTarget)
+		}
+		explicitTarget = filepath.Clean(explicitTarget)
+		if err := checkApplyTarget(explicitTarget); err != nil {
+			return err
+		}
+	}
+
+	// Stage under the target's parent so the final move is a same-filesystem
+	// rename. Staging keeps the clone to one round trip while still letting the
+	// directory be named after the discovered module candidate.
+	parent := cwd
+	if explicitTarget != "" {
+		parent = filepath.Dir(explicitTarget)
+		if err := os.MkdirAll(parent, 0o755); err != nil {
+			return err
+		}
+	}
+	staging, err := os.MkdirTemp(parent, ".atelier-apply-*")
+	if err != nil {
+		return err
+	}
+	moved := false
+	defer func() {
+		if !moved {
+			_ = os.RemoveAll(staging)
+		}
+	}()
+
+	res, cleanup, err := bootstrapFreshWrapper(cwd, staging, opts.Source, opts.Ref, opts.ModulePath)
+	if err != nil {
+		return err
+	}
+	if res.State == nil {
+		// Multiple candidates — user needs --module. Nothing was written.
+		printCandidates(os.Stdout, res.Candidates)
+		return nil
+	}
+
+	// --as renames the HCL block, exactly as `module add` does.
+	if opts.As != "" {
+		res.State.ModuleBlockName = sanitizeBlockName(opts.As)
+	}
+	// Apply --var-file values, then --var overrides on top, before the wrapper
+	// moves (the clone the names resolve against still lives under staging).
+	if err := applyVarFlags(res.State, staging, res.CloneDir, res.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
+		cleanup()
+		return err
+	}
+	if opts.As != "" || len(opts.VarFiles) > 0 || len(opts.Vars) > 0 {
+		if err := res.State.Write(); err != nil {
+			cleanup()
+			return err
+		}
+	}
+
+	target := explicitTarget
+	if target == "" {
+		name := bootstrap.ModuleDirName(res.ModulePath, modulesource.RepoBasename(opts.Source))
+		target = filepath.Join(cwd, name)
+		if err := checkApplyTarget(target); err != nil {
+			cleanup()
+			return err
+		}
+	}
+
+	// Move the staged wrapper into place. An existing empty directory is
+	// reused; a non-empty one was refused by checkApplyTarget.
+	if info, err := os.Stat(target); err == nil && info.IsDir() {
+		if err := os.Remove(target); err != nil {
+			cleanup()
+			return err
+		}
+	}
+	if err := os.Rename(staging, target); err != nil {
+		cleanup()
+		return err
+	}
+	moved = true
+
+	// Required variables with no value would make Terraform reject the apply.
+	// The wrapper is already in place, so point at the flag that fixes it.
+	if missing := unsetRequiredVars(res.State); len(missing) > 0 {
+		return fmt.Errorf("module requires a value for %s; pass --var NAME=VALUE (or --var-file) and re-run.\nWrapper written to %s",
+			strings.Join(missing, ", "), target)
+	}
+
+	fmt.Fprintf(os.Stderr, "Wrapper written to %s\n", target)
+	return applyWrapper(target, !interactive)
+}
+
+// checkApplyTarget refuses a target directory that already holds files.
+// `module apply` creates a fresh wrapper; a non-empty directory is almost
+// always a mistyped --dir or --as, so it is refused rather than scaffolded
+// over. An existing empty directory is allowed and reused.
+func checkApplyTarget(target string) error {
+	info, err := os.Stat(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("target %s exists and is not a directory", target)
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return err
+	}
+	if len(entries) > 0 {
+		return fmt.Errorf("target directory %s already exists and is not empty; choose another name with --dir or --as", target)
+	}
+	return nil
+}
+
+// unsetRequiredVars lists required module variables (declared without a
+// default) that have no value. `module apply` checks this before running
+// Terraform, which would otherwise reject the run with a less direct message.
+func unsetRequiredVars(state *wrapper.State) []string {
+	var missing []string
+	for _, v := range state.Vars {
+		if !v.VarIsRequired() {
+			continue
+		}
+		val, ok := state.Values[v.Name]
+		if !ok || val == cty.NilVal || val.IsNull() {
+			missing = append(missing, v.Name)
+		}
+	}
+	return missing
+}
+
+// applyWrapper runs `terraform init` then `terraform apply` in dir. When there
+// is a terminal, apply is Terraform's interactive prompt (autoApprove=false);
+// otherwise it is auto-approved (autoApprove=true) so a pipe or CI run does not
+// hang on a question nobody can answer. See ADR-0034.
+func applyWrapper(dir string, autoApprove bool) error {
+	ctx, cancel := interruptContext()
+	defer cancel()
+
+	tf, err := tfexec.New(dir, "")
+	if err != nil {
+		return err
+	}
+
+	// init is non-interactive; stream its progress so module and provider
+	// fetches are visible. Clear the writers before apply, which attaches the
+	// terminal itself when interactive.
+	stop := startSpinner("Running terraform init…")
+	tf.SetStdout(os.Stdout)
+	tf.SetStderr(os.Stderr)
+	err = tf.Init(ctx)
+	stop()
+	tf.SetStdout(nil)
+	tf.SetStderr(nil)
+	if err != nil {
+		return fmt.Errorf("terraform init: %w", err)
+	}
+
+	if autoApprove {
+		fmt.Fprintln(os.Stderr, "no terminal on stdin: applying without the plan prompt.")
+	}
+	return tf.ApplyDirect(ctx, autoApprove)
+}
+
 // bootstrapFreshWrapper clones a remote module source and writes a wrapper
 // into dir, printing a spinner and any bootstrap warnings. The clone, authoring
 // and transactional cleanup are bootstrap.FreshWrapper, so `module add` and
@@ -451,21 +689,31 @@ func runModuleAdd(args []string) error {
 // prints it and errors. The returned cleanup closure removes an .atelier/
 // this run created; callers invoke it on their own post-bootstrap failure
 // paths.
-func bootstrapFreshWrapper(dir, source, ref, modulePath string) (*bootstrap.Result, func(), error) {
+//
+// sourceBaseDir resolves a relative local `source` path (`.`.`/…`); it defaults
+// to dir, which is right when the wrapper is written where the user invoked the
+// command. `module apply` stages the wrapper elsewhere and passes the
+// invocation directory so a local source still resolves.
+func bootstrapFreshWrapper(sourceBaseDir, dir, source, ref, modulePath string) (*bootstrap.Result, func(), error) {
 	if _, err := tfexec.Locate(); err != nil {
 		return nil, nil, err
 	}
 
 	ctx, cancel := interruptContext()
 	defer cancel()
+	if sourceBaseDir == "" {
+		sourceBaseDir = dir
+	}
 
 	stop := startSpinner("Cloning and preparing module…")
 	defer stop()
 	fresh, err := bootstrap.FreshWrapper(ctx, bootstrap.InitOptions{
-		WrapperDir: dir,
-		Source:     source,
-		Ref:        ref,
-		ModulePath: modulePath,
+		WrapperDir:    dir,
+		Source:        source,
+		LocalSource:   modulesource.IsLocal(source),
+		SourceBaseDir: sourceBaseDir,
+		Ref:           ref,
+		ModulePath:    modulePath,
 	})
 	stop()
 	if err != nil {

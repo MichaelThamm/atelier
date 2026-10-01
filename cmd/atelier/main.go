@@ -7,6 +7,9 @@
 //	                                            add a module (bootstraps if needed)
 //	atelier module rm <name> [--force]          remove a module from the wrapper
 //	atelier module list                         list modules in the wrapper
+//	atelier module apply <git-url> [--module SUBDIR] [--ref REF] [--dir PATH]
+//	                                            scaffold a wrapper in a new directory, then
+//	                                            init and interactively apply it
 //	atelier tidy [PATH] [--write]               prune arguments left at their default
 //	atelier purge [PATH] [--force]              remove .atelier/ and .clone/
 //
@@ -60,6 +63,16 @@ Usage:
                                                --strict makes var-file binding warnings fatal.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
+  atelier module apply <git-url> [--module SUBDIR] [--ref REF] [--as NAME]
+                                [--dir PATH] [--var-file PATH|NAME]
+                                [--var KEY=VALUE] [--list-var-files]
+                                               Scaffold a wrapper in a new directory, then run
+                                               'terraform init' and Terraform's own interactive
+                                               'terraform apply'. The directory is named after the
+                                               module candidate unless --as or --dir says otherwise.
+                                               The plan is confirmed at Terraform's prompt; there
+                                               is no auto-approve. 'atelier apply <git-url>' is
+                                               an alias for this command.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
@@ -87,8 +100,9 @@ Usage:
 
 The wrapper is the durable artifact: a normal Terraform project Atelier
 writes into the current directory. The TUI can run 'terraform plan' and, from
-the plan view, 'terraform apply'; the wrapper also stays runnable on its own
-without Atelier installed.
+the plan view, 'terraform apply'; 'atelier module apply' is a one-liner that
+scaffolds a wrapper and then runs Terraform's own init and interactive apply.
+Either way the wrapper stays runnable on its own without Atelier installed.
 `
 
 // version is the build version, injected at link time via
@@ -105,6 +119,51 @@ func main() {
 	}
 }
 
+// command is a canonical top-level subcommand. `atelier apply` and
+// `atelier module apply` both resolve to cmdModuleApply, so the alias is a
+// routing detail rather than a second implementation.
+type command string
+
+const (
+	cmdOpen        command = "open"
+	cmdModuleApply command = "module apply"
+	cmdModuleOther command = "module"
+	cmdPurge       command = "purge"
+	cmdTidy        command = "tidy"
+	cmdImport      command = "import"
+)
+
+// resolveCommand maps the first non-empty argument to its canonical command.
+// It is pure so the dispatch table — including the `apply` alias — is testable
+// without running anything.
+func resolveCommand(args []string) (command, []string) {
+	if len(args) == 0 {
+		return cmdOpen, nil
+	}
+	switch args[0] {
+	case "module":
+		if len(args) > 1 && args[1] == "apply" {
+			return cmdModuleApply, args[2:]
+		}
+		return cmdModuleOther, args[1:]
+	case "apply":
+		// Convenience alias for `module apply`, intentionally undocumented in
+		// usage and SPEC §6: a documented `atelier apply` would read as Atelier
+		// owning the apply lifecycle, which ADR-0002 and SPEC §6 deny. The
+		// operation is still "scaffold a module and hand Terraform the console"
+		// (ADR-0034).
+		return cmdModuleApply, args[1:]
+	case "purge":
+		return cmdPurge, args[1:]
+	case "tidy":
+		return cmdTidy, args[1:]
+	case "import":
+		return cmdImport, args[1:]
+	default:
+		return command(args[0]), args[1:]
+	}
+}
+
 func run(args []string) error {
 	// Only check top-level --help / --version (not within subcommands).
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
@@ -116,22 +175,23 @@ func run(args []string) error {
 		return nil
 	}
 
-	if len(args) == 0 {
+	cmd, rest := resolveCommand(args)
+	switch cmd {
+	case cmdOpen:
 		return runOpen()
+	case cmdModuleApply:
+		return runModuleApply(rest)
+	case cmdModuleOther:
+		return runModule(rest)
+	case cmdPurge:
+		return runPurge(rest)
+	case cmdTidy:
+		return runTidy(rest)
+	case cmdImport:
+		return runImport(rest)
+	default:
+		return fmt.Errorf("unknown command %q\n\n%s", string(cmd), usage)
 	}
-	if args[0] == "module" {
-		return runModule(args[1:])
-	}
-	if args[0] == "purge" {
-		return runPurge(args[1:])
-	}
-	if args[0] == "tidy" {
-		return runTidy(args[1:])
-	}
-	if args[0] == "import" {
-		return runImport(args[1:])
-	}
-	return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 }
 
 // runOpen implements `atelier` (no args): open the wrapper in CWD.

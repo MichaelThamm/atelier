@@ -267,7 +267,7 @@ func TestSummariseEntries_bounded(t *testing.T) {
 
 func TestParseModuleAddArgs_yesFlag(t *testing.T) {
 	for _, flag := range []string{"--yes", "-y"} {
-		opts, err := parseModuleAddArgs([]string{"https://example.com/m.git", flag})
+		opts, err := parseModuleArgs([]string{"https://example.com/m.git", flag})
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", flag, err)
 		}
@@ -275,7 +275,7 @@ func TestParseModuleAddArgs_yesFlag(t *testing.T) {
 			t.Errorf("%s: expected Yes to be set", flag)
 		}
 	}
-	opts, err := parseModuleAddArgs([]string{"https://example.com/m.git"})
+	opts, err := parseModuleArgs([]string{"https://example.com/m.git"})
 	if err != nil {
 		t.Fatal(err)
 	}
