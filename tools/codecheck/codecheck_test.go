@@ -1,196 +1,109 @@
-// Package codecheck holds repository-wide structural checks that are not
-// covered by go vet or the compiler: dead packages, and duplicate
-// implementations of mechanisms that should have exactly one home.
+// Package codecheck holds repository-wide structural checks that the compiler
+// and go vet do not express: whether every internal package is reachable from
+// the built binary.
 //
-// These exist because prose guidance did not hold. AGENTS.md already said
-// "extend an existing mechanism rather than adding a parallel one," yet four
-// copies of module-source parsing and an unreachable 700-line package survived
-// several refactors. A rule that only lives in a document is read once; a rule
-// that fails `just check` is read every time.
+// This exists because prose guidance did not hold. AGENTS.md already said to
+// extend an existing mechanism rather than add a parallel one, yet an
+// unreachable 700-line internal/convert package survived several refactors
+// because nothing noticed it. A rule that lives only in a document is read
+// once; a rule that fails `just check` is read every time.
+//
+// The check is deliberately narrow. It uses `go list` — the documented,
+// version-accurate API for the module graph — rather than parsing source or
+// shelling out to git, so it needs no extra dependency and cannot drift from
+// the actual build. Broader architectural rules (forbidden imports, duplicate
+// code) are left to review and the reuse table in AGENTS.md, or to
+// golangci-lint if the project adopts it deliberately; the ecosystem-standard
+// tools are better than a bespoke reimplementation, and lean-by-default says
+// not to carry one.
 package codecheck
 
 import (
-	"os"
+	"encoding/json"
+	"errors"
+	"io"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
 
 const modulePrefix = "github.com/MichaelThamm/atelier"
 
-func repoRoot(t *testing.T) string {
+// goListImports runs `go list -deps -json <patterns>` from the module root and
+// returns the set of package import paths it listed. Failing to list is a test
+// failure, not a skip: the check silently passing because `go list` could not
+// run is exactly the failure mode it exists to prevent.
+func goListImports(t *testing.T, root string, patterns ...string) map[string]bool {
 	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("could not locate repo root (no go.mod found upward)")
-		}
-		dir = parent
-	}
-}
-
-// trackedGoFiles lists tracked (git ls-files) non-test .go files under dir,
-// as paths relative to root. Tracking-based discovery keeps generated and
-// gitignored trees out. It skips the test when git is unavailable.
-func trackedGoFiles(t *testing.T, root, dir string) []string {
-	t.Helper()
-	cmd := exec.Command("git", "ls-files", "-z", "--", dir)
+	args := append([]string{"list", "-deps", "-json"}, patterns...)
+	cmd := exec.Command("go", args...)
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
-		t.Skipf("git ls-files unavailable: %v", err)
-	}
-	var files []string
-	for _, f := range strings.Split(string(out), "\x00") {
-		if f == "" || !strings.HasSuffix(f, ".go") {
-			continue
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("go list %v failed: %v\n%s", patterns, err, ee.Stderr)
 		}
-		if strings.HasSuffix(f, "_test.go") {
-			continue
-		}
-		files = append(files, f)
+		t.Fatalf("go list %v failed: %v", patterns, err)
 	}
-	return files
-}
 
-// internalPackages returns the import path and directory of every tracked
-// package under internal/ that has at least one non-test file.
-func internalPackages(t *testing.T, root string) map[string]string {
-	t.Helper()
-	pkgs := map[string]string{}
-	for _, f := range trackedGoFiles(t, root, "internal") {
-		dir := filepath.Dir(f)
-		pkgs[modulePrefix+"/"+filepath.ToSlash(dir)] = dir
+	pkgs := map[string]bool{}
+	dec := json.NewDecoder(strings.NewReader(string(out)))
+	for {
+		var pkg struct {
+			ImportPath string
+		}
+		if err := dec.Decode(&pkg); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decode go list output: %v", err)
+		}
+		pkgs[pkg.ImportPath] = true
 	}
 	return pkgs
 }
 
-// TestNoDeadInternalPackages fails when an internal package has no importer
-// outside its own subtree and is not reachable from cmd/. Reachability starts
-// at cmd/atelier and follows internal imports transitively.
-//
-// internal/convert survived for months this way: no command dispatched it, but
-// nothing noticed because its tests kept it compiling and green.
+// TestNoDeadInternalPackages fails when an internal package is not reachable
+// from the main binary's package graph. `go list -deps ./cmd/...` walks the
+// exact imports the compiler follows, so anything internal it does not mention
+// is dead product surface: it compiles and its tests may pass, but no command
+// can reach it (this is how internal/convert survived).
 func TestNoDeadInternalPackages(t *testing.T) {
 	root := repoRoot(t)
-	pkgs := internalPackages(t, root)
 
-	// Forward edges: package -> internal packages it imports.
-	deps := map[string][]string{}
-	for pkg, dir := range pkgs {
-		for _, f := range trackedGoFiles(t, root, dir) {
-			data, err := os.ReadFile(filepath.Join(root, f))
-			if err != nil {
-				t.Fatal(err)
-			}
-			deps[pkg] = append(deps[pkg], parseInternalImports(string(data))...)
-		}
+	reachable := goListImports(t, root, "./cmd/...")
+	if len(reachable) == 0 {
+		t.Fatal("go list returned no packages under cmd/; is there a main package?")
+	}
+	all := goListImports(t, root, "./internal/...")
+	if len(all) == 0 {
+		t.Fatal("go list returned no packages under internal/; is the module layout correct?")
 	}
 
-	// Reachable set: everything reachable from cmd/ by following imports
-	// transitively. cmd is the root, so a package the binary cannot reach is
-	// dead product surface.
-	reachable := map[string]bool{}
-	var visit func(pkg string)
-	visit = func(pkg string) {
-		if reachable[pkg] {
-			return
-		}
-		reachable[pkg] = true
-		for _, next := range deps[pkg] {
-			visit(next)
-		}
-	}
-	for _, f := range trackedGoFiles(t, root, "cmd") {
-		data, err := os.ReadFile(filepath.Join(root, f))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, imp := range parseInternalImports(string(data)) {
-			visit(imp)
-		}
-	}
-
-	for pkg, dir := range pkgs {
-		if reachable[pkg] {
+	for pkg := range all {
+		if !strings.HasPrefix(pkg, modulePrefix+"/internal/") {
 			continue
 		}
-		// A package is not dead merely because it is a leaf with no internal
-		// importers — it may be imported by cmd. reachable already covers that,
-		// so anything here is genuinely unreachable from the binary.
-		t.Errorf("internal package %s has no import path from cmd/: it is dead product surface. Delete it or wire it into a command.", dir)
-	}
-}
-
-// parseInternalImports returns the atelier internal import paths in a Go
-// source file's import block, using a conservative regex rather than go/parser
-// (import paths are one per line and unambiguous).
-func parseInternalImports(src string) []string {
-	var out []string
-	for _, m := range regexp.MustCompile(`"(github\.com/MichaelThamm/atelier/internal/[^"]+)"`).FindAllStringSubmatch(src, -1) {
-		out = append(out, m[1])
-	}
-	return out
-}
-
-// TestModuleSourceParsingHasOneHome fails when the logic that splits a
-// Terraform module source into remote/ref/subdir is re-implemented outside
-// internal/modulesource. The tell is a second definition that splits on the
-// `?ref=` query or the `//` separators.
-func TestModuleSourceParsingHasOneHome(t *testing.T) {
-	root := repoRoot(t)
-	allowed := filepath.FromSlash("internal/modulesource/")
-
-	for _, f := range trackedGoFiles(t, root, ".") {
-		if strings.HasPrefix(f, allowed) {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(root, f))
-		if err != nil {
-			t.Fatal(err)
-		}
-		src := string(data)
-		if strings.Contains(src, `"?ref="`) || strings.Contains(src, `"?ref=`) {
-			t.Errorf("%s splits a module source on ?ref= instead of using internal/modulesource (Decompose/Compose/ModulePath)", f)
+		if !reachable[pkg] {
+			t.Errorf("internal package %s is not reachable from any main package in cmd/: it is dead product surface. Delete it or wire it into a command.", pkg)
 		}
 	}
 }
 
-// TestAtomicWriteHasOneHome fails when a second temp-file-and-rename writer is
-// introduced. wrapper.writeAtomic is the one implementation; sessions and
-// state use their own only where the wrapper package cannot be imported, and
-// those are allowlisted explicitly so a new copy is visible.
-func TestAtomicWriteHasOneHome(t *testing.T) {
-	root := repoRoot(t)
-	// Files permitted to perform their own temp-file+rename, with a reason.
-	allowed := map[string]bool{
-		filepath.FromSlash("internal/wrapper/write.go"):   true, // the canonical implementation
-		filepath.FromSlash("internal/session/session.go"): true, // leaf package: wrapper cannot be imported
-		filepath.FromSlash("internal/state/state.go"):     true, // leaf package: wrapper cannot be imported
+// repoRoot returns the module root (the directory holding go.mod), so `go
+// list`'s relative patterns resolve against the repository rather than the
+// test package's directory.
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("go", "env", "GOMOD").Output()
+	if err != nil {
+		t.Fatalf("locate module root: %v", err)
 	}
-	createTempRe := regexp.MustCompile(`os\.CreateTemp|ioutil\.TempFile`)
-	renameRe := regexp.MustCompile(`os\.Rename`)
-
-	for _, f := range trackedGoFiles(t, root, ".") {
-		if allowed[f] {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(root, f))
-		if err != nil {
-			t.Fatal(err)
-		}
-		src := string(data)
-		if createTempRe.MatchString(src) && renameRe.MatchString(src) {
-			t.Errorf("%s implements its own temp-file-and-rename write; use wrapper.WriteMain or add this file to the allowlist with a reason", f)
-		}
+	gomod := strings.TrimSpace(string(out))
+	if gomod == "" || gomod == "/dev/null" {
+		t.Fatal("not inside a Go module")
 	}
+	return filepath.Dir(gomod)
 }

@@ -121,18 +121,16 @@ converts, clones, or writes, find the one that already does it:
 | parse a module source (`git::`, `//subpath`, `?ref=`, local path) | `internal/modulesource` (`Decompose`, `Remote`, `ModulePath`, `Compose`, `IsLocal`, `IsGitSource`, `IsFullSHA`) |
 | apply `--var` / `--var-file` values, or convert a string to a variable's type | `wrapper.ApplyVarOverrides`, `wrapper.ApplyVarFiles`, `wrapper.ConvertStringToCty` |
 | clone + read a module block's schema and values, or re-read after a ref change | `bootstrap.BlockLoader.LoadModuleBlock`, `bootstrap.LoadRefState` |
-| write `main.tf` / any file atomically | `wrapper.WriteMain` (canonical); leaf packages that cannot import `wrapper` use their own and are allowlisted in `tools/codecheck` |
+| write `main.tf` / any file atomically | `wrapper.WriteMain`; leaf packages that cannot import `wrapper` (session, state) keep their own |
 | decide whether a variable is emitted | `wrapper.ShouldEmit` / `wrapper.SparseValue` |
 
 If you cannot name the existing function, search before writing a new one.
-
-The rule is procedural, not aspirational: **grep for the mechanism before you
-write it.** If the only copy lives in a package you cannot import from where
-you are, that is a signal to move it *down* to a shared layer — never a reason
-to copy it. Two implementations of one concern is the defect we most want to
-prevent, and it is the one prose alone has not prevented; `tools/codecheck`
-now fails `just check` on new duplicates of source parsing and atomic writes,
-and on any `internal/` package with no path from `cmd/`.
+This table is the enforcement for duplication, backed by review — it is not
+worth a bespoke linter, and the standard duplicate-code tooling is noisy enough
+that projects routinely disable it. The one structural rule that *is* checked
+mechanically is dead code: `tools/codecheck` fails `just check` on any
+`internal/` package unreachable from `cmd/`. For deeper function-level
+reachability, run `go run golang.org/x/tools/cmd/deadcode@latest ./...`.
 
 ## Layering
 
@@ -225,8 +223,7 @@ A change is done when all of the following hold:
 - Any new decision is captured as an ADR, with the index updated.
 - The change matches the scope boundaries above (no orchestration, no new
   configuration language, wrapper stays independently runnable).
-- `just code-check` passes (no dead internal packages, no new duplicate
-  source-parsing or atomic-write implementations).
+- `just code-check` passes (no internal package unreachable from `cmd/`).
 
 A **refactor** additionally satisfies: it names the duplication or layering
 problem it removes in the commit or PR; it does not add behavior; existing

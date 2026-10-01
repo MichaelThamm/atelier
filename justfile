@@ -50,7 +50,7 @@ test-pkg pkg:
 docs-check:
     go test ./tools/docscheck/...
 
-# Structural checks: dead internal packages, duplicated primitives.
+# Structural checks: no internal package unreachable from the built binary.
 code-check:
     go test -count=1 ./tools/codecheck/...
 
