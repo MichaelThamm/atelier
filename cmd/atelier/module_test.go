@@ -1,9 +1,15 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
+	"github.com/zclconf/go-cty/cty"
+
+	"github.com/MichaelThamm/atelier/internal/tftypes"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -89,6 +95,46 @@ func TestParseModuleAddArgs_ListVarFiles(t *testing.T) {
 	}
 	if !opts.ListVarFiles {
 		t.Error("ListVarFiles not set")
+	}
+}
+
+// --- applyVarFlags ---
+
+// applyVarFlags encodes the one rule both `module add` and `import` rely on:
+// a --var-file seeds values, then --var overrides win. This pins that ordering
+// at the shared helper, so a refactor of either caller cannot silently flip it.
+func TestApplyVarFlags_VarWinsOverVarFile(t *testing.T) {
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, "seed.tfvars")
+	if err := os.WriteFile(bundle, []byte("name = \"from-file\"\nreplicas = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	state := &wrapper.State{
+		Vars: []tfvars.Variable{
+			{Name: "name", Type: &tftypes.Type{Kind: tftypes.KindString}},
+			{Name: "replicas", Type: &tftypes.Type{Kind: tftypes.KindNumber}, HasDefault: true, Default: cty.NumberIntVal(1)},
+		},
+		Values: map[string]cty.Value{},
+	}
+
+	err := applyVarFlags(state, dir, "", "", []string{bundle}, []string{"name=from-var"}, false)
+	if err != nil {
+		t.Fatalf("applyVarFlags: %v", err)
+	}
+	if v := state.Values["name"]; v.AsString() != "from-var" {
+		t.Errorf("name = %v, want --var to win over the var-file", v)
+	}
+	if v := state.Values["replicas"]; v.AsBigFloat().String() != "2" {
+		t.Errorf("replicas = %v, want 2 from the var-file", v)
+	}
+}
+
+// A missing --var-file is an error, not a silent skip.
+func TestApplyVarFlags_MissingFileErrors(t *testing.T) {
+	state := &wrapper.State{Values: map[string]cty.Value{}}
+	if err := applyVarFlags(state, t.TempDir(), "", "", []string{"nope.tfvars"}, nil, false); err == nil {
+		t.Error("expected an error for a missing --var-file")
 	}
 }
 

@@ -572,8 +572,7 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	// If the directory already has a wrapper, re-hydrate its state by
 	// re-cloning the module (needed for variable declarations used by
 	// post-import normalisation).
-	mainPath := filepath.Join(dir, wrapper.MainTF)
-	if _, err := os.Stat(mainPath); err == nil {
+	if mainTFExists(dir) {
 		fmt.Fprintln(os.Stderr, "Wrapper already exists; loading module variables…")
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer cancel()
@@ -594,14 +593,7 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 
 	if res.State == nil {
 		// Multiple candidates — user needs --module.
-		fmt.Fprintln(os.Stderr, "Multiple module candidates found. Re-run with --module <path>:")
-		for _, c := range res.Candidates {
-			label := c.Path
-			if c.Name != "" {
-				label = fmt.Sprintf("%s — %s", c.Path, c.Name)
-			}
-			fmt.Fprintln(os.Stderr, "  "+label)
-		}
+		printCandidates(os.Stderr, res.Candidates)
 		return "", nil, "", "", fmt.Errorf("multiple module candidates; specify one with --module")
 	}
 
