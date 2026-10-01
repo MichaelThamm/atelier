@@ -71,7 +71,6 @@ Entry point is `cmd/atelier` (package `main`). Product logic lives under
 | `internal/tfexec` | Narrow wrapper over `hashicorp/terraform-exec`. |
 | `internal/tui` | The Bubble Tea TUI (model, view, editors, plan/preset views). |
 | `internal/tidy` | `atelier tidy` — headless prune to sparse form. |
-| `internal/convert` | `atelier convert` — adopting an existing module. |
 | `internal/importer` | `atelier import` runtime; `providers/juju` is the only provider today. |
 
 Design rules that recur in the ADRs and must stay true:

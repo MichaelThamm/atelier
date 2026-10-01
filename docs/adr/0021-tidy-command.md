@@ -16,8 +16,6 @@ The rule therefore only applies to wrappers authored *through* Atelier's
 writer. Several common situations bypass it and leave `main.tf` cluttered
 with arguments that are explicitly set to their default value:
 
-- `atelier init` adopt ([convert](../../internal/convert)) deliberately takes
-  the user's existing `module {}` block verbatim and does not rewrite it.
 - A hand-authored or copy-pasted `main.tf`.
 - A `main.tf` seeded from an upstream module's full example.
 
