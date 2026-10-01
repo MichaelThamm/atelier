@@ -68,21 +68,30 @@ go install github.com/MichaelThamm/atelier/cmd/atelier@latest
 
 Start a new wrapper from any public git repo containing Terraform modules.
 `module add` bootstraps the wrapper on first use. This example uses COS Lite
-(`canonical/observability-stack`), which ships [preset
-bundles](#presets), so you get a runnable wrapper in one command:
+(`canonical/observability-stack`):
 
 ```bash
 mkdir cos-lite && cd cos-lite
 atelier module add \
   https://github.com/canonical/observability-stack.git \
-  --module terraform/cos-lite \
-  --var-file no-ingress < /dev/null
+  --module terraform/cos-lite < /dev/null
 ```
 
-`--var-file` seeds values the module needs from a preset; redirecting stdin
-(`< /dev/null`) skips the TUI, so the command works unattended in scripts and
-CI. Without `--var-file` (or with a module that ships no presets),
-`module add` opens the TUI to fill in required values.
+Redirecting stdin (`< /dev/null`) skips the TUI, so the command works unattended
+in scripts and CI. Without it, `module add` opens the TUI, where you review the
+module's variables and fill in any it requires.
+
+What Atelier wrote is a normal Terraform project — Atelier is not needed to run
+it:
+
+```bash
+terraform init && terraform apply
+```
+
+COS Lite's providers are Juju, so its `plan` and `apply` need a Juju controller
+on Canonical K8s; for a module whose providers you already have credentials for,
+the same two commands run it. [Presets](#presets) seed values from a named
+`.tfvars` bundle instead of the defaults.
 
 The same flow works for any module — for example
 [`terraform-aws-modules/terraform-aws-vpc`](https://github.com/terraform-aws-modules/terraform-aws-vpc):
@@ -130,24 +139,6 @@ atelier
 ![Plan a module deployment](docs/gifs/plan.gif)
 
 </details>
-
-## Validate on save
-
-Every edit is saved to disk immediately, and Atelier runs a background
-`terraform validate`. Errors appear inline in the status bar; press `L` for the
-live logs, whose Errors tab holds the full diagnostics. Validation runs
-`terraform init` automatically if the workspace isn't initialised yet.
-
-## Keyboard shortcuts
-
-`Tab` moves between the variable list and the editor, `↑`/`↓` (or `j`/`k`) move
-the selection, and `Enter` opens or advances. Value fields share a readline-style
-keymap (`Ctrl+A`/`Ctrl+E`, `Ctrl+W`, `Alt+B`/`Alt+F`, …), so editing feels like
-`bash`.
-
-Press `?` anywhere for the complete, context-aware keymap — it lists the keys for
-the view you are in and is the single source of truth for shortcuts. The demo
-GIFs below show each flow end to end.
 
 ## Presets
 
@@ -239,59 +230,6 @@ stdin the preflight fails, naming `--yes`.
 
 </details>
 
-## Comparing versions
-
-Press `R` to switch the module ref without leaving the TUI. Atelier
-re-clones the module, carries your values forward, runs
-`terraform init -upgrade`, and flags any orphaned or newly required
-variables.
-
-The ref field filters the remote's branches and tags as you type, so a big
-repo's 50-plus refs narrow to the few you mean. Free text (an arbitrary SHA, an
-unlisted ref) is always accepted. Press `?` in the modal for its navigation
-keys.
-
-<details>
-<summary>Demo: switch module ref</summary>
-
-1. `atelier`
-2. `[R]` to browse module refs
-3. Apply and inspect module changes with `[D]`
-
-![Switch module ref](docs/gifs/switch-ref.gif)
-
-</details>
-
-## Tidying a wrapper
-
-Atelier writes sparse `main.tf` files — only values that differ from the
-module's defaults appear (see [ADR-0007](docs/adr/0007-sparse-wrapper-write-rule.md)).
-But a wrapper that was hand-authored or seeded from an upstream example often
-carries arguments set to their default value, which is just noise:
-
-```hcl
-module "cos_lite" {
-  source  = "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main"
-  model   = { name = "cos-lite-two" }
-  grafana = { units = 1 }          # 1 is already the default
-  catalogue = { app_name = "catalogue" }  # also the default
-}
-```
-
-`atelier tidy` prunes those redundant arguments back to sparse form:
-
-```bash
-atelier tidy            # dry run: print the diff, change nothing
-atelier tidy --write    # apply it (backs up main.tf first)
-```
-
-It is **dry-run by default**. With `--write` it copies the current `main.tf`
-to `.atelier/backups/main.tf.<timestamp>.bak` before rewriting. Tidy reuses
-the same writer the TUI uses, so the change is apply-neutral: `terraform plan`
-is identical before and after. Arguments whose value is an expression
-(`var.x`, `module.y.z`) are never pruned. See
-[ADR-0021](docs/adr/0021-tidy-command.md) for the design.
-
 ## Importing live infrastructure
 
 `atelier import` reconstructs Terraform state for an existing module from a
@@ -358,6 +296,77 @@ The pieces that make this work:
   resources; `--var model` pins the module's own model input.
 - **`--list-var-files`** works on both `module add` and `import` (the latter
   needs `--source`, since the repo is only searched after a clone).
+
+## Comparing versions
+
+Press `R` to switch the module ref without leaving the TUI. Atelier
+re-clones the module, carries your values forward, runs
+`terraform init -upgrade`, and flags any orphaned or newly required
+variables.
+
+The ref field filters the remote's branches and tags as you type, so a big
+repo's 50-plus refs narrow to the few you mean. Free text (an arbitrary SHA, an
+unlisted ref) is always accepted. Press `?` in the modal for its navigation
+keys.
+
+<details>
+<summary>Demo: switch module ref</summary>
+
+1. `atelier`
+2. `[R]` to browse module refs
+3. Apply and inspect module changes with `[D]`
+
+![Switch module ref](docs/gifs/switch-ref.gif)
+
+</details>
+
+## Keyboard shortcuts
+
+`Tab` moves between the variable list and the editor, `↑`/`↓` (or `j`/`k`) move
+the selection, and `Enter` opens or advances. Value fields share a readline-style
+keymap (`Ctrl+A`/`Ctrl+E`, `Ctrl+W`, `Alt+B`/`Alt+F`, …), so editing feels like
+`bash`.
+
+Press `?` anywhere for the complete, context-aware keymap — it lists the keys for
+the view you are in and is the single source of truth for shortcuts. The demo
+GIFs in the feature sections show each flow end to end.
+
+## Validate on save
+
+Every edit is saved to disk immediately, and Atelier runs a background
+`terraform validate`. Errors appear inline in the status bar; press `L` for the
+live logs, whose Errors tab holds the full diagnostics. Validation runs
+`terraform init` automatically if the workspace isn't initialised yet.
+
+## Tidying a wrapper
+
+Atelier writes sparse `main.tf` files — only values that differ from the
+module's defaults appear (see [ADR-0007](docs/adr/0007-sparse-wrapper-write-rule.md)).
+But a wrapper that was hand-authored or seeded from an upstream example often
+carries arguments set to their default value, which is just noise:
+
+```hcl
+module "cos_lite" {
+  source  = "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main"
+  model   = { name = "cos-lite-two" }
+  grafana = { units = 1 }          # 1 is already the default
+  catalogue = { app_name = "catalogue" }  # also the default
+}
+```
+
+`atelier tidy` prunes those redundant arguments back to sparse form:
+
+```bash
+atelier tidy            # dry run: print the diff, change nothing
+atelier tidy --write    # apply it (backs up main.tf first)
+```
+
+It is **dry-run by default**. With `--write` it copies the current `main.tf`
+to `.atelier/backups/main.tf.<timestamp>.bak` before rewriting. Tidy reuses
+the same writer the TUI uses, so the change is apply-neutral: `terraform plan`
+is identical before and after. Arguments whose value is an expression
+(`var.x`, `module.y.z`) are never pruned. See
+[ADR-0021](docs/adr/0021-tidy-command.md) for the design.
 
 ## Troubleshooting
 
