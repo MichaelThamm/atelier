@@ -129,6 +129,36 @@ func TestReadTFVarsFileChecked_syntaxError(t *testing.T) {
 	}
 }
 
+// TestReadTFVarsFileChecked_collectionOfObjects is the regression guard for the
+// optional()-metadata gap in collection element types: a list(object({...
+// optional ...})) value with a partial element must bind, not be reported as a
+// type mismatch. cty conversion against a type built from Atelier's model
+// (which drops optional()) would reject it.
+func TestReadTFVarsFileChecked_collectionOfObjects(t *testing.T) {
+	vars := tfVarsVars(t, `
+variable "hosts" {
+  type = list(object({
+    hostname = string
+    auth     = optional(object({ config = optional(map(string), {}) }), {})
+  }))
+}
+`)
+	path := filepath.Join(t.TempDir(), "hosts.tfvars")
+	if err := os.WriteFile(path, []byte("hosts = [{ hostname = \"example.com\" }]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vals, diags, err := ReadTFVarsFileChecked(path, vars)
+	if err != nil {
+		t.Fatalf("ReadTFVarsFileChecked: %v", err)
+	}
+	if !diags.Empty() {
+		t.Fatalf("a partial object in a list must bind, not warn: %+v", diags)
+	}
+	if _, ok := vals["hosts"]; !ok {
+		t.Error("hosts must be returned")
+	}
+}
+
 // TestRenderTFVarsValues_sparse covers the TUI `S` sink directly: required
 // values are written, changed optionals are written, object values are written
 // partially (only fields that differ from their optional() default), and

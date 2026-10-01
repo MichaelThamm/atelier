@@ -129,17 +129,33 @@ func readTFVarsFile(path string, vars []tfvars.Variable) (map[string]cty.Value, 
 }
 
 // coerceToDeclaredType converts a parsed value to the variable's declared
-// type, returning an error when it does not fit. Object and tuple types are
-// left as-is: cty.Types built from Atelier's model lose optional-field
-// metadata, so converting a legitimate partial object against them would
-// produce false mismatches. Terraform catches nested-shape errors itself.
+// type, returning an error when it does not fit. Types containing an object or
+// tuple are left as-is: cty.Types built from Atelier's model lose optional-field
+// metadata, so converting a legitimate partial object — including one nested in
+// a list/set/map — would produce false mismatches. Terraform catches
+// nested-shape errors itself.
 func coerceToDeclaredType(decl *tfvars.Variable, val cty.Value) (cty.Value, error) {
 	if decl == nil || decl.Type == nil {
 		return val, nil
 	}
-	switch decl.Type.Kind {
-	case tftypes.KindAny, tftypes.KindObject, tftypes.KindTuple:
+	if decl.Type.Kind == tftypes.KindAny || hasComplexShape(decl.Type) {
 		return val, nil
 	}
 	return convert.Convert(val, tftypes.CtyType(decl.Type))
+}
+
+// hasComplexShape reports whether a declared type contains an object or tuple
+// anywhere. Atelier deliberately does not type-check those (ADR-0031), so
+// conversion is skipped for them and Terraform reports nested-shape errors.
+func hasComplexShape(t *tftypes.Type) bool {
+	if t == nil {
+		return false
+	}
+	switch t.Kind {
+	case tftypes.KindObject, tftypes.KindTuple:
+		return true
+	case tftypes.KindList, tftypes.KindSet, tftypes.KindMap:
+		return hasComplexShape(t.Element)
+	}
+	return false
 }
