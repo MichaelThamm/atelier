@@ -109,9 +109,11 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     # AND a fresh directory for Atelier to author a wrapper into
     wrapper_dir = tf_manager.new_wrapper_dir()
 
-    # AND a bundle describing the deployment for that model.
+    # AND a bundle describing the deployment for that model, kept beside the
+    # wrapper directory: `--dir .` targets the prepared (empty) wrapper, and a
+    # non-empty target is refused.
     var_file = write_var_file(
-        wrapper_dir,
+        Path(wrapper_dir).parent,
         "ci",
         {
             "model": {"uuid": model_uuid, "name": juju.model},
