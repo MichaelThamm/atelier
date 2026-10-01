@@ -330,6 +330,105 @@ func PrepareModule(ctx context.Context, opts InitOptions) (*ModulePrep, error) {
 	}, nil
 }
 
+// LoadModuleBlock clones the module named by an existing main.tf module block
+// and assembles its state, reading the variable schema from the clone and
+// overlaying the values already written into that block. Unlike
+// PrepareModule it performs no candidate discovery — the sub-path comes from
+// the block's own source string — so it can be called concurrently for every
+// secondary block in a wrapper.
+//
+// The caller supplies the block's HCL label and source verbatim, because a
+// module's label is what Write targets and its source is what the wrapper
+// records; neither is re-derived from the candidate path.
+func (b *BlockLoader) LoadModuleBlock(ctx context.Context, wrapperDir, blockName, source string) (*wrapper.State, string, string, error) {
+	remote, ref := modulesource.Decompose(source)
+	if remote == "" {
+		return nil, "", "", fmt.Errorf("module block %q has no source", blockName)
+	}
+	modulePath := modulesource.ModulePath(source)
+
+	cloneDir, sha, err := ResolveAndClone(ctx, InitOptions{
+		WrapperDir:  wrapperDir,
+		Source:      remote,
+		LocalSource: modulesource.IsLocal(remote),
+		Ref:         ref,
+		ModulePath:  modulePath,
+		GitRunner:   b.Runner,
+	})
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	state, err := PrepareState(wrapperDir, cloneDir, modulePath, sha, ref, remote)
+	if err != nil {
+		return nil, "", "", err
+	}
+	state.ModuleBlockName = blockName
+	state.Source = source
+
+	pm, err := wrapper.ReadMainForBlock(wrapperDir, blockName, state.Vars)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("read existing values from main.tf: %w", err)
+	}
+	if pm != nil {
+		for k, v := range pm.Values {
+			state.Values[k] = v
+		}
+		state.UnknownAttrs = pm.UnknownAttrs
+	}
+	return state, cloneDir, sha, nil
+}
+
+// BlockLoader clones and prepares individual module blocks named by a
+// wrapper's main.tf. It carries the git runner so every block in a wrapper is
+// fetched the same way.
+type BlockLoader struct {
+	// Runner fetches module sources. Nil means the production git runner.
+	Runner gitops.Runner
+}
+
+// LoadRefState clones the module again at a new ref and reassembles its state
+// for a ref switch: the new schema, the block's existing values, and wired
+// expressions carried over for every variable that still exists. It is the
+// shared front half of a ref switch, used for both the primary module and
+// secondaries.
+//
+// blockName pins the HCL label the caller wants written (a module's label in
+// main.tf need not match the name derived from its candidate path). priorValues
+// and priorAttrs are the currently-loaded values and wired expressions; only
+// those naming a variable in the new schema survive, so stale inputs are
+// dropped rather than written back.
+func LoadRefState(ctx context.Context, opts InitOptions, blockName string, priorValues map[string]cty.Value, priorAttrs []wrapper.RawAttr) (*wrapper.State, string, string, error) {
+	cloneDir, sha, err := ResolveAndClone(ctx, opts)
+	if err != nil {
+		return nil, "", "", err
+	}
+	state, err := PrepareState(opts.WrapperDir, cloneDir, opts.ModulePath, sha, opts.Ref, opts.Source)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if blockName != "" {
+		state.ModuleBlockName = blockName
+	}
+	state.EnsureValues()
+
+	keep := make(map[string]bool, len(state.Vars))
+	for _, v := range state.Vars {
+		keep[v.Name] = true
+	}
+	for name, val := range priorValues {
+		if keep[name] {
+			state.Values[name] = val
+		}
+	}
+	for _, ra := range priorAttrs {
+		if keep[ra.Name] {
+			state.UnknownAttrs = append(state.UnknownAttrs, ra)
+		}
+	}
+	return state, cloneDir, sha, nil
+}
+
 // InitNew runs the full init flow up to (but not including) launching the
 // TUI: clone, discover candidates, build State, write wrapper files, save
 // session.

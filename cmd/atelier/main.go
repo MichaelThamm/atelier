@@ -407,44 +407,12 @@ func loadSecondaryModules(m *tui.Model, wrapperDir, primaryBlockName string) {
 // loadSecondaryModule clones and parses a secondary module's variables and
 // builds its ref identity + per-module switcher.
 func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.ModuleBlockInfo) *tui.ModuleEntry {
+	state, _, sha, err := secondaryLoader.LoadModuleBlock(ctx, wrapperDir, blk.Name, blk.Source)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: skip module %q: %v\n", blk.Name, err)
+		return nil
+	}
 	srcURL, ref := modulesource.Decompose(blk.Source)
-	if srcURL == "" {
-		return nil
-	}
-	modPath := modulesource.ModulePath(blk.Source)
-
-	// Clone into .atelier/clone/<reponame>, limited to the module subdir.
-	cloneDir, sha, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
-		WrapperDir:  wrapperDir,
-		Source:      srcURL,
-		LocalSource: modulesource.IsLocal(srcURL),
-		Ref:         ref,
-		ModulePath:  modPath,
-		GitRunner:   &gitops.Git{},
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: skip module %q: clone failed: %v\n", blk.Name, err)
-		return nil
-	}
-
-	state, err := bootstrap.PrepareState(wrapperDir, cloneDir, modPath, sha, ref, srcURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: skip module %q: prepare state failed: %v\n", blk.Name, err)
-		return nil
-	}
-	state.ModuleBlockName = blk.Name
-	state.Source = blk.Source
-
-	// Overlay existing values from main.tf.
-	pm, err := wrapper.ReadMainForBlock(wrapperDir, blk.Name, state.Vars)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: module %q: could not read existing values from main.tf: %v\n", blk.Name, err)
-	} else if pm != nil {
-		for k, v := range pm.Values {
-			state.Values[k] = v
-		}
-		state.UnknownAttrs = pm.UnknownAttrs
-	}
 
 	entry := tui.ModuleEntry{
 		State:       state,
@@ -459,7 +427,7 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 		entry.Switcher = &prodRefSwitcher{
 			wrapperDir:          wrapperDir,
 			sourceURL:           srcURL,
-			modulePath:          modPath,
+			modulePath:          modulesource.ModulePath(blk.Source),
 			blockName:           blk.Name,
 			isPrimary:           false,
 			currentVars:         state.Vars,
@@ -469,6 +437,10 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 	}
 	return &entry
 }
+
+// secondaryLoader clones and prepares the non-primary module blocks read from
+// main.tf.
+var secondaryLoader = &bootstrap.BlockLoader{Runner: &gitops.Git{}}
 
 // prodRefSwitcher implements tui.RefSwitcher by re-cloning the module at a
 // new ref, re-parsing variables, and running terraform init -upgrade.
@@ -493,68 +465,24 @@ func (s *prodRefSwitcher) SetProgress(p *tui.ProgressTracker) {
 }
 
 func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.RefSwitchResult, error) {
-	// Re-clone at the new ref.
 	if s.progress != nil {
 		s.progress.SetPhase("Cloning at new ref…")
 	}
-	cloneDir, sha, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
+	// Clone the new revision and re-read its variable schema. Carry over the
+	// user's values for variables that still exist — required variables must be
+	// present in the HCL for init to succeed. Values not in the new schema are
+	// dropped (reported as OrphanedVars below).
+	state, cloneDir, sha, err := bootstrap.LoadRefState(ctx, bootstrap.InitOptions{
 		WrapperDir: s.wrapperDir,
 		Source:     s.sourceURL,
 		Ref:        newRef,
 		ModulePath: s.modulePath,
-	})
+	}, s.blockName, s.currentValues, s.currentUnknownAttrs)
 	if err != nil {
 		return nil, err
 	}
-
-	// Re-parse variables from the new clone.
-	if s.progress != nil {
-		s.progress.SetPhase("Parsing variables…")
-	}
-	state, err := bootstrap.PrepareState(s.wrapperDir, cloneDir, s.modulePath, sha, newRef, s.sourceURL)
-	if err != nil {
-		return nil, err
-	}
-	// PrepareState derives a block name from the module path, which may not
-	// match the actual HCL label in main.tf (especially for secondary
-	// modules). Pin it to the block we're switching so Write targets the
-	// correct module block.
-	if s.blockName != "" {
-		state.ModuleBlockName = s.blockName
-	}
-
 	// Write the wrapper main.tf with the new source (ref) before running init,
 	// so Terraform sees the updated module source during initialisation.
-	// Carry over existing user values for variables that still exist in the
-	// new ref — required variables must be present in the HCL for init to
-	// succeed.
-	if state.Values == nil {
-		state.Values = make(map[string]cty.Value)
-	}
-	newVarNames := make(map[string]bool, len(state.Vars))
-	for _, v := range state.Vars {
-		newVarNames[v.Name] = true
-	}
-	for name, val := range s.currentValues {
-		if newVarNames[name] {
-			state.Values[name] = val
-		}
-	}
-	// Carry over wired expressions (UnknownAttrs) for variables that still
-	// exist in the new ref. These do NOT live in Values, so without this the
-	// state.Write() below would drop them from the rewritten module block —
-	// e.g. model_uuid = data.juju_model.service_model.uuid disappears, leaving
-	// an invalid module that terraform init/plan rejects.
-	if len(s.currentUnknownAttrs) > 0 {
-		carried := make([]wrapper.RawAttr, 0, len(s.currentUnknownAttrs))
-		for _, ra := range s.currentUnknownAttrs {
-			if newVarNames[ra.Name] {
-				carried = append(carried, ra)
-			}
-		}
-		state.UnknownAttrs = carried
-	}
-	// Write the wrapper main.tf with the new source (ref) before running init.
 	if err := state.Write(); err != nil {
 		return nil, fmt.Errorf("write wrapper: %w", err)
 	}
@@ -589,6 +517,10 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	oldVarNames := make(map[string]bool, len(s.currentVars))
 	for _, v := range s.currentVars {
 		oldVarNames[v.Name] = true
+	}
+	newVarNames := make(map[string]bool, len(state.Vars))
+	for _, v := range state.Vars {
+		newVarNames[v.Name] = true
 	}
 
 	var orphaned []string
