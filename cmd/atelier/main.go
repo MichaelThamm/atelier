@@ -494,7 +494,8 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	}
 	if s.progress != nil {
 		s.progress.SetPhase("Running terraform init…")
-		tf.SetStdout(&tui.ProgressWriter{Tracker: s.progress})
+		tf.SetStdout(&tui.ProgressWriter{Tracker: s.progress, FileWriter: tf.StdoutFile()})
+		tfexec.WriteTimestampHeader(tf.StdoutFile())
 		defer tf.SetStdout(nil)
 	}
 	// A ref switch that changes the module's API can leave the wrapper
