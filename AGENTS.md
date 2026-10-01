@@ -59,7 +59,7 @@ Entry point is `cmd/atelier` (package `main`). Product logic lives under
 
 | Package | Responsibility |
 | --- | --- |
-| `internal/bootstrap` | First-run init and rehydrate flows; orchestrates wrapper creation. |
+| `internal/bootstrap` | First-run init and rehydrate flows; orchestration core: wrapper creation, module-block loading (`FreshWrapper`, `LoadSecondaryModules`). |
 | `internal/candidate` | Heuristically discovers module candidates inside a cloned repo. |
 | `internal/gitops` | Shells out to `git` to clone/fetch module sources. |
 | `internal/modulesource` | Parses Terraform module source addresses (remote, `//subpath`, `?ref`, local paths). |

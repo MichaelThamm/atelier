@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -188,6 +186,28 @@ func printVarFiles(files []bootstrap.VarFile) {
 	}
 }
 
+// listVarFileBundles clones the module to a scratch directory, prints the
+// `.tfvars` bundles discoverable locally and in the repo, and returns. It is
+// the shared body of `--list-var-files` for `module add` and `import`: the
+// clone is removed before returning, so nothing is written and no preflight is
+// needed. Names are resolved against the same walk-up and repo locations the
+// command itself would see.
+func listVarFileBundles(wrapperDir, source, ref, modulePath string) error {
+	ctx, cancel := interruptContext()
+	defer cancel()
+	files, err := bootstrap.ListVarFiles(ctx, bootstrap.InitOptions{
+		WrapperDir: wrapperDir,
+		Source:     source,
+		Ref:        ref,
+		ModulePath: modulePath,
+	})
+	if err != nil {
+		return err
+	}
+	printVarFiles(files)
+	return nil
+}
+
 // printCandidates lists module candidates when a repository has several and
 // none was chosen. Callers print and exit without writing.
 func printCandidates(w io.Writer, cands []candidate.Candidate) {
@@ -244,19 +264,7 @@ func runModuleAdd(args []string) error {
 	// and no preflight is needed. It runs before the terraform check because
 	// listing needs only git.
 	if opts.ListVarFiles {
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-		defer cancel()
-		files, err := bootstrap.ListVarFiles(ctx, bootstrap.InitOptions{
-			WrapperDir: cwd,
-			Source:     opts.Source,
-			Ref:        opts.Ref,
-			ModulePath: opts.ModulePath,
-		})
-		if err != nil {
-			return err
-		}
-		printVarFiles(files)
-		return nil
+		return listVarFileBundles(cwd, opts.Source, opts.Ref, opts.ModulePath)
 	}
 
 	if _, err := tfexec.Locate(); err != nil {
@@ -294,7 +302,7 @@ func runModuleAdd(args []string) error {
 		}
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := interruptContext()
 	defer cancel()
 
 	if !wrapperExists {
@@ -447,7 +455,7 @@ func bootstrapFreshWrapper(dir, source, ref, modulePath string) (*bootstrap.Resu
 		return nil, nil, err
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := interruptContext()
 	defer cancel()
 
 	stop := startSpinner("Cloning and preparing module…")
