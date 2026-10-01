@@ -36,6 +36,13 @@ type InitOptions struct {
 	Ref         string // user-supplied ref; empty → HEAD
 	ModulePath  string // candidate path within the cloned repo; empty → pick interactively / auto-pick if one
 	GitRunner   gitops.Runner
+
+	// SourceBaseDir resolves a relative LocalSource path against a directory
+	// other than WrapperDir. `module apply` stages the clone under a temp
+	// directory before the wrapper's final home is known, so it passes the
+	// invocation directory here; without it a `../module` path would resolve
+	// against the staging dir. Empty means WrapperDir.
+	SourceBaseDir string
 }
 
 // Result is the output of either InitNew or LoadExisting.
@@ -103,8 +110,12 @@ func CloneSubdir(wrapperDir string) string {
 func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedSHA string, err error) {
 	if opts.LocalSource {
 		src := opts.Source
-		if !filepath.IsAbs(src) && opts.WrapperDir != "" {
-			src = filepath.Join(opts.WrapperDir, src)
+		base := opts.SourceBaseDir
+		if base == "" {
+			base = opts.WrapperDir
+		}
+		if !filepath.IsAbs(src) && base != "" {
+			src = filepath.Join(base, src)
 		}
 		abs, err := filepath.Abs(src)
 		if err != nil {
@@ -145,7 +156,11 @@ func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedS
 	// check guards against spawning git on a missing/partial directory, and
 	// (for sparse clones) we confirm the needed subdir is actually materialized
 	// before trusting the cache.
-	if resolvedSHA != "" {
+	//
+	// Skipped for a local source: it is not a git checkout whose HEAD
+	// identifies the content, and the directory behind the path may have been
+	// edited in place, so the SHA check would be meaningless.
+	if !opts.LocalSource && resolvedSHA != "" {
 		if _, statErr := os.Stat(filepath.Join(cloneDir, ".git")); statErr == nil {
 			if head, herr := gitops.HeadSHA(ctx, opts.GitRunner, cloneDir); herr == nil && head == resolvedSHA {
 				if opts.ModulePath == "" {
@@ -782,15 +797,7 @@ func DefaultProviderBlocks(req map[string]wrapper.RequiredProvider) []wrapper.Pr
 // terraform_2. A more specific sub-path (e.g. terraform/cos-lite) still keeps
 // its own basename (cos_lite).
 func ModuleBlockName(modulePath, fallbackName string) string {
-	base := filepath.Base(modulePath)
-	if base == "" || base == "." || isGenericModuleDir(base) {
-		if fallbackName != "" && fallbackName != "." {
-			base = fallbackName
-		}
-	}
-	if base == "" || base == "." {
-		base = "this"
-	}
+	base := moduleBaseName(modulePath, fallbackName)
 	out := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z':
@@ -813,6 +820,46 @@ func ModuleBlockName(modulePath, fallbackName string) string {
 		out = "m" + out
 	}
 	return out
+}
+
+// ModuleDirName returns the directory name `atelier module apply` creates for a
+// module: the same informative basename ModuleBlockName uses, but with
+// separators left as authored so `cos-lite` stays `cos-lite` instead of the HCL
+// identifier `cos_lite`. Falls back to the repository basename for a generic
+// `terraform`/`tf` candidate.
+func ModuleDirName(modulePath, fallbackName string) string {
+	base := moduleBaseName(modulePath, fallbackName)
+	out := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '-', r == '_', r == '.':
+			return r
+		}
+		return '-'
+	}, base)
+	out = strings.Trim(out, ".-")
+	if out == "" || out == ".." {
+		out = "module"
+	}
+	return out
+}
+
+// moduleBaseName picks the informative basename for a module path: the
+// candidate sub-path's basename, or fallbackName when that basename is generic
+// ("terraform"/"tf") or the candidate is the repo root. It is the single naming
+// rule shared by ModuleBlockName and ModuleDirName.
+func moduleBaseName(modulePath, fallbackName string) string {
+	base := filepath.Base(modulePath)
+	if base == "" || base == "." || isGenericModuleDir(base) {
+		if fallbackName != "" && fallbackName != "." {
+			base = fallbackName
+		}
+	}
+	if base == "" || base == "." {
+		base = "this"
+	}
+	return base
 }
 
 // isGenericModuleDir reports whether name is a conventional, uninformative

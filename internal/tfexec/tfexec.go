@@ -97,6 +97,8 @@ func Locate() (string, error) {
 // Operations interface.
 type Terraform struct {
 	tf         *tfexec.Terraform
+	binPath    string   // resolved terraform/tofu binary, for the interactive path
+	workdir    string   // wrapper directory terraform runs in
 	stderrFile *os.File // log file handle for .atelier/logs/tf-stderr.log
 	stdoutFile *os.File // log file handle for .atelier/logs/tf-stdout.log
 }
@@ -120,7 +122,7 @@ func New(workdir, binPath string) (*Terraform, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init terraform-exec: %w", err)
 	}
-	t := &Terraform{tf: tf}
+	t := &Terraform{tf: tf, binPath: binPath, workdir: workdir}
 	t.configureLogging(workdir)
 	return t, nil
 }
@@ -278,6 +280,35 @@ func (t *Terraform) Apply(ctx context.Context, planFile string, stdout io.Writer
 		defer t.tf.SetStdout(nil)
 	}
 	return t.tf.Apply(ctx, tfexec.DirOrPlan(planFile))
+}
+
+// ApplyDirect runs `terraform apply` in the wrapper with the process's terminal
+// attached, so Terraform prints the plan and reads the approval answer from
+// stdin. Unlike the plan-file Apply (which routes through terraform-exec and so
+// always passes -auto-approve/-input=false), it deliberately omits both when
+// interactive: the user reviews and confirms the plan, which is the point of
+// `atelier module apply` (ADR-0034).
+//
+// When autoApprove is true it instead passes -auto-approve -input=false and
+// detaches stdin, for the non-interactive case (a pipe or `< /dev/null`) where
+// there is no one to answer the prompt. The choice is the caller's, based on
+// whether stdin is a terminal.
+func (t *Terraform) ApplyDirect(ctx context.Context, autoApprove bool) error {
+	args := []string{"apply"}
+	if autoApprove {
+		args = append(args, "-auto-approve", "-input=false")
+	}
+	cmd := exec.CommandContext(ctx, t.binPath, args...)
+	cmd.Dir = t.workdir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if !autoApprove {
+		cmd.Stdin = os.Stdin
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("terraform apply: %w", err)
+	}
+	return nil
 }
 
 // Import runs `terraform import <address> <id>`, bringing a single live
