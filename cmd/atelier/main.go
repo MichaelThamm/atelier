@@ -22,7 +22,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -331,111 +330,71 @@ func countModuleBlocks(wrapperDir string) int {
 	return n
 }
 
-// loadSecondaryModules discovers module blocks in main.tf beyond the primary
-// one, clones their sources, parses their variables, and adds them to the TUI
-// model. Failures are non-fatal — the secondary module is simply not shown.
+// loadSecondaryModules loads the wrapper's non-primary modules and adds them to
+// the TUI model. It is a thin presentation layer over
+// bootstrap.LoadSecondaryModules: the core does the reading, cloning and
+// ordering; this maps the result to tui.ModuleEntry and attaches the per-module
+// ref switcher. Failures are non-fatal — an unreachable module is warned about
+// and omitted.
 func loadSecondaryModules(m *tui.Model, wrapperDir, primaryBlockName string) {
-	blocks, err := wrapper.ReadModuleBlocks(wrapperDir)
-	if err != nil {
-		return
-	}
-
-	// Count total vs. secondary blocks. The spinner reports the TOTAL (so it
-	// matches the count the user sees in the TUI), but we only show it when
-	// there is at least one secondary still to clone — the primary was already
-	// loaded under the same label in runOpen.
-	totalCount, secondaryCount := 0, 0
-	for _, blk := range blocks {
-		if blk.Source == "" {
+	// The core loads secondaries; the spinner label needs the total block count
+	// (matching what the user sees in the TUI), so read the blocks once here
+	// for the label and once inside the core for the load. Both reads are
+	// cheap; the costly part is the per-block clone, which the core does once.
+	blocks, _ := wrapper.ReadModuleBlocks(wrapperDir)
+	total, secondaries := 0, 0
+	for _, b := range blocks {
+		if b.Source == "" {
 			continue
 		}
-		totalCount++
-		if blk.Name != primaryBlockName {
-			secondaryCount++
+		total++
+		if b.Name != primaryBlockName {
+			secondaries++
 		}
 	}
-	if secondaryCount > 0 {
-		stop := startSpinner(fmt.Sprintf("Loading %d module(s)…", totalCount))
+	if secondaries > 0 {
+		stop := startSpinner(fmt.Sprintf("Loading %d module(s)…", total))
 		defer stop()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	type result struct {
-		entry tui.ModuleEntry
-		name  string
+	modules, warnings, err := bootstrap.LoadSecondaryModules(ctx, wrapperDir, primaryBlockName, secondaryLoader)
+	if err != nil {
+		return
 	}
-	var results []result
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	for _, blk := range blocks {
-		// Skip the primary block (already loaded) and blocks without a source.
-		// Modules are keyed by their unique HCL label, NOT by source URL, so a
-		// second block pointing at the same source at a different ref is shown
-		// as its own module.
-		if blk.Name == primaryBlockName || blk.Source == "" {
-			continue
-		}
-		wg.Add(1)
-		go func(blk wrapper.ModuleBlockInfo) {
-			defer wg.Done()
-			e := loadSecondaryModule(ctx, wrapperDir, blk)
-			if e != nil {
-				mu.Lock()
-				results = append(results, result{entry: *e, name: blk.Name})
-				mu.Unlock()
-			}
-		}(blk)
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, "warning:", w)
 	}
-	wg.Wait()
-
-	// Add in the order they appear in main.tf.
-	nameOrder := make(map[string]int, len(blocks))
-	for i, blk := range blocks {
-		nameOrder[blk.Name] = i
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return nameOrder[results[i].name] < nameOrder[results[j].name]
-	})
-	for _, r := range results {
-		m.AddModuleEntry(r.entry)
+	for _, mod := range modules {
+		m.AddModuleEntry(moduleEntry(wrapperDir, mod))
 	}
 }
 
-// loadSecondaryModule clones and parses a secondary module's variables and
-// builds its ref identity + per-module switcher.
-func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.ModuleBlockInfo) *tui.ModuleEntry {
-	state, _, sha, err := secondaryLoader.LoadModuleBlock(ctx, wrapperDir, blk.Name, blk.Source)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: skip module %q: %v\n", blk.Name, err)
-		return nil
-	}
-	srcURL, ref := modulesource.Decompose(blk.Source)
-
+// moduleEntry maps a loaded module to its TUI entry, attaching a ref switcher
+// for git-sourced modules (local sources get none; R is a no-op for them).
+func moduleEntry(wrapperDir string, mod bootstrap.LoadedModule) tui.ModuleEntry {
 	entry := tui.ModuleEntry{
-		State:       state,
-		Name:        blk.Name,
-		SourceURL:   srcURL,
-		Ref:         ref,
-		ResolvedSHA: sha,
+		State:       mod.State,
+		Name:        mod.Name,
+		SourceURL:   mod.SourceURL,
+		Ref:         mod.Ref,
+		ResolvedSHA: mod.ResolvedSHA,
 	}
-	// Only git-sourced modules can be ref-switched; local sources get no
-	// switcher (R is a no-op for them).
-	if !modulesource.IsLocal(srcURL) {
+	if !modulesource.IsLocal(mod.SourceURL) {
 		entry.Switcher = &prodRefSwitcher{
 			wrapperDir:          wrapperDir,
-			sourceURL:           srcURL,
-			modulePath:          modulesource.ModulePath(blk.Source),
-			blockName:           blk.Name,
+			sourceURL:           mod.SourceURL,
+			modulePath:          modulesource.ModulePath(mod.State.Source),
+			blockName:           mod.Name,
 			isPrimary:           false,
-			currentVars:         state.Vars,
-			currentValues:       state.Values,
-			currentUnknownAttrs: state.UnknownAttrs,
+			currentVars:         mod.State.Vars,
+			currentValues:       mod.State.Values,
+			currentUnknownAttrs: mod.State.UnknownAttrs,
 		}
 	}
-	return &entry
+	return entry
 }
 
 // secondaryLoader clones and prepares the non-primary module blocks read from
