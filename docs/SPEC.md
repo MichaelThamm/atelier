@@ -245,7 +245,8 @@ atelier module add <git-url> --as <name>   # add with explicit HCL block name
 atelier module add <git-url> --ref <ref>   # add at a specific ref
 atelier module add <git-url> --module <subdir>  # skip the candidate picker
 atelier module add <git-url> --yes         # skip the target-directory confirmation (§6.5)
-atelier module add <git-url> --var-file <path|name>  # seed values from a .tfvars file (local path or repo-local name; repeatable)
+atelier module add <git-url> --var-file <path|name>  # seed values from a .tfvars file (local path or repo-local name; repeatable/comma-separated)
+atelier module add <git-url> --var <K=V>   # set a single module input (repeatable; wins over --var-file)
 atelier module add <git-url> --list-var-files  # print the .tfvars bundles available (local + module repo)
 atelier module rm <name> [--force]         # remove a module from the wrapper
 atelier module list                        # list modules in the wrapper
@@ -307,6 +308,9 @@ Flags:
 - `--var-file <path|name>` — seed values from a `.tfvars` file (repeatable): a
   local path, a walk-up `atelier.presets/` bundle, or a name committed to the
   module repo.
+- `--list-var-files` — print the `.tfvars` bundles discoverable locally and in
+  the module repo (source-labelled), then exit without importing. Requires
+  `--source`, since the repo is only searched after a clone.
 - `--dry-run` — write an `imports.tf` artifact of the matched resources, plan
   with it in place, report the preview, and stop. Terraform state is untouched.
 - `--provider-version <ver>` — pin the provider version constraint.
@@ -339,8 +343,13 @@ worked Juju example.
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
 - Applies any `--var-file` values (a local path, a walk-up `atelier.presets/`
-  bundle, or a name committed to the module repo) and writes them to the
-  wrapper.
+  bundle, or a name committed to the module repo), then any `--var` overrides,
+  and writes them to the wrapper. `--var` wins over `--var-file`. For an
+  object/map value the override *deep-merges* key-by-key into whatever is
+  already set, so leaving a field out of `--var` preserves the value from the
+  file rather than dropping it: `--var-file no-ingress --var
+  'ingress={alertmanager=true}'` disables ingress except Alertmanager. Scalars
+  and lists replace wholesale.
 - Runs the target-directory preflight (§6.5) before writing anything.
 - Refuses to add a module the wrapper already references at the same ref (§6.7).
 - Runs `terraform init` and launches the TUI with the new module focused. When
@@ -400,11 +409,13 @@ anything looks wrong — print the findings and ask for confirmation.
 Findings are one of two levels:
 
 - **warning** — prompts. The directory holds files Atelier did not put there,
-  contains Terraform files, sits inside another wrapper, looks like the root of
-  a project of another kind (`go.mod`, `package.json`, `charmcraft.yaml`, …), or
-  is the user's home/config directory or the filesystem root.
+  contains Terraform files, sits inside another wrapper's `.atelier/` or
+  `.terraform/`, looks like the root of a project of another kind (`go.mod`,
+  `package.json`, `charmcraft.yaml`, …), or is the user's home/config directory
+  or the filesystem root.
 - **note** — printed but never prompts. Describes a write Atelier is about to
-  skip, e.g. an existing `required_providers` block or provider configuration.
+  skip (an existing `required_providers` block or provider configuration), or an
+  ordinary directory below another wrapper, which becomes an independent root.
 
 Rules:
 
@@ -487,11 +498,19 @@ shape is always the classic sparse `main.tf` (there is no pass-through mode —
   that does not resolve produces an error listing the bundles found locally and
   in the repo.
 - `--list-var-files` prints the available bundles (source-labelled) without
-  writing anything.
-- An attribute the module does not declare, or whose value does not fit the
-  declared type, is skipped with a warning; `--strict` makes those binding
-  problems fatal. Object/tuple values are not type-checked (Atelier's cty view
-  loses `optional()` metadata); Terraform catches nested-shape errors.
+  writing anything. On `module add` it needs no other flag; on `import` it
+  requires `--source`, since the repo is only searched after a clone.
+- `--var <K=V>` sets a single module input directly (repeatable). It is applied
+  after every `--var-file`, so it wins, and accepts an HCL expression for
+  structured values (e.g. `--var 'ingress={alertmanager=false}'`). An
+  object/map value deep-merges over the same variable's current value. A name
+  the module does not declare, or a value that does not fit the declared type,
+  is reported as a warning and skipped — `--var` is explicit input, so a typo is
+  never applied silently.
+- An attribute a `--var-file` does not fit — an undeclared name or a
+  type-mismatched value — is skipped with a warning; `--strict` makes those
+  binding problems fatal. Object/tuple values are not type-checked (Atelier's
+  cty view loses `optional()` metadata); Terraform catches nested-shape errors.
 - **The TUI uses these bundles directly.** `F` lists the discovered presets —
   personal `[local]` and repo `[repo]`, with the description taken from each
   file's leading comment — and applies the selected one. `S` saves the current
@@ -906,8 +925,9 @@ the current non-default configuration as a new
 `atelier.presets/<name>.tfvars`. The CLI equivalent is `--var-file <name>`
 (§6.8); `--list-var-files` prints what is available.
 
-The `atelier.local.yaml` mechanism this section used to describe has been
-removed; [ADR-0022](adr/0022-local-presets.md) is superseded by ADR-0031.
+Personal bundles are found at the wrapper directory itself and at every ancestor
+above it, so `my_wrapper/atelier.presets/foo.tfvars` works without a parent
+directory; a bundle nearer the wrapper overrides a same-named one further up.
 
 ## 12. Provider configuration
 

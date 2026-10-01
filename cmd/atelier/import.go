@@ -48,28 +48,31 @@ import (
 // also used to scaffold provider config if the directory has none.
 func runImport(args []string) error {
 	var (
-		providerArg string
-		dirArg      string
-		sourceArg   string
-		moduleArg   string
-		refArg      string
-		types       []string
-		provVersion string
-		varFiles    []string
-		noInit      bool
-		strict      bool
-		verbose     bool
-		listOnly    bool
-		dryRun      bool
-		yes         bool
-		config      = map[string]string{}
-		queryConfig = map[string]string{}
+		providerArg  string
+		dirArg       string
+		sourceArg    string
+		moduleArg    string
+		refArg       string
+		types        []string
+		provVersion  string
+		varFiles     []string
+		listVarFiles bool
+		noInit       bool
+		strict       bool
+		verbose      bool
+		listOnly     bool
+		dryRun       bool
+		yes          bool
+		config       = map[string]string{}
+		queryConfig  = map[string]string{}
 	)
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "--list":
 			listOnly = true
+		case a == "--list-var-files":
+			listVarFiles = true
 		case a == "--yes" || a == "-y":
 			yes = true
 		case a == "--no-init":
@@ -164,7 +167,7 @@ func runImport(args []string) error {
 		}
 	}
 
-	if err := validateImportFlags(varFiles, sourceArg); err != nil {
+	if err := validateImportFlags(varFiles, sourceArg, listVarFiles); err != nil {
 		return err
 	}
 
@@ -181,6 +184,28 @@ func runImport(args []string) error {
 			return err
 		}
 		dir = abs
+	}
+
+	// --list-var-files clones the module to a scratch directory, prints the
+	// bundles discoverable locally and in the repo, then exits. It mirrors
+	// `module add --list-var-files` (same helper), so the names shown are the
+	// names a subsequent import can pass. Requires --source: without a clone
+	// there is no repo to search. It honours --dir so the local walk-up is the
+	// same one the import itself would see.
+	if listVarFiles {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		files, err := bootstrap.ListVarFiles(ctx, bootstrap.InitOptions{
+			WrapperDir: dir,
+			Source:     sourceArg,
+			Ref:        refArg,
+			ModulePath: moduleArg,
+		})
+		if err != nil {
+			return err
+		}
+		printVarFiles(files)
+		return nil
 	}
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return fmt.Errorf("directory does not exist: %s", dir)
@@ -248,7 +273,9 @@ func runImport(args []string) error {
 			fmt.Fprintf(os.Stderr, "Using query variable(s) for module input(s): %s\n",
 				strings.Join(seeded, ", "))
 		}
-		applyVarOverrides(wrapperState, config)
+		for _, w := range applyVarOverrides(wrapperState, config) {
+			fmt.Fprintln(os.Stderr, "warning:", w)
+		}
 		// Propagate wrapper values back into config so that downstream
 		// consumers (e.g. the provider's import-ID builder, which looks up
 		// model_uuid in opts.Config) can see them, not just --var flags.
@@ -624,18 +651,79 @@ func seedFromQueryVars(state *wrapper.State, queryConfig map[string]string) []st
 }
 
 // applyVarOverrides merges --var flag values into the wrapper state, converting
-// string values to typed cty.Values based on the variable declarations.
-func applyVarOverrides(state *wrapper.State, config map[string]string) {
-	for varName, strVal := range config {
+// string values to typed cty.Values based on the variable declarations. It
+// returns warnings for values it could not apply — an undeclared name, or a
+// value that does not convert to the declared type — so `--var` fails as loudly
+// as `--var-file` rather than silently dropping the input.
+//
+// For an object/map variable, a supplied value is deep-merged into whatever
+// value is already present rather than replacing it wholesale. This is what
+// lets `--var-file no-ingress --var 'ingress={alertmanager=true}'` mean what it
+// reads like: disable ingress except Alertmanager. Replacement would drop the
+// keys the --var does not mention, and because those keys then compare as
+// unset, the sparse writer would omit the whole attribute and the module would
+// fall back to its defaults — the opposite of the user's intent.
+func applyVarOverrides(state *wrapper.State, config map[string]string) []string {
+	state.EnsureValues()
+	var warnings []string
+	for _, varName := range sortedKeys(config) {
+		strVal := config[varName]
 		v := state.FindVar(varName)
 		if v == nil {
+			warnings = append(warnings, fmt.Sprintf("--var %s: unknown variable ignored", varName))
 			continue
 		}
 		val := convertStringToCty(strVal, v)
-		if val != cty.NilVal {
-			state.Values[varName] = val
+		if val == cty.NilVal {
+			warnings = append(warnings, fmt.Sprintf("--var %s=%s: value does not fit type %s, ignored", varName, strVal, declaredType(v)))
+			continue
 		}
+		if existing, ok := state.Values[varName]; ok && isObjectish(val) && isObjectish(existing) {
+			val = mergeObjects(existing, val)
+		}
+		state.Values[varName] = val
 	}
+	return warnings
+}
+
+// declaredType renders a variable's declared type for a diagnostic, falling
+// back to "any" when the module did not declare one.
+func declaredType(v *tfvars.Variable) string {
+	if v == nil || v.Type == nil {
+		return "any"
+	}
+	return v.Type.String()
+}
+
+// isObjectish reports whether a value is a non-null object or map, the shapes
+// that support key-wise merging.
+func isObjectish(v cty.Value) bool {
+	if v == cty.NilVal || v.IsNull() || !v.IsKnown() {
+		return false
+	}
+	t := v.Type()
+	return t.IsObjectType() || t.IsMapType()
+}
+
+// mergeObjects deep-merges override into base: keys present in both recurse when
+// both sides are objects, otherwise override wins. Keys only in base are kept,
+// so fields the override does not mention survive.
+func mergeObjects(base, override cty.Value) cty.Value {
+	if !isObjectish(base) || !isObjectish(override) {
+		return override
+	}
+	out := map[string]cty.Value{}
+	for k, v := range base.AsValueMap() {
+		out[k] = v
+	}
+	for k, v := range override.AsValueMap() {
+		if existing, ok := out[k]; ok && isObjectish(existing) && isObjectish(v) {
+			out[k] = mergeObjects(existing, v)
+			continue
+		}
+		out[k] = v
+	}
+	return cty.ObjectVal(out)
 }
 
 // mergeWrapperStateIntoConfig propagates string-typed values from the wrapper
@@ -666,9 +754,12 @@ func mergeWrapperStateIntoConfig(state *wrapper.State, config map[string]string)
 // silently ignored. --var-file seeds the wrapper's module inputs, which only
 // exists when import bootstraps one with --source; without it there is no
 // state to apply the values to.
-func validateImportFlags(varFiles []string, sourceArg string) error {
+func validateImportFlags(varFiles []string, sourceArg string, listVarFiles bool) error {
 	if len(varFiles) > 0 && sourceArg == "" {
 		return fmt.Errorf("--var-file requires --source: there is no wrapper to seed otherwise")
+	}
+	if listVarFiles && sourceArg == "" {
+		return fmt.Errorf("--list-var-files requires --source: there is no module repo to search otherwise")
 	}
 	return nil
 }

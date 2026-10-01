@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,8 +13,8 @@ import (
 )
 
 // LocalPresetDirName is the directory Atelier walks up looking for personal
-// `.tfvars` bundles. One shared directory at a parent (e.g.
-// `tf-testing/atelier.presets/`) is inherited by every wrapper beneath it
+// `.tfvars` bundles. One shared directory at a parent is inherited by every
+// wrapper beneath it; a bundle in the wrapper directory itself takes precedence
 // (ADR-0031).
 const LocalPresetDirName = wrapper.PresetsDir
 
@@ -125,6 +126,32 @@ func ListAllVarFiles(wrapperDir, cloneDir, modulePath string) []VarFile {
 	out := LocalVarFiles(wrapperDir)
 	out = append(out, RepoVarFiles(cloneDir, modulePath)...)
 	return out
+}
+
+// ListVarFiles discovers the `.tfvars` bundles available to wrapperDir, cloning
+// the module to a scratch directory to read its committed presets. The clone is
+// always removed before returning, so `--list-var-files` stays a read-only
+// query: it never leaves a `.atelier/clone/` (or any other artifact) behind, and
+// never disturbs a wrapper the directory may already hold.
+//
+// Both `module add` and `import` use this, so their listings cannot drift. The
+// local walk-up starts at wrapperDir (the caller's target), not at the scratch
+// clone location, so the listing matches what an actual run would resolve.
+func ListVarFiles(ctx context.Context, opts InitOptions) ([]VarFile, error) {
+	wrapperDir := opts.WrapperDir
+
+	scratch, err := os.MkdirTemp("", "atelier-list-vars-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(scratch)
+
+	opts.WrapperDir = scratch // clone location only; listing uses wrapperDir
+	prep, err := PrepareModule(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return ListAllVarFiles(wrapperDir, prep.CloneDir, prep.ModulePath), nil
 }
 
 // VarFileSearchDirs returns the directories searched for a repo-local

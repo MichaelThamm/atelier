@@ -244,14 +244,23 @@ func TestConvertStringToCty_InvalidHCL(t *testing.T) {
 }
 
 func TestValidateImportFlags_VarFileRequiresSource(t *testing.T) {
-	if err := validateImportFlags([]string{"x.tfvars"}, ""); err == nil {
+	if err := validateImportFlags([]string{"x.tfvars"}, "", false); err == nil {
 		t.Error("expected an error for --var-file without --source")
 	}
-	if err := validateImportFlags([]string{"x.tfvars"}, "https://example.com/m.git"); err != nil {
+	if err := validateImportFlags([]string{"x.tfvars"}, "https://example.com/m.git", false); err != nil {
 		t.Errorf("unexpected error with --source: %v", err)
 	}
-	if err := validateImportFlags(nil, ""); err != nil {
+	if err := validateImportFlags(nil, "", false); err != nil {
 		t.Errorf("unexpected error with no var files: %v", err)
+	}
+}
+
+func TestValidateImportFlags_ListVarFilesRequiresSource(t *testing.T) {
+	if err := validateImportFlags(nil, "", true); err == nil {
+		t.Error("expected an error for --list-var-files without --source")
+	}
+	if err := validateImportFlags(nil, "https://example.com/m.git", true); err != nil {
+		t.Errorf("unexpected error with --source: %v", err)
 	}
 }
 
@@ -400,6 +409,90 @@ func TestDescribeProviders(t *testing.T) {
 	}
 	if got := describeProviders([]string{"", ""}); !strings.Contains(got, "no provider could be determined") {
 		t.Errorf("got %q, want the undetermined phrase", got)
+	}
+}
+
+// --- applyVarOverrides: object merge ---
+
+func TestApplyVarOverrides_ObjectMergesOverExisting(t *testing.T) {
+	v := mustVarT(t, "ingress", `object({alertmanager=optional(bool,true),loki=optional(bool,true),prometheus=optional(bool,true)})`, cty.NilVal, true)
+	s := seedState(t, v)
+	// A var-file set every key false...
+	s.Values["ingress"] = cty.ObjectVal(map[string]cty.Value{
+		"alertmanager": cty.False,
+		"loki":         cty.False,
+		"prometheus":   cty.False,
+	})
+	// ...and --var turns one back on. The others must survive.
+	applyVarOverrides(s, varsToMap([]string{"ingress={alertmanager=true}"}))
+
+	got := s.Values["ingress"].AsValueMap()
+	if got["alertmanager"] != cty.True {
+		t.Errorf("alertmanager = %v, want true", got["alertmanager"])
+	}
+	if got["loki"] != cty.False || got["prometheus"] != cty.False {
+		t.Errorf("unmentioned keys were lost: %v", got)
+	}
+}
+
+func TestApplyVarOverrides_ObjectDeepMerge(t *testing.T) {
+	v := mustVarT(t, "app", `object({units=optional(number,1),cfg=optional(object({a=optional(string,"x"),b=optional(string,"y")}))})`, cty.NilVal, true)
+	s := seedState(t, v)
+	s.Values["app"] = cty.ObjectVal(map[string]cty.Value{
+		"units": cty.NumberIntVal(3),
+		"cfg": cty.ObjectVal(map[string]cty.Value{
+			"a": cty.StringVal("x"),
+			"b": cty.StringVal("y"),
+		}),
+	})
+	applyVarOverrides(s, varsToMap([]string{`app={cfg={a="z"}}`}))
+
+	app := s.Values["app"].AsValueMap()
+	if app["units"].AsBigFloat().String() != "3" {
+		t.Errorf("units = %v, want 3 (untouched)", app["units"])
+	}
+	cfg := app["cfg"].AsValueMap()
+	if cfg["a"].AsString() != "z" {
+		t.Errorf("cfg.a = %v, want z", cfg["a"])
+	}
+	if cfg["b"].AsString() != "y" {
+		t.Errorf("cfg.b = %v, want y (nested merge)", cfg["b"])
+	}
+}
+
+func TestApplyVarOverrides_ScalarReplaces(t *testing.T) {
+	s := seedState(t, mustVarT(t, "internal_tls", "bool", cty.True, true))
+	s.Values["internal_tls"] = cty.True
+	applyVarOverrides(s, varsToMap([]string{"internal_tls=false"}))
+	if s.Values["internal_tls"] != cty.False {
+		t.Errorf("internal_tls = %v, want false", s.Values["internal_tls"])
+	}
+}
+
+// cty's AsValueMap panics on null/unknown objects, so the merge guard must be
+// exercised: a null existing value is replaced, not merged into.
+func TestApplyVarOverrides_NullExistingValueReplacedNotMerged(t *testing.T) {
+	s := seedState(t, mustVarT(t, "ingress", `object({a=optional(bool,true)})`, cty.NilVal, true))
+	s.Values["ingress"] = cty.NullVal(cty.Object(map[string]cty.Type{"a": cty.Bool}))
+
+	warns := applyVarOverrides(s, varsToMap([]string{"ingress={a=false}"}))
+	if len(warns) != 0 {
+		t.Fatalf("unexpected warnings: %v", warns)
+	}
+	got := s.Values["ingress"]
+	if got.IsNull() {
+		t.Fatal("null value should have been replaced by the override")
+	}
+	if got.AsValueMap()["a"] != cty.False {
+		t.Errorf("a = %v, want false", got.AsValueMap()["a"])
+	}
+}
+
+func TestMergeObjects_NonObjectOverrideWins(t *testing.T) {
+	base := cty.ObjectVal(map[string]cty.Value{"a": cty.True})
+	// A non-objectish override replaces wholesale rather than merging.
+	if got := mergeObjects(base, cty.NullVal(base.Type())); !got.IsNull() {
+		t.Errorf("merge with a null override = %v, want null", got)
 	}
 }
 

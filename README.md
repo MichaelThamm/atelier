@@ -76,9 +76,12 @@ atelier
 
 `module add` writes into the current directory, so it checks the directory first
 and asks before scaffolding into one that already holds other files, sits inside
-another wrapper, or looks like the root of a different project. Pass `--yes` to
-skip the prompt in scripts; without a terminal the command fails rather than
-proceeding.
+another wrapper's own state (`.atelier/`, `.terraform/`), or looks like the root
+of a different project. **Start from a fresh, empty directory** (as above) and
+you will not be prompted. An ordinary directory below another wrapper is fine —
+several independent wrappers under one parent is how presets are shared — and
+just prints a note. Pass `--yes` to skip the prompt when deliberately targeting a
+non-empty directory; without a terminal the command fails rather than proceeding.
 
 > **Note:** run `atelier --help` for the full command list, including `atelier
 > module add|rm|list`, `atelier tidy`, and `atelier purge`.
@@ -141,14 +144,14 @@ A preset is a named `.tfvars` file: a bundle of variable values you apply in
 one action, then customise. Atelier discovers presets from two sources:
 
 - **Personal** bundles in an `atelier.presets/` directory at any ancestor of the
-  wrapper, discovered by walking up (nearest wins). One shared directory at a
-  parent (e.g. `tf-testing/atelier.presets/`) serves every wrapper beneath it.
+  wrapper — including the wrapper directory itself — discovered by walking up
+  (nearest wins). A shared directory at a parent serves every wrapper beneath
+  it; a bundle beside the wrapper overrides a same-named one further up.
 - **Product** presets committed to the module repo, e.g.
   `terraform/cos/presets/single-unit.tfvars`.
 
 Atelier reads only Terraform-native `.tfvars` files, and only when you name
-them; it never reads Atelier-specific manifests. See
-[ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md).
+them. See [ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md).
 
 The TUI lists both sources with `F` (source-labelled `[local]`/`[repo]`, with
 the description taken from each file's leading comment); `Enter` applies the
@@ -158,18 +161,47 @@ selected one. Press `S` to save the current non-default configuration as a new
 ### Applying a preset from the CLI
 
 `atelier module add` accepts `--var-file`, which seeds a wrapper from one or
-more bundles and exits without opening the TUI — useful in scripts and CI:
+more bundles and exits without opening the TUI — useful in scripts and CI.
+Comma-separate several bundles, or repeat the flag; later files win.
+
+```bash
+mkdir cos && cd cos
+atelier module add https://github.com/canonical/observability-stack.git \
+  --module terraform/cos \
+  --var-file single-unit,no-ingress,s3-seaweedfs
+```
+
+`--var` sets a single input directly and wins over any `--var-file`:
 
 ```bash
 atelier module add https://github.com/canonical/observability-stack.git \
-  --module terraform/cos --var-file s3,units --yes < /dev/null
+  --module terraform/cos-lite \
+  --var-file no-ingress \
+  --var 'model={uuid="<MODEL_UUID>"}'
 ```
 
+For an object value, `--var` deep-merges over what the bundles set, so
+unmentioned fields are preserved:
+`--var-file no-ingress --var 'ingress={alertmanager=true}'` keeps every other
+component off and turns only Alertmanager ingress back on.
+
 Names resolve against your walk-up `atelier.presets/` bundles first, then the
-module repo's presets; a local path is also accepted. `--list-var-files`
-prints what is available. Piping stdin from `/dev/null` (or running without a
-terminal) makes Atelier skip the TUI rather than error, so the command never
-blocks.
+module repo's presets; a local path is also accepted. `--list-var-files` prints
+what is available:
+
+```bash
+atelier module add https://github.com/canonical/observability-stack.git \
+  --module terraform/cos --list-var-files
+```
+
+```text
+[repo] no-ingress               terraform/cos/presets/no-ingress.tfvars
+[repo] s3-seaweedfs             terraform/cos/presets/s3-seaweedfs.tfvars
+[repo] single-unit              terraform/cos/presets/single-unit.tfvars
+```
+
+Piping stdin from `/dev/null` (or running without a terminal) makes Atelier
+skip the TUI rather than error, so the command never blocks.
 
 <details>
 <summary>Demo: saving a preset</summary>
@@ -275,6 +307,79 @@ walkthrough.
 ![Importing a live deployment](docs/gifs/import.gif)
 
 </details>
+
+### From bundle to import
+
+Product modules ship **preset bundles** — plain `.tfvars` files committed under
+`<module>/presets/` — and `--var-file` applies them by name. Combined with
+`atelier import`, the same bundles that seed a fresh deployment also reconstruct
+its state, so a known-good shape is one line in a script.
+
+First, see what the module offers:
+
+```bash
+atelier module add https://github.com/canonical/observability-stack.git \
+  --module terraform/cos --list-var-files
+```
+
+**COS — create a wrapper from presets:**
+
+```bash
+mkdir cos && cd cos
+atelier module add \
+  https://github.com/canonical/observability-stack.git \
+  --module terraform/cos \
+  --var-file single-unit,no-ingress,s3-seaweedfs
+```
+
+**COS — import an existing deployment into that shape:**
+
+```bash
+mkdir cos-import && cd cos-import
+atelier import juju \
+  --source https://github.com/canonical/observability-stack.git \
+  --module terraform/cos \
+  --var-file single-unit,no-ingress,s3-seaweedfs \
+  --var 'model={uuid="<MODEL_UUID>"}' \
+  --query-var model_uuid=<MODEL_UUID>
+```
+
+**COS Lite — create a wrapper from presets:**
+
+```bash
+mkdir cos-lite && cd cos-lite
+atelier module add \
+  https://github.com/canonical/observability-stack.git \
+  --module terraform/cos-lite \
+  --var-file no-ingress
+```
+
+**COS Lite — import an existing deployment into that shape:**
+
+```bash
+mkdir cos-lite-import && cd cos-lite-import
+atelier import juju \
+  --source https://github.com/canonical/observability-stack.git \
+  --module terraform/cos-lite \
+  --var-file no-ingress \
+  --var 'model={uuid="<MODEL_UUID>"}' \
+  --query-var model_uuid=<MODEL_UUID>
+```
+
+The pieces that make this work:
+
+- **`--var-file a,b,c`** applies several bundles at once; later files win.
+- **`--var`** sets a single input and wins over any bundle. A structured value
+  is one flag with an HCL expression, e.g. `--var 'model={uuid="…"}'`.
+- **`--query-var model_uuid`** is required by the Juju provider's list
+  resources; `--var model` pins the module's own model input.
+- **`--list-var-files`** works on both `module add` and `import` (the latter
+  needs `--source`, since the repo is only searched after a clone).
+
+Run `module add` and `import` from a **fresh, empty directory**: they write into
+the current directory and ask before scaffolding into one that already holds
+other files or sits inside another wrapper's own state (`.atelier/`,
+`.terraform/`).
 
 ## Troubleshooting
 

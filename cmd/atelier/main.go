@@ -46,13 +46,16 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 Usage:
   atelier                                      Open the wrapper in the current directory.
   atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
-                                [--var-file PATH|NAME] [--list-var-files] [--strict] [--yes]
+                                [--var-file PATH|NAME] [--var KEY=VALUE]
+                                [--list-var-files] [--strict] [--yes]
                                                Add a module to the wrapper (bootstraps if needed).
                                                Warns and asks before scaffolding into a directory that
                                                already holds other files; --yes skips the prompt.
                                                --var-file seeds values from a Terraform variable file: a local
                                                path, a name in an ancestor atelier.presets/ directory, or a name
                                                committed to the module repo. Comma-separate or repeat for several.
+                                               --var sets a single module input (repeatable); --var wins over
+                                               --var-file.
                                                --list-var-files prints the local and repo .tfvars bundles available.
                                                --strict makes var-file binding warnings fatal.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
@@ -61,7 +64,8 @@ Usage:
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
   atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
-        [--dir PATH] [--type T] [--var K=V] [--var-file PATH|NAME] [--query-var K=V] [--dry-run] [--list] [--yes]
+        [--dir PATH] [--type T] [--var K=V] [--var-file PATH|NAME]
+        [--list-var-files] [--query-var K=V] [--dry-run] [--list] [--yes]
                                                 Import a running deployment into Terraform state. With --source,
                                                 clones a remote module, writes an Atelier wrapper, and imports
                                                 live resources into it. Without --source, imports into an
@@ -74,6 +78,8 @@ Usage:
                                                 derived from the live deployment, so it need not be passed
                                                 as a --var. Variables the module declares without a default
                                                 must still be supplied via --var or --var-file.
+                                                --list-var-files prints the local and repo .tfvars bundles
+                                                available (requires --source) and exits without importing.
                                                 --dry-run writes an imports.tf artifact and previews the plan
                                                 without touching state.
   atelier --version                            Print the version and exit.

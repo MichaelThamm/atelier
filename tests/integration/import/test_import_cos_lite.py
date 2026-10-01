@@ -6,10 +6,12 @@ Flow under test — the end-to-end value of the provider registry
 (internal/importer/providers), exercised with non-default module inputs:
 
 1. Create a temporary Juju model (Jubilant).
-2. Shell out to Atelier to bootstrap a COS-Lite wrapper pinned to ``--ref``
-   and configured from a ``--var-file`` bundle (the model to deploy into, and
-   ``internal_tls = false``), non-interactively (``stdin=/dev/null`` skips the
-   TUI).
+2. Shell out to Atelier to bootstrap a COS-Lite wrapper pinned to ``--ref``,
+   non-interactively (``stdin=/dev/null`` skips the TUI). Inputs come from two
+   ``--var-file`` bundles: a local ``ci`` file pinning the model and
+   ``internal_tls = false`` explicitly, then the module's own ``no-ingress``
+   preset, resolved by name from the clone, which disables every ingress
+   integration (so no Traefik). Later files win.
 3. ``terraform init`` + ``apply`` to deploy COS-Lite into the model.
 4. Delete the Terraform state, leaving the live deployment orphaned.
 5. Run ``atelier import`` with the *same* ``--ref`` and ``--var-file``, letting it
@@ -25,6 +27,10 @@ Flow under test — the end-to-end value of the provider registry
 ``--query-var model_uuid`` is required: the Juju list resources for
 applications and integrations carry a required ``model_uuid`` config block, so
 without it only ``juju_model``/``juju_offer`` are queryable.
+
+The ``ci`` bundle is a local path; the ``no-ingress`` bundle is the module's own
+preset, committed to the upstream repo, so ``--var-file no-ingress`` exercises
+name resolution against the clone.
 
 This is deliberately the same recipe as a user's disaster-recovery flow:
 ``module add`` to author the wrapper, then ``import`` to recover state from a
@@ -42,6 +48,8 @@ from helpers import run_atelier, wait_for_active_idle_without_error, write_var_f
 COS_REPO = "https://github.com/canonical/observability-stack.git"
 COS_MODULE = "terraform/cos-lite"
 COS_REF = "main"
+# The module's own preset, resolved by name from the clone (upstream discovery).
+COS_PRESET = "no-ingress"
 
 # The core resources `atelier import` must recover and reproduce exactly: the
 # applications, the relations between them, and the offers they expose.
@@ -59,6 +67,38 @@ PRESERVED_TYPES = frozenset({"juju_application", "juju_integration", "juju_offer
 # fails — rather than silently passing — if COS-Lite ever starts creating a
 # type nobody has decided about.
 DRIFT_TYPES = frozenset({"terraform_data", "juju_secret", "juju_access_secret"})
+
+
+def _hcl_block(text: str, name: str) -> str:
+    """Return the `{...}` body of `name = {...}` in `text`, brace-balanced.
+
+    A plain `split("}", 1)` truncates at the first closing brace, which is wrong
+    for a block whose values are themselves objects. This walks the braces so
+    nested values are included, and skips quoted strings so a `}` inside one
+    does not end the block early.
+    """
+    start = text.index(f"{name} = {{") + len(f"{name} = ")
+    depth = 0
+    in_str = False
+    escaped = False
+    for i, ch in enumerate(text[start:], start):
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1 : i]
+    raise AssertionError(f"unbalanced braces in {name} block")
 
 
 @pytest.mark.cloud
@@ -80,7 +120,8 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     )
 
     # WHEN Atelier bootstraps the module, non-interactively, pinned to --ref
-    # and configured from the preset
+    # and configured from both bundles: the explicit ci values, then the
+    # module's own no-ingress preset
     run_atelier(
         wrapper_dir,
         atelier_bin,
@@ -93,6 +134,8 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
         COS_REF,
         "--var-file",
         var_file,
+        "--var-file",
+        COS_PRESET,
         "--yes",
     )
 
@@ -101,8 +144,12 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     main_tf = (Path(wrapper_dir) / "main.tf").read_text()
     assert "//terraform/cos-lite" in main_tf
     assert f"ref={COS_REF}" in main_tf
-    assert model_uuid in main_tf
+    assert f'uuid = "{model_uuid}"' in main_tf
     assert "internal_tls = false" in main_tf
+    # no-ingress: every ingress component the module declares is switched off
+    ingress_block = _hcl_block(main_tf, "ingress")
+    assert "= false" in ingress_block
+    assert "= true" not in ingress_block
 
     # AND Terraform deploys COS-Lite into the model
     tf_manager.init()
@@ -133,7 +180,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     (wrapper / "terraform.tfstate.backup").unlink(missing_ok=True)
 
     # WHEN Atelier imports the live deployment back into a fresh state, with
-    # the same --ref/--var-file flags and the model UUID as a query variable
+    # the same --ref/--var-file bundles and the model UUID as a query variable
     result = run_atelier(
         wrapper_dir,
         atelier_bin,
@@ -147,6 +194,8 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
         COS_REF,
         "--var-file",
         var_file,
+        "--var-file",
+        COS_PRESET,
         "--query-var",
         f"model_uuid={model_uuid}",
         capture=True,
