@@ -62,6 +62,7 @@ Entry point is `cmd/atelier` (package `main`). Product logic lives under
 | `internal/bootstrap` | First-run init and rehydrate flows; orchestrates wrapper creation. |
 | `internal/candidate` | Heuristically discovers module candidates inside a cloned repo. |
 | `internal/gitops` | Shells out to `git` to clone/fetch module sources. |
+| `internal/modulesource` | Parses Terraform module source addresses (remote, `//subpath`, `?ref`, local paths). |
 | `internal/wrapper` | Reads/writes the wrapper `main.tf`; sparse-plus-required write rule. |
 | `internal/tftypes` | Models Terraform variable types and values. |
 | `internal/tfvars` | Parses `variable` blocks from a module. |

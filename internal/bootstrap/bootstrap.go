@@ -21,6 +21,7 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/candidate"
 	"github.com/MichaelThamm/atelier/internal/gitops"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/session"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
@@ -133,7 +134,7 @@ func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedS
 		}
 	}
 
-	repoName := repoBasename(opts.Source)
+	repoName := modulesource.RepoBasename(opts.Source)
 	cloneDir = filepath.Join(CloneSubdir(opts.WrapperDir), repoName)
 
 	// Warm-start fast path: if a previous clone is already checked out at the
@@ -200,13 +201,13 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 	if err != nil {
 		return nil, fmt.Errorf("read required_providers: %w", err)
 	}
-	wrappedSource := composeSource(sourceURL, modulePath, literalRef)
+	wrappedSource := modulesource.Compose(sourceURL, modulePath, literalRef)
 
 	providers := DefaultProviderBlocks(req)
 	values := map[string]cty.Value{}
 	state := &wrapper.State{
 		Dir:               wrapperDir,
-		ModuleBlockName:   ModuleBlockName(modulePath, repoBasename(sourceURL)),
+		ModuleBlockName:   ModuleBlockName(modulePath, modulesource.RepoBasename(sourceURL)),
 		Source:            wrappedSource,
 		Vars:              vars,
 		Values:            values,
@@ -229,8 +230,8 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 func PrepareStateFromMain(wrapperDir, modulePath, literalRef, sourceURL string) *wrapper.State {
 	return &wrapper.State{
 		Dir:             wrapperDir,
-		ModuleBlockName: ModuleBlockName(modulePath, repoBasename(sourceURL)),
-		Source:          composeSource(sourceURL, modulePath, literalRef),
+		ModuleBlockName: ModuleBlockName(modulePath, modulesource.RepoBasename(sourceURL)),
+		Source:          modulesource.Compose(sourceURL, modulePath, literalRef),
 		Vars:            nil,
 		Values:          map[string]cty.Value{},
 	}
@@ -422,12 +423,12 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		if pm == nil {
 			return nil, fmt.Errorf("not a wrapper directory: run 'atelier module add <url>' to bootstrap")
 		}
-		srcURL, refStr := decomposeSource(pm.Source)
+		srcURL, refStr := modulesource.Decompose(pm.Source)
 		prev = &session.Session{
 			SourceURL:           srcURL,
 			LiteralRef:          refStr,
 			ModuleBlockName:     pm.ModuleBlockName,
-			ModuleCandidatePath: modulePathFromSource(pm.Source),
+			ModuleCandidatePath: modulesource.ModulePath(pm.Source),
 		}
 	}
 
@@ -438,7 +439,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 	// Re-derive it from the primary module block's source in main.tf.
 	if prev.ModuleCandidatePath == "" {
 		if pm, err := wrapper.ReadMain(wrapperDir, nil); err == nil && pm != nil {
-			prev.ModuleCandidatePath = modulePathFromSource(pm.Source)
+			prev.ModuleCandidatePath = modulesource.ModulePath(pm.Source)
 		}
 	}
 
@@ -450,7 +451,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 	cloneDir, currentSHA, err := ResolveAndClone(ctx, InitOptions{
 		WrapperDir:  wrapperDir,
 		Source:      prev.SourceURL,
-		LocalSource: isLocalSource(prev.SourceURL),
+		LocalSource: modulesource.IsLocal(prev.SourceURL),
 		Ref:         prev.LiteralRef,
 		ModulePath:  prev.ModuleCandidatePath,
 		GitRunner:   gitRunner,
@@ -632,91 +633,6 @@ func DefaultProviderBlocks(req map[string]wrapper.RequiredProvider) []wrapper.Pr
 	return out
 }
 
-// repoBasename pulls a meaningful directory name from a git URL. For
-// `git::https://x/y/z.git` it returns "z"; for `git@x:y/z.git` it returns
-// "z"; for local paths it returns the directory basename.
-func repoBasename(src string) string {
-	s := src
-	if strings.HasPrefix(s, "git::") {
-		s = strings.TrimPrefix(s, "git::")
-	}
-	if i := strings.Index(s, "?"); i >= 0 {
-		s = s[:i]
-	}
-	s = strings.TrimSuffix(s, ".git")
-	s = strings.TrimSuffix(s, "/")
-	if i := strings.LastIndexAny(s, "/:"); i >= 0 {
-		s = s[i+1:]
-	}
-	if s == "" || s == "." || s == ".." {
-		s = "repo"
-	}
-	return s
-}
-
-// composeSource builds the canonical wrapper-source URL from a remote URL,
-// candidate path, and ref.
-func composeSource(remote, modulePath, ref string) string {
-	url := remote
-	if !strings.HasPrefix(url, "git::") &&
-		!strings.HasPrefix(url, "./") &&
-		!strings.HasPrefix(url, "../") &&
-		!strings.HasPrefix(url, "/") {
-		url = "git::" + url
-	}
-	if modulePath != "" && modulePath != "." {
-		url += "//" + modulePath
-	}
-	if ref != "" {
-		url += "?ref=" + ref
-	}
-	return url
-}
-
-// modulePathFromSource extracts the "//<subdir>" module path from a
-// Terraform git source string, returning "" when the source points at the
-// repository root. It mirrors decomposeSource's path-stripping logic but
-// returns the discarded subdirectory instead of the base URL.
-func modulePathFromSource(source string) string {
-	s := source
-	if q := strings.Index(s, "?ref="); q >= 0 {
-		s = s[:q]
-	}
-	s = strings.TrimPrefix(s, "git::")
-	searchFrom := 0
-	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
-		searchFrom = schemeEnd + 3
-	}
-	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
-		return s[searchFrom+idx+2:]
-	}
-	return ""
-}
-
-// decomposeSource splits "git::https://...//path?ref=v1" into the base URL
-// and ref. Used during rehydrate. The `//<modulepath>` separator is a
-// Terraform convention indicating a subdirectory within the cloned repo.
-func decomposeSource(s string) (url, ref string) {
-	url = s
-	if i := strings.Index(url, "?ref="); i >= 0 {
-		ref = url[i+len("?ref="):]
-		url = url[:i]
-	}
-	url = strings.TrimPrefix(url, "git::")
-	// Strip the `//<path>` modulepath suffix. We need to skip the `://`
-	// scheme separator first to avoid eating it.
-	search := url
-	offset := 0
-	if i := strings.Index(search, "://"); i >= 0 {
-		offset = i + 3
-		search = url[offset:]
-	}
-	if j := strings.Index(search, "//"); j >= 0 {
-		url = url[:offset+j]
-	}
-	return url, ref
-}
-
 // ModuleBlockName derives a valid HCL identifier from a directory path.
 // When the path is "." (root module), fallbackName is used instead.
 //
@@ -789,12 +705,4 @@ func ConvertVariables(vars []tfvars.Variable) []wrapper.TFVar {
 		out[i] = v
 	}
 	return out
-}
-
-// isLocalSource reports whether a source string refers to a local filesystem
-// path rather than a git remote.
-func isLocalSource(src string) bool {
-	return strings.HasPrefix(src, "./") ||
-		strings.HasPrefix(src, "../") ||
-		strings.HasPrefix(src, "/")
 }

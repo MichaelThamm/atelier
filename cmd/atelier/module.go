@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
@@ -602,7 +603,7 @@ func runModuleList(args []string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tSOURCE\tREF")
 	for _, blk := range blocks {
-		src, ref := decomposeModuleSource(blk.Source)
+		src, ref := modulesource.Decompose(blk.Source)
 		if ref == "" {
 			ref = "-"
 		}
@@ -678,10 +679,10 @@ type moduleSourceIdentity struct {
 // with or without the `.git` suffix, with a trailing slash — and a raw string
 // compare would call those different modules.
 func moduleIdentity(source string) moduleSourceIdentity {
-	remote, ref := decomposeModuleSource(source)
+	remote, ref := modulesource.Decompose(source)
 	return moduleSourceIdentity{
 		remote: normaliseRemote(remote),
-		path:   strings.Trim(modulePathFromSource(source), "/"),
+		path:   strings.Trim(modulesource.ModulePath(source), "/"),
 		ref:    ref,
 	}
 }

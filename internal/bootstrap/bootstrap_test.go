@@ -10,61 +10,6 @@ import (
 	"github.com/MichaelThamm/atelier/internal/session"
 )
 
-func TestRepoBasename(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"git::https://github.com/canonical/observability-stack.git", "observability-stack"},
-		{"https://github.com/canonical/observability-stack.git?ref=main", "observability-stack"},
-		{"git@github.com:canonical/observability-stack.git", "observability-stack"},
-		{"/home/user/local-thing", "local-thing"},
-		{"./relative", "relative"},
-		{"https://example.com/", "example.com"}, // last segment if no .git
-		{"", "repo"},
-	}
-	for _, c := range cases {
-		if got := repoBasename(c.in); got != c.want {
-			t.Errorf("repoBasename(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
-func TestComposeSource(t *testing.T) {
-	cases := []struct {
-		remote, modulePath, ref, want string
-	}{
-		{"https://example.com/m.git", "terraform/cos-lite", "v1.2.0",
-			"git::https://example.com/m.git//terraform/cos-lite?ref=v1.2.0"},
-		{"git::ssh://git@example.com/m.git", "", "main",
-			"git::ssh://git@example.com/m.git?ref=main"},
-		{"./local", "modules/x", "",
-			"./local//modules/x"},
-		{"/abs/path", ".", "",
-			"/abs/path"},
-	}
-	for _, c := range cases {
-		got := composeSource(c.remote, c.modulePath, c.ref)
-		if got != c.want {
-			t.Errorf("composeSource(%q, %q, %q) = %q, want %q", c.remote, c.modulePath, c.ref, got, c.want)
-		}
-	}
-}
-
-func TestDecomposeSource(t *testing.T) {
-	cases := []struct {
-		in, wantURL, wantRef string
-	}{
-		{"git::https://example.com/m.git//terraform/x?ref=v1", "https://example.com/m.git", "v1"},
-		{"https://example.com/m.git?ref=main", "https://example.com/m.git", "main"},
-		{"./local//modules/x", "./local", ""},
-		{"git::https://example.com/m.git", "https://example.com/m.git", ""},
-	}
-	for _, c := range cases {
-		gotURL, gotRef := decomposeSource(c.in)
-		if gotURL != c.wantURL || gotRef != c.wantRef {
-			t.Errorf("decomposeSource(%q) = (%q, %q), want (%q, %q)", c.in, gotURL, gotRef, c.wantURL, c.wantRef)
-		}
-	}
-}
-
 func TestModuleBlockName(t *testing.T) {
 	cases := []struct{ in, fallback, want string }{
 		{"terraform/cos-lite", "", "cos_lite"},
@@ -307,22 +252,6 @@ func TestCandidatePaths(t *testing.T) {
 	cs := candidatePaths(nil)
 	if len(cs) != 0 {
 		t.Errorf("nil → non-empty: %v", cs)
-	}
-}
-
-func TestModulePathFromSource(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"git::https://github.com/canonical/observability-stack.git//terraform/cos", "terraform/cos"},
-		{"git::https://example.com/m.git//terraform/cos-lite?ref=v1.2.0", "terraform/cos-lite"},
-		{"https://example.com/m.git?ref=main", ""},
-		{"git::https://example.com/m.git", ""},
-		{"./local//modules/x", "modules/x"},
-		{"/abs/repo//terraform/cos", "terraform/cos"},
-	}
-	for _, c := range cases {
-		if got := modulePathFromSource(c.in); got != c.want {
-			t.Errorf("modulePathFromSource(%q) = %q, want %q", c.in, got, c.want)
-		}
 	}
 }
 

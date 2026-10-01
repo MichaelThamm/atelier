@@ -33,6 +33,7 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/gitops"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/session"
 	tfstate "github.com/MichaelThamm/atelier/internal/state"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
@@ -183,7 +184,7 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	m := tui.New(state, state.ModuleBlockName)
 	m.LiteralRef = res.LiteralRef
 	m.ResolvedSHA = res.ResolvedSHA
-	m.SourceURL = sourceURLFromState(state)
+	m.SourceURL = modulesource.Remote(state.Source)
 	m.WrapperDir = wrapperDir
 	m.SetPresets(presets)
 
@@ -220,14 +221,14 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 
 	// Populate the primary module's ref identity + per-module switcher so the
 	// R key can switch it independently of any secondaries.
-	m.Modules[0].SourceURL = sourceURLFromState(state)
+	m.Modules[0].SourceURL = modulesource.Remote(state.Source)
 	m.Modules[0].Ref = res.LiteralRef
 	m.Modules[0].ResolvedSHA = res.ResolvedSHA
 	if res.LiteralRef != "" || res.ResolvedSHA != "" {
 		m.Modules[0].Switcher = &prodRefSwitcher{
 			wrapperDir:          wrapperDir,
-			sourceURL:           sourceURLFromState(state),
-			modulePath:          modulePathFromState(state),
+			sourceURL:           modulesource.Remote(state.Source),
+			modulePath:          modulesource.ModulePath(state.Source),
 			blockName:           state.ModuleBlockName,
 			isPrimary:           true,
 			currentVars:         state.Vars,
@@ -406,17 +407,17 @@ func loadSecondaryModules(m *tui.Model, wrapperDir, primaryBlockName string) {
 // loadSecondaryModule clones and parses a secondary module's variables and
 // builds its ref identity + per-module switcher.
 func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.ModuleBlockInfo) *tui.ModuleEntry {
-	srcURL, ref := decomposeModuleSource(blk.Source)
+	srcURL, ref := modulesource.Decompose(blk.Source)
 	if srcURL == "" {
 		return nil
 	}
-	modPath := modulePathFromSource(blk.Source)
+	modPath := modulesource.ModulePath(blk.Source)
 
 	// Clone into .atelier/clone/<reponame>, limited to the module subdir.
 	cloneDir, sha, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
 		WrapperDir:  wrapperDir,
 		Source:      srcURL,
-		LocalSource: isLocalPath(srcURL),
+		LocalSource: modulesource.IsLocal(srcURL),
 		Ref:         ref,
 		ModulePath:  modPath,
 		GitRunner:   &gitops.Git{},
@@ -454,7 +455,7 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 	}
 	// Only git-sourced modules can be ref-switched; local sources get no
 	// switcher (R is a no-op for them).
-	if !isLocalPath(srcURL) {
+	if !modulesource.IsLocal(srcURL) {
 		entry.Switcher = &prodRefSwitcher{
 			wrapperDir:          wrapperDir,
 			sourceURL:           srcURL,
@@ -467,90 +468,6 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 		}
 	}
 	return &entry
-}
-
-// decomposeModuleSource parses a terraform module source string into the
-// git URL and ref components.
-func decomposeModuleSource(source string) (url, ref string) {
-	s := source
-	if i := strings.Index(s, "?ref="); i >= 0 {
-		ref = s[i+len("?ref="):]
-		s = s[:i]
-	}
-	s = strings.TrimPrefix(s, "git::")
-	// Strip the "//<path>" module sub-path suffix.
-	searchFrom := 0
-	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
-		searchFrom = schemeEnd + 3
-	}
-	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
-		s = s[:searchFrom+idx]
-	}
-	return s, ref
-}
-
-// modulePathFromSource extracts the module sub-path from a terraform source.
-func modulePathFromSource(source string) string {
-	s := source
-	// Strip ?ref= query.
-	if q := strings.Index(s, "?ref="); q >= 0 {
-		s = s[:q]
-	}
-	s = strings.TrimPrefix(s, "git::")
-	// Find the "//" separator after the scheme.
-	searchFrom := 0
-	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
-		searchFrom = schemeEnd + 3
-	}
-	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
-		return s[searchFrom+idx+2:]
-	}
-	return ""
-}
-
-// isLocalPath heuristically checks if a source looks like a local path.
-func isLocalPath(source string) bool {
-	return strings.HasPrefix(source, "/") ||
-		strings.HasPrefix(source, "./") ||
-		strings.HasPrefix(source, "../")
-}
-
-func modulePathFromState(s *wrapper.State) string {
-	// Extract the module sub-path from the source attribute. Terraform git
-	// sources use "//" to separate the repo URL from the sub-directory, e.g.
-	// "git::https://host/repo.git//terraform/cos-lite?ref=main"
-	src := s.Source
-	idx := strings.LastIndex(src, "//")
-	if idx < 0 {
-		return ""
-	}
-	sub := src[idx+2:]
-	// Strip ?ref=... query suffix if present.
-	if q := strings.IndexByte(sub, '?'); q >= 0 {
-		sub = sub[:q]
-	}
-	return sub
-}
-
-// sourceURLFromState extracts the git remote URL from the state's Source,
-// stripping the git:: prefix, module path suffix, and ?ref= query.
-func sourceURLFromState(s *wrapper.State) string {
-	src := s.Source
-	src = strings.TrimPrefix(src, "git::")
-	// Strip ?ref= query first (it's always at the end).
-	if idx := strings.Index(src, "?ref="); idx >= 0 {
-		src = src[:idx]
-	}
-	// Strip module sub-path indicated by "//" after the host/repo portion.
-	// Skip past the scheme's "://" to avoid matching it.
-	searchFrom := 0
-	if schemeEnd := strings.Index(src, "://"); schemeEnd >= 0 {
-		searchFrom = schemeEnd + 3
-	}
-	if idx := strings.Index(src[searchFrom:], "//"); idx >= 0 {
-		src = src[:searchFrom+idx]
-	}
-	return src
 }
 
 // prodRefSwitcher implements tui.RefSwitcher by re-cloning the module at a

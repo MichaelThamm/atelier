@@ -26,6 +26,7 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/gitops"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -156,13 +157,13 @@ func countModuleBlocks(src []byte, filename string) (int, error) {
 // can then move out from under the wrapper. Local-path sources have no remote
 // to drift, so they are never warned about.
 func refWarning(source, literalRef string) string {
-	if isLocalSource(source) {
+	if modulesource.IsLocal(source) {
 		return ""
 	}
 	if literalRef == "" {
 		return "module source has no ref; defaults were resolved against the default-branch HEAD and may change as upstream moves. Pin a tag or commit for reproducible tidies."
 	}
-	if !isHexSHA(literalRef) {
+	if !modulesource.IsFullSHA(literalRef) {
 		return fmt.Sprintf("module ref %q is not a commit SHA; defaults were resolved against its current state and may change as upstream moves. Pin a commit for reproducible tidies.", literalRef)
 	}
 	return ""
@@ -181,30 +182,6 @@ func backupMain(dir string, data []byte) (string, error) {
 		return "", err
 	}
 	return path, nil
-}
-
-// isLocalSource reports whether a module source refers to a local filesystem
-// path rather than a git remote. Mirrors bootstrap's unexported check.
-func isLocalSource(src string) bool {
-	return strings.HasPrefix(src, "./") ||
-		strings.HasPrefix(src, "../") ||
-		strings.HasPrefix(src, "/")
-}
-
-// isHexSHA reports whether s is a full 40-character lowercase hex commit SHA.
-func isHexSHA(s string) bool {
-	if len(s) != 40 {
-		return false
-	}
-	for _, c := range s {
-		switch {
-		case c >= '0' && c <= '9':
-		case c >= 'a' && c <= 'f':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // normalize trims trailing whitespace per line and a trailing final newline so

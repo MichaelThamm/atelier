@@ -26,6 +26,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/session"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
@@ -317,74 +318,17 @@ func findGitModuleBlock(dir string) *moduleBlockInfo {
 				continue
 			}
 			src := val.AsString()
-			if !isGitSource(src) {
+			if !modulesource.IsGitSource(src) {
 				continue
 			}
 			// Parse the source into components.
 			info := &moduleBlockInfo{BlockName: block.Labels[0], Source: src}
-			info.SourceURL, info.Ref = decomposeSource(src)
-			info.ModulePath = extractModulePath(src)
+			info.SourceURL, info.Ref = modulesource.Decompose(src)
+			info.ModulePath = modulesource.ModulePath(src)
 			return info
 		}
 	}
 	return nil
-}
-
-// isGitSource reports whether a Terraform module source looks like a git
-// remote (as opposed to a local path or registry source).
-func isGitSource(src string) bool {
-	if strings.HasPrefix(src, "git::") {
-		return true
-	}
-	if strings.HasPrefix(src, "github.com/") {
-		return true
-	}
-	if strings.Contains(src, "://") && !strings.HasPrefix(src, "file://") {
-		return true
-	}
-	return false
-}
-
-// decomposeSource splits a git module source into the base URL and ref.
-// E.g. "git::https://github.com/org/repo.git//path?ref=v1" → ("https://github.com/org/repo.git", "v1")
-func decomposeSource(s string) (url, ref string) {
-	url = s
-	if i := strings.Index(url, "?ref="); i >= 0 {
-		ref = url[i+len("?ref="):]
-		url = url[:i]
-	}
-	url = strings.TrimPrefix(url, "git::")
-	// Strip the "//<path>" module path suffix. Skip past "://" scheme.
-	search := url
-	offset := 0
-	if i := strings.Index(search, "://"); i >= 0 {
-		offset = i + 3
-		search = url[offset:]
-	}
-	if j := strings.Index(search, "//"); j >= 0 {
-		url = url[:offset+j]
-	}
-	return url, ref
-}
-
-// extractModulePath extracts the subdir path from a git source.
-// E.g. "git::https://host/repo.git//terraform/cos-lite?ref=v1" → "terraform/cos-lite"
-func extractModulePath(src string) string {
-	s := src
-	// Strip ?ref= query.
-	if i := strings.Index(s, "?ref="); i >= 0 {
-		s = s[:i]
-	}
-	s = strings.TrimPrefix(s, "git::")
-	// Find "//" after the scheme.
-	searchFrom := 0
-	if i := strings.Index(s, "://"); i >= 0 {
-		searchFrom = i + 3
-	}
-	if j := strings.Index(s[searchFrom:], "//"); j >= 0 {
-		return s[searchFrom+j+2:]
-	}
-	return ""
 }
 
 // listTFFiles returns the names of .tf files at the top level of dir.
