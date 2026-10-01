@@ -182,6 +182,20 @@ matches its description.
   authoritative and copied into new code. Comment *density* in Go may be higher
   than a human-only team would choose, but **diff size stays small regardless**:
   one logical change per commit.
+- **Keep comments short and about the code.** A comment explains what a future
+  reader of *this file* needs to know; it is not a place for project history,
+  motivation for a refactor, or the journey that produced the change. Those
+  belong in the commit message or PR, which is where a reviewer looks for them.
+  Concretely, do not write: "X was copied into four packages", "this used to
+  live in Y", editorials on why a design is better, or restatements of the
+  commit subject. Prefer one or two sentences over a paragraph; if a comment
+  runs past a short paragraph, the extra is almost always reviewer context that
+  belongs in the commit. A doc comment on an exported symbol earns a little more
+  room, but still states its contract, not its backstory.
+  - Bad: `// This used to be duplicated in three places and we finally
+    // consolidated it; it is the one home for ...`
+  - Good: `// parseCandidates reports ...` (contract), or a single invariant
+    line with an ADR cross-reference.
 - **Docs:** `docs/adr/README.md` is the index of record — every ADR needs a row
   there. `just check` runs `tools/docscheck`, which fails on a missing or
   inconsistent index row, an unresolved `ADR-NNNN` reference, or a broken

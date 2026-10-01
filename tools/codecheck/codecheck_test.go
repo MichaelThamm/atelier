@@ -1,21 +1,11 @@
-// Package codecheck holds repository-wide structural checks that the compiler
-// and go vet do not express: whether every internal package is reachable from
-// the built binary.
+// Package codecheck holds repository-wide structural checks that go vet does
+// not express: whether every internal package is reachable from the built
+// binary.
 //
-// This exists because prose guidance did not hold. AGENTS.md already said to
-// extend an existing mechanism rather than add a parallel one, yet an
-// unreachable 700-line internal/convert package survived several refactors
-// because nothing noticed it. A rule that lives only in a document is read
-// once; a rule that fails `just check` is read every time.
-//
-// The check is deliberately narrow. It uses `go list` — the documented,
-// version-accurate API for the module graph — rather than parsing source or
-// shelling out to git, so it needs no extra dependency and cannot drift from
-// the actual build. Broader architectural rules (forbidden imports, duplicate
-// code) are left to review and the reuse table in AGENTS.md, or to
-// golangci-lint if the project adopts it deliberately; the ecosystem-standard
-// tools are better than a bespoke reimplementation, and lean-by-default says
-// not to carry one.
+// Uses `go list`, the documented API for the module graph, so the check cannot
+// drift from the actual build. Broader rules — forbidden imports, duplicate
+// code — are left to review and the reuse table in AGENTS.md; the
+// ecosystem-standard tools beat a bespoke reimplementation.
 package codecheck
 
 import (
@@ -30,10 +20,9 @@ import (
 
 const modulePrefix = "github.com/MichaelThamm/atelier"
 
-// goListImports runs `go list -deps -json <patterns>` from the module root and
-// returns the set of package import paths it listed. Failing to list is a test
-// failure, not a skip: the check silently passing because `go list` could not
-// run is exactly the failure mode it exists to prevent.
+// goListImports returns the set of package import paths `go list -deps -json`
+// reports for the given patterns. A failure is fatal, not a skip: the check
+// silently passing because `go list` could not run would defeat its purpose.
 func goListImports(t *testing.T, root string, patterns ...string) map[string]bool {
 	t.Helper()
 	args := append([]string{"list", "-deps", "-json"}, patterns...)
@@ -66,10 +55,9 @@ func goListImports(t *testing.T, root string, patterns ...string) map[string]boo
 }
 
 // TestNoDeadInternalPackages fails when an internal package is not reachable
-// from the main binary's package graph. `go list -deps ./cmd/...` walks the
-// exact imports the compiler follows, so anything internal it does not mention
-// is dead product surface: it compiles and its tests may pass, but no command
-// can reach it (this is how internal/convert survived).
+// from the main binary. `go list -deps ./cmd/...` follows the exact imports the
+// compiler does, so anything internal it omits cannot be reached by any
+// command.
 func TestNoDeadInternalPackages(t *testing.T) {
 	root := repoRoot(t)
 

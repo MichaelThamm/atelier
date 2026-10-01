@@ -189,8 +189,7 @@ func printVarFiles(files []bootstrap.VarFile) {
 }
 
 // printCandidates lists module candidates when a repository has several and
-// none was chosen. Every caller that hits this case tells the user the same
-// thing and exits without writing, so the text lives here once.
+// none was chosen. Callers print and exit without writing.
 func printCandidates(w io.Writer, cands []candidate.Candidate) {
 	fmt.Fprintln(w, "Multiple module candidates found. Re-run with --module <path>:")
 	for _, c := range cands {
@@ -204,10 +203,9 @@ func printCandidates(w io.Writer, cands []candidate.Candidate) {
 
 // applyVarFlags layers `--var-file` bundles then `--var` overrides onto state
 // and prints any binding warnings to stderr. It is the one implementation of
-// the `--var`-wins-over-`--var-file` ordering (ADR-0031), shared by
-// `module add` (fresh and additive) and `import --source`. Names resolve
-// against the cloned module repo or a walk-up bundle; a local path is used
-// as-is. It does not write; the caller persists with state.Write().
+// the `--var`-wins-over-`--var-file` order (ADR-0031), shared by `module add`
+// and `import --source`. Names resolve against the cloned module repo or a
+// walk-up bundle; a local path is used as-is. It does not write.
 func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string, varFiles, vars []string, strict bool) error {
 	if len(varFiles) > 0 {
 		resolved, err := bootstrap.ResolveVarFiles(wrapperDir, cloneDir, modulePath, varFiles)
@@ -341,9 +339,7 @@ func runModuleAdd(args []string) error {
 
 	// Run the same clone + candidate-discovery flow as a fresh bootstrap, so a
 	// module whose Terraform lives in a subdirectory (e.g. `terraform/`) is
-	// appended with the correct `//<subdir>` source and thus shows its
-	// variables in the TUI. Skipping discovery here previously appended such
-	// modules at the repo root, leaving them with no editable variables.
+	// appended with the correct `//<subdir>` source and shows its variables.
 	prep, err := bootstrap.PrepareModule(ctx, bootstrap.InitOptions{
 		WrapperDir: cwd,
 		Source:     opts.Source,

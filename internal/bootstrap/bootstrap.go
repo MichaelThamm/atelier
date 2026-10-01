@@ -332,14 +332,12 @@ func PrepareModule(ctx context.Context, opts InitOptions) (*ModulePrep, error) {
 
 // LoadModuleBlock clones the module named by an existing main.tf module block
 // and assembles its state, reading the variable schema from the clone and
-// overlaying the values already written into that block. Unlike
-// PrepareModule it performs no candidate discovery — the sub-path comes from
-// the block's own source string — so it can be called concurrently for every
-// secondary block in a wrapper.
+// overlaying the values already written into that block. It performs no
+// candidate discovery — the sub-path comes from the block's source — so it is
+// safe to call concurrently for every secondary block.
 //
-// The caller supplies the block's HCL label and source verbatim, because a
-// module's label is what Write targets and its source is what the wrapper
-// records; neither is re-derived from the candidate path.
+// The caller supplies the block's HCL label and source verbatim: the label is
+// what Write targets, and the source is what the wrapper records.
 func (b *BlockLoader) LoadModuleBlock(ctx context.Context, wrapperDir, blockName, source string) (*wrapper.State, string, string, error) {
 	remote, ref := modulesource.Decompose(source)
 	if remote == "" {
@@ -387,17 +385,14 @@ type BlockLoader struct {
 	Runner gitops.Runner
 }
 
-// LoadRefState clones the module again at a new ref and reassembles its state
-// for a ref switch: the new schema, the block's existing values, and wired
-// expressions carried over for every variable that still exists. It is the
-// shared front half of a ref switch, used for both the primary module and
-// secondaries.
+// LoadRefState clones the module at a new ref and reassembles its state for a
+// ref switch: the new schema, plus the block's values and wired expressions
+// carried over for every variable that still exists.
 //
-// blockName pins the HCL label the caller wants written (a module's label in
-// main.tf need not match the name derived from its candidate path). priorValues
-// and priorAttrs are the currently-loaded values and wired expressions; only
-// those naming a variable in the new schema survive, so stale inputs are
-// dropped rather than written back.
+// blockName pins the HCL label to write (it need not match the name derived
+// from the candidate path). priorValues and priorAttrs are the currently-loaded
+// values and wired expressions; only those naming a variable in the new schema
+// survive, so stale inputs are dropped rather than written back.
 func LoadRefState(ctx context.Context, opts InitOptions, blockName string, priorValues map[string]cty.Value, priorAttrs []wrapper.RawAttr) (*wrapper.State, string, string, error) {
 	cloneDir, sha, err := ResolveAndClone(ctx, opts)
 	if err != nil {

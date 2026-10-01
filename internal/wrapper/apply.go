@@ -16,18 +16,15 @@ import (
 )
 
 // ApplyVarOverrides merges --var KEY=VALUE overrides into state, converting
-// each string value to the variable's declared type. It returns warnings for
-// values it could not apply — an undeclared name, or a value that does not
-// convert to the declared type — so `--var` fails as loudly as `--var-file`
-// rather than silently dropping the input.
+// each string value to the variable's declared type. Warnings are returned for
+// an undeclared name or a value that does not fit the type, so `--var` fails as
+// loudly as `--var-file` rather than dropping the input silently.
 //
-// For an object/map variable, a supplied value is deep-merged into whatever
-// value is already present rather than replacing it wholesale. This is what
-// lets `--var-file no-ingress --var 'ingress={alertmanager=true}'` mean what it
-// reads like: disable ingress except Alertmanager. Replacement would drop the
-// keys the --var does not mention, and because those keys then compare as
-// unset, the sparse writer would omit the whole attribute and the module would
-// fall back to its defaults — the opposite of the user's intent.
+// An object/map value is deep-merged into whatever is already present rather
+// than replacing it, so `--var-file no-ingress --var 'ingress={alertmanager=true}'`
+// keeps the keys the --var does not mention. Replacement would drop them, the
+// sparse writer would then omit the whole attribute, and the module would fall
+// back to its defaults.
 func ApplyVarOverrides(state *State, config map[string]string) []string {
 	state.EnsureValues()
 	var warnings []string
@@ -52,12 +49,11 @@ func ApplyVarOverrides(state *State, config map[string]string) []string {
 }
 
 // ApplyVarFiles merges values from one or more Terraform variable files into
-// state. Later files win over earlier ones; variables a file does not set are
-// left untouched. Files may have any name (the common `-var-file` usage).
+// state. Later files win; variables a file does not set are untouched.
 // Undeclared names and type-mismatched values are skipped and returned as
-// warnings; when strict is set they become a hard error instead, so a committed
-// example cannot rot silently when a variable is renamed or its type changes
-// (ADR-0031). Persisting is the caller's job via state.Write().
+// warnings, or become a hard error when strict is set, so a committed example
+// cannot rot silently (ADR-0031). It does not persist; the caller calls
+// state.Write().
 func ApplyVarFiles(state *State, paths []string, strict bool) ([]string, error) {
 	state.EnsureValues()
 	var warnings []string
@@ -87,9 +83,8 @@ func ApplyVarFiles(state *State, paths []string, strict bool) ([]string, error) 
 	return warnings, nil
 }
 
-// ConvertStringToCty converts a string value to a cty.Value based on the
-// variable's declared type. It is how `--var` values become typed wrapper
-// values; a value that does not fit the declared type yields cty.NilVal.
+// ConvertStringToCty converts a string to the variable's declared type. A
+// value that does not fit yields cty.NilVal.
 func ConvertStringToCty(strVal string, v *tfvars.Variable) cty.Value {
 	if v == nil || v.Type == nil {
 		// No type info; treat as string.

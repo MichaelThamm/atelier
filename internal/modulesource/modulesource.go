@@ -1,15 +1,12 @@
 // Package modulesource parses Terraform module source addresses.
 //
-// A Terraform git module source encodes three things in one string:
+// A git source encodes three things in one string:
 //
 //	git::https://github.com/org/repo.git//terraform/cos-lite?ref=v1.2.0
 //	└─┬─┘ └──────────────┬────────────┘ └────────┬────────┘ └──┬──┘
 //	prefix          remote URL              module path      ref
 //
-// Before this package existed that surgery was copied into bootstrap, convert,
-// and cmd/atelier with subtly different edge-case handling. It lives here once
-// so the CLI, the wrapper bootstrap, and the ref switcher agree on what a
-// source means. The package is a leaf: it depends only on the standard library.
+// The package is a leaf: it depends only on the standard library.
 package modulesource
 
 import "strings"
