@@ -20,6 +20,8 @@ func TestResolveCommand(t *testing.T) {
 		{[]string{"purge"}, cmdPurge, nil},
 		{[]string{"tidy", "--write"}, cmdTidy, []string{"--write"}},
 		{[]string{"import", "juju"}, cmdImport, []string{"juju"}},
+		{[]string{"presets", "lint", "--module", "m"}, cmdPresets, []string{"lint", "--module", "m"}},
+		{[]string{"gallery", "list"}, cmdGallery, []string{"list"}},
 		{[]string{"nonsense"}, command("nonsense"), nil},
 	}
 	for _, c := range cases {

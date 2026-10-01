@@ -1,0 +1,18 @@
+[
+  {
+    "name": "charmed-spark",
+    "description": "Charmed Spark on Kubernetes, sized for a dev controller. The product module creates its own Juju model.",
+    "module": "https://github.com/canonical/spark-k8s-bundle",
+    "subdir": "terraform/products/charmed-spark",
+    "ref": "6a39d83883f92e0581f5c94144c6ddee2a16e140"
+  },
+  {
+    "name": "haproxy-product",
+    "description": "HAProxy product deployment protecting a single hostname.",
+    "module": "https://github.com/canonical/haproxy-operator",
+    "subdir": "terraform/product",
+    "ref": "a4b85299f23740e8b7570b05a0d7d4aabcd3c476",
+    "block": "haproxy",
+    "preset": "haproxy-dev"
+  }
+]

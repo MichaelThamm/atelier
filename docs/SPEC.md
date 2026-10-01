@@ -239,7 +239,7 @@ refs. See [ADR-0007](adr/0007-sparse-wrapper-write-rule.md).
 
 ```
 atelier                                    # open TUI on existing wrapper in CWD
-atelier module add <git-url>               # add a module to the wrapper (bootstraps if needed)
+atelier module add <git-url|gallery-name>  # add a module to the wrapper (bootstraps if needed)
 atelier module add <git-url> --as <name>   # add with explicit HCL block name
 atelier module add <git-url> --ref <ref>   # add at a specific ref
 atelier module add <git-url> --module <subdir>  # skip the candidate picker
@@ -258,6 +258,8 @@ atelier module apply <git-url> --var <K=V>  # set a module input (repeatable; wi
 atelier tidy [PATH] [--write]              # prune module arguments left at their default value
 atelier import [PROVIDER] [flags]          # import live resources into Terraform state
 atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ directories
+atelier gallery list [--commands]          # list the bundled gallery quick starts
+atelier presets lint --module <dir> <file.tfvars>  # check preset bundles against a module's variables
 atelier --help                             # print usage
 ```
 
@@ -348,12 +350,15 @@ worked Juju example.
 
 ### 6.2 Module subcommand
 
-`atelier module add <git-url>` is the primary entry point for adding modules:
+`atelier module add <git-url|gallery-name>` is the primary entry point for
+adding modules:
 
 - If no wrapper exists, bootstraps a fresh wrapper.
 - If a wrapper exists, appends a `module {}` block to `main.tf`.
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
+- Accepts a gallery entry name (§6.8) in place of a URL: the name expands to the
+  entry's module, ref, block, and preset; an explicit flag still wins.
 - Applies any `--var-file` values (a local path, a walk-up `atelier.presets/`
   bundle, or a name committed to the module repo), then any `--var` overrides,
   and writes them to the wrapper. `--var` wins over `--var-file`. For an
@@ -496,9 +501,13 @@ See [ADR-0030](adr/0030-target-directory-preflight.md).
 
 Presets are Terraform-native `.tfvars` files, not a bespoke format
 ([ADR-0031](adr/0031-presets-as-tfvars-bundles.md)). Atelier discovers them from
-two sources and applies them to the wrapper's module arguments; the wrapper
+three sources and applies them to the wrapper's module arguments; the wrapper
 shape is always the classic sparse `main.tf` (there is no pass-through mode —
 [ADR-0031](adr/0031-presets-as-tfvars-bundles.md)).
+
+A **preset** is not the same thing as Atelier's **gallery**
+(`atelier gallery list`): the gallery is a curated set of module quick starts,
+and a gallery entry may *name* a preset.
 
 - `--var-file <path|name>` seeds values from a Terraform variable file
   (repeatable; comma-separated names accepted; later files win over earlier
@@ -506,12 +515,23 @@ shape is always the classic sparse `main.tf` (there is no pass-through mode —
   personal walk-up bundles (`<ancestor>/atelier.presets/<name>.tfvars`, nearest
   ancestor wins), then in the cloned module repository (`<module>/presets/`,
   `<module>/examples/`, `<repo>/terraform/presets/`,
-  `<repo>/terraform/examples/`, `<repo>/presets/`, `<repo>/examples/`). A name
-  that does not resolve produces an error listing the bundles found locally and
-  in the repo.
+  `<repo>/terraform/examples/`, `<repo>/presets/`, `<repo>/examples/`), and
+  finally a preset bundled with Atelier's gallery
+  ([ADR-0035](adr/0035-bundled-module-gallery.md)). A name that does not
+  resolve produces an error listing every bundle found in all three sources.
 - `--list-var-files` prints the available bundles (source-labelled) without
   writing anything. On `module add` it needs no other flag; on `import` it
   requires `--source`, since the repo is only searched after a clone.
+- `atelier gallery list [--commands]` renders Atelier's bundled gallery: the
+  module, pinned ref, preset (if any), and the command to deploy it.
+  `--commands` prints the non-applying scaffold form, one per entry, which is
+  what `just gallery-check` and CI run. The gallery is the lowest-precedence
+  `--var-file` source, so a local or module-repo bundle of the same name wins.
+- A gallery entry's **name** may be given to `atelier module add` / `atelier
+  apply` in place of a URL. It expands to the entry's module, ref, block, and
+  preset; an explicit `--ref`, `--module`, `--as`, or `--var-file` still wins,
+  and a URL or local path is never treated as a name. A bare name that matches
+  nothing is an error naming `atelier gallery list`.
 - `--var <K=V>` sets a single module input directly (repeatable). It is applied
   after every `--var-file`, so it wins, and accepts an HCL expression for
   structured values (e.g. `--var 'ingress={alertmanager=false}'`). An
@@ -523,6 +543,13 @@ shape is always the classic sparse `main.tf` (there is no pass-through mode —
   type-mismatched value — is skipped with a warning; `--strict` makes those
   binding problems fatal. Object/tuple values are not type-checked (Atelier's
   cty view loses `optional()` metadata); Terraform catches nested-shape errors.
+- `atelier presets lint --module <dir> <file.tfvars>…` checks a bundle against a
+  module's `variables.tf` without applying it: it reports names the module does
+  not declare, keys nested inside object values that the object type does not
+  declare (as dotted paths such as `worker.resources`), and scalar type
+  mismatches, exiting non-zero on any finding. It is the CI gate for a committed
+  bundle — `--strict` covers the apply path, while `lint` covers a bundle that is
+  not being applied.
 - **The TUI uses these bundles directly.** `F` lists the discovered presets —
   personal `[local]` and repo `[repo]`, with the description taken from each
   file's leading comment — and applies the selected one. `S` saves the current
@@ -532,7 +559,7 @@ shape is always the classic sparse `main.tf` (there is no pass-through mode —
 
 ### 6.9 `atelier module apply` — the one-liner
 
-`atelier module apply <git-url>` is the shortest path from a module URL to
+`atelier module apply <git-url|gallery-name>` is the shortest path from a module URL to
 running infrastructure. It does the `mkdir && cd` and the `terraform init &&
 terraform apply` a user would otherwise do by hand, so "just apply this module"
 is one command. See [ADR-0034](adr/0034-module-apply-one-liner.md).

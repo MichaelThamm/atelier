@@ -176,6 +176,11 @@ one action, then customise. Atelier finds them in two places:
 Atelier reads only Terraform-native `.tfvars` files, and only when you name
 them. See [ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md).
 
+Atelier also bundles a gallery of quick starts for real modules. Run `atelier
+gallery list` to see each module, its pinned ref, its preset (if it needs one),
+and the command to deploy it. See
+[ADR-0035](docs/adr/0035-bundled-module-gallery.md).
+
 The TUI lists both sources with `F` (source-labelled `[local]`/`[repo]`, with
 the description taken from each file's leading comment); `Enter` applies the
 selected one. Press `S` to save the current non-default configuration as a new

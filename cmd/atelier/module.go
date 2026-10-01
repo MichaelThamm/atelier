@@ -289,6 +289,12 @@ func runModuleAdd(args []string) error {
 		return err
 	}
 
+	// A positional that is neither a URL nor a local path is a gallery entry
+	// name; expand it before anything reads the source (ADR-0035).
+	if err := resolveModuleSource(&opts); err != nil {
+		return err
+	}
+
 	// --list-var-files clones the module to a scratch directory, prints the
 	// `.tfvars` bundles discoverable locally and in the repository, then exits
 	// (ADR-0031). The clone is removed before returning, so nothing is written
@@ -494,6 +500,9 @@ func runModuleApply(args []string) error {
 
 	cwd, err := os.Getwd()
 	if err != nil {
+		return err
+	}
+	if err := resolveModuleSource(&opts); err != nil {
 		return err
 	}
 	if opts.ListVarFiles {

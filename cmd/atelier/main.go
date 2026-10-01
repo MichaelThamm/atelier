@@ -3,15 +3,17 @@
 // Surface (SPEC §6):
 //
 //	atelier                                     open the wrapper in CWD
-//	atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--yes]
+//	atelier module add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR] [--yes]
 //	                                            add a module (bootstraps if needed)
 //	atelier module rm <name> [--force]          remove a module from the wrapper
 //	atelier module list                         list modules in the wrapper
-//	atelier module apply <git-url> [--module SUBDIR] [--ref REF] [--dir PATH]
+//	atelier module apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH]
 //	                                            scaffold a wrapper in a new directory, then
 //	                                            init and apply it
 //	atelier tidy [PATH] [--write]               prune arguments left at their default
 //	atelier purge [PATH] [--force]              remove .atelier/ and .clone/
+//	atelier gallery list [--commands]           list the bundled gallery quick starts
+//	atelier presets lint --module <dir> <f>...  check preset bundles against a module
 //
 // All operation runs against the current working directory. The CLI defers
 // the heavy lifting (clone, candidate discovery, wrapper write, TUI loop) to
@@ -48,7 +50,7 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 
 Usage:
   atelier                                      Open the wrapper in the current directory.
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
+  atelier module add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR]
                                 [--var-file PATH|NAME] [--var KEY=VALUE]
                                 [--list-var-files] [--strict] [--yes]
                                                Add a module to the wrapper (bootstraps if needed).
@@ -61,9 +63,11 @@ Usage:
                                                --var-file.
                                                --list-var-files prints the local and repo .tfvars bundles available.
                                                --strict makes var-file binding warnings fatal.
+                                               A gallery name (see 'atelier gallery list') may be given instead
+                                               of a URL; it resolves to the module, ref, block, and preset.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
-  atelier module apply <git-url> [--module SUBDIR] [--ref REF] [--as NAME]
+  atelier module apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--as NAME]
                                 [--dir PATH] [--var-file PATH|NAME]
                                 [--var KEY=VALUE] [--list-var-files]
                                                Scaffold a wrapper in a new directory, then run
@@ -72,7 +76,7 @@ Usage:
                                                --dir says otherwise. At a terminal you confirm the
                                                plan at Terraform's prompt; with no terminal it
                                                applies with -auto-approve.
-                                               'atelier apply <git-url>' is an alias.
+                                               'atelier apply <git-url|gallery-name>' is an alias.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
@@ -95,6 +99,13 @@ Usage:
                                                 available (requires --source) and exits without importing.
                                                 --dry-run writes an imports.tf artifact and previews the plan
                                                 without touching state.
+  atelier gallery list [--commands]            List Atelier's bundled gallery of module quick starts:
+                                                module, pinned ref, preset, and the command to deploy them.
+                                                --commands prints the non-applying scaffold command per entry.
+  atelier presets lint --module <dir> <file.tfvars>...
+                                                Check preset .tfvars bundles against a module's variables.
+                                                Reports unknown variable names, unknown keys nested in object
+                                                values, and scalar type mismatches; exits non-zero on any finding.
   atelier --version                            Print the version and exit.
   atelier --help                               Print this help.
 
@@ -131,6 +142,8 @@ const (
 	cmdPurge       command = "purge"
 	cmdTidy        command = "tidy"
 	cmdImport      command = "import"
+	cmdPresets     command = "presets"
+	cmdGallery     command = "gallery"
 )
 
 // resolveCommand maps the first non-empty argument to its canonical command.
@@ -159,6 +172,10 @@ func resolveCommand(args []string) (command, []string) {
 		return cmdTidy, args[1:]
 	case "import":
 		return cmdImport, args[1:]
+	case "presets":
+		return cmdPresets, args[1:]
+	case "gallery":
+		return cmdGallery, args[1:]
 	default:
 		return command(args[0]), args[1:]
 	}
@@ -189,6 +206,10 @@ func run(args []string) error {
 		return runTidy(rest)
 	case cmdImport:
 		return runImport(rest)
+	case cmdPresets:
+		return runPresets(rest)
+	case cmdGallery:
+		return runGallery(rest)
 	default:
 		return fmt.Errorf("unknown command %q\n\n%s", string(cmd), usage)
 	}

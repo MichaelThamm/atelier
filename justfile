@@ -74,6 +74,33 @@ test-prometheus: build-bin
 test-import: build-bin
     ATELIER_BIN={{atelier_bin}} {{pytest}} tests/integration/import -m cloud {{pytest_flags}}
 
+# Validate the bundled module gallery: run each entry's scaffold command and validate the wrapper (ADR-0035).
+gallery-check: build-bin
+    #!/usr/bin/env bash
+    set -euo pipefail
+    atelier="{{atelier_bin}}"
+    commands="$("$atelier" gallery list --commands)"
+    fail=0
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      echo "==> $line"
+      scratch="$(mktemp -d)"
+      if ! (
+        cd "$scratch"
+        # Run the gallery's own scaffold command with the binary under test,
+        # stdin closed so the TUI never starts. `read -a` splits the generated
+        # line on whitespace without globbing or evaluating shell syntax.
+        read -r -a add_args <<< "${line#atelier }"
+        "$atelier" "${add_args[@]}" < /dev/null
+        terraform init -backend=false -no-color >/dev/null
+        terraform validate -no-color
+      ); then
+        fail=1
+      fi
+      rm -rf "$scratch"
+    done <<< "$commands"
+    exit "$fail"
+
 # Both cloud tiers (local convenience; CI runs them as separate jobs).
 test-cloud: test-prometheus test-import
 
