@@ -39,6 +39,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0030 | [Target-directory preflight and duplicate-module refusal](0030-target-directory-preflight.md) | Accepted |
 | 0031 | [Presets as Terraform-native `.tfvars` bundles](0031-presets-as-tfvars-bundles.md)          | Accepted |
 | 0032 | [Nested-wrapper preflight distinguishes deliberate nesting from stray `cd`](0032-nested-wrapper-preflight-scope.md) | Accepted |
+| 0033 | [Provider-specific matching lives behind the Provider interface](0033-provider-fallback-matching.md) | Accepted |
 
 ## Conventions
 

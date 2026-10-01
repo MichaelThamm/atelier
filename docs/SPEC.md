@@ -279,16 +279,16 @@ module's resource addresses, and runs `terraform import` for each match — a
 state-only operation that cannot alter infrastructure.
 
 Provider-specific behaviour (currently Juju only — see ADR-0028) is reached
-through four extension points: a pre-plan preflight step, a post-plan safety
-check, post-import normalisation steps, and an import-ID builder. Providers are
+through five extension points: a pre-plan preflight step, a post-plan safety
+check, post-import normalisation steps, an import-ID builder, and a fallback
+matcher for resource types with composite identities. Providers are
 registered behind the `Provider` interface in
 `internal/importer/providers/providers.go`; the CLI wires whatever the
 registered provider implements, and the importer core stays
-provider-agnostic. The Juju provider itself lives in
-`internal/importer/providers/juju/`. The importer core also contains the third
-matching phase in `internal/importer/match.go` and the error hints in
-`internal/importer/hints.go`. ADR-0028 records the decision to scope import
-support to Juju for v1.
+provider-agnostic (ADR-0033). The Juju provider itself lives in
+`internal/importer/providers/juju/`. The importer core also contains the error
+hints in `internal/importer/hints.go`. ADR-0028 records the decision to scope
+import support to Juju for v1.
 
 Flags:
 

@@ -27,7 +27,10 @@ to the package.
 - **Provider-specific behavior lives behind the `Provider` interface** in
   `providers/`, invoked at fixed points of the pipeline. Adding a provider
   must not touch core files — extend the interface and register it in
-  `providers.All()`.
+  `providers.All()`. This includes matching: resource types with composite
+  identities (Juju integrations, offers) are resolved by the provider's
+  `MatchFallback`, never by a type check in `match.go`
+  ([ADR-0033](../../docs/adr/0033-provider-fallback-matching.md)).
 - **Core does not cross-reference or prune generated resources**
   ([ADR-0028](../../docs/adr/0028-provider-specific-import-ids.md)); that
   needs provider knowledge and stays in a provider implementation.

@@ -306,6 +306,7 @@ func runImport(args []string) error {
 		opts.PlanChecks = p.PlanChecks()
 		opts.PostImportSteps = p.PostImportSteps()
 		opts.BuildImportID = p.BuildImportID()
+		opts.MatchFallback = p.MatchFallback()
 	} else {
 		// Be explicit rather than letting the run reach the end and report every
 		// resource as "could not build an import ID" with no reason given.

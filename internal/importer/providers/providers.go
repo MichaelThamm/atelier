@@ -44,6 +44,11 @@ type Provider interface {
 	// resource. An ID that cannot be built returns "" and the match is
 	// reported unresolved rather than imported.
 	BuildImportID() importer.ImportIDFunc
+
+	// MatchFallback returns an optional matcher for resource types the generic
+	// identity/name phases cannot resolve (composite identities). Return nil
+	// when the provider has no such types.
+	MatchFallback() importer.FallbackMatcher
 }
 
 // All returns every registered import provider, in registration order.
