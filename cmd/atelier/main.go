@@ -51,9 +51,14 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 Usage:
   atelier                                      Open the wrapper in the current directory.
   atelier module add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR]
-                                [--var-file PATH|NAME] [--var KEY=VALUE]
+                                [--dir PATH] [--var-file PATH|NAME] [--var KEY=VALUE]
                                 [--list-var-files] [--strict] [--yes]
-                                               Add a module to the wrapper (bootstraps if needed).
+                                               Add a module and open the editor on it. If the current
+                                               directory is already a wrapper, appends a module block to
+                                               it; otherwise creates a directory named after the module
+                                               (or by --dir/--as) and scaffolds a wrapper there. Does not
+                                               run terraform init or apply — use 'atelier module apply' (or
+                                               'atelier apply') for that.
                                                Warns and asks before scaffolding into a directory that
                                                already holds other files; --yes skips the prompt.
                                                --var-file seeds values from a Terraform variable file: a local

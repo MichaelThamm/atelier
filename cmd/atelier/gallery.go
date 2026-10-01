@@ -12,7 +12,7 @@ import (
 const galleryUsage = `Usage:
   atelier gallery list [--commands]
                                                List Atelier's bundled gallery of module quick starts:
-                                               module, pinned ref, preset, and the command to deploy them.
+                                               module, pinned ref, and the command to deploy them.
                                                --commands prints one non-applying scaffold command per
                                                entry, for scripts and CI.
   atelier gallery requires <name>
@@ -39,24 +39,6 @@ func runGallery(args []string) error {
 	}
 }
 
-// runGalleryRequires prints, one per line, the inputs an entry's preset cannot
-// supply. It is a machine-readable helper for `gallery-check`, which fills them
-// with placeholders so it can validate an entry whose module declares
-// deployment-specific required inputs.
-func runGalleryRequires(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("gallery requires takes exactly one entry name")
-	}
-	entry, ok := gallery.Find(args[0])
-	if !ok {
-		return fmt.Errorf("no gallery entry named %q", args[0])
-	}
-	for _, r := range entry.Requires {
-		fmt.Println(r)
-	}
-	return nil
-}
-
 func runGalleryList(args []string) error {
 	commands := false
 	for _, a := range args {
@@ -74,10 +56,11 @@ func runGalleryList(args []string) error {
 	return renderGallery(os.Stdout, entries, commands)
 }
 
-// renderGallery writes the gallery listing. The default form is the human quick
-// start — the name and description, with the `atelier apply <name>` command
-// aligned beneath; --commands writes one non-applying scaffold command per
-// entry, which is what CI runs.
+// renderGallery writes the gallery listing. The default form is one entry per
+// block: the name and description, the module and pinned ref it deploys, and
+// the `atelier apply` command (whose required inputs, when any, wrap under it
+// one flag per line so the command stays copy-pasteable). --commands writes one
+// non-applying scaffold command per entry, which is what CI runs.
 func renderGallery(w io.Writer, entries []gallery.Entry, commands bool) error {
 	if commands {
 		for _, e := range entries {
@@ -85,20 +68,59 @@ func renderGallery(w io.Writer, entries []gallery.Entry, commands bool) error {
 		}
 		return nil
 	}
-	width := 0
-	for _, e := range entries {
-		if len(e.Name) > width {
-			width = len(e.Name)
-		}
-	}
-	width += 2
-	indent := strings.Repeat(" ", width)
 	for i, e := range entries {
 		if i > 0 {
 			fmt.Fprintln(w)
 		}
-		fmt.Fprintf(w, "%-*s%s\n", width, e.Name, e.Description)
-		fmt.Fprintf(w, "%s%s\n", indent, e.ApplyCommand())
+		fmt.Fprintf(w, "%s  %s\n", e.Name, e.Description)
+		fmt.Fprintf(w, "    %s\n", moduleRef(e))
+		writeCommand(w, e)
+	}
+	return nil
+}
+
+// moduleRef renders the module and pinned ref, with the subdirectory when the
+// module does not live at the repository root.
+func moduleRef(e gallery.Entry) string {
+	ref := e.Module
+	if e.Subdir != "" {
+		ref += "//" + e.Subdir
+	}
+	short := e.Ref
+	if len(short) > 12 {
+		short = short[:12]
+	}
+	return fmt.Sprintf("%s  @%s", ref, short)
+}
+
+// writeCommand writes the `atelier apply <name>` command, wrapping each `--var`
+// onto its own indented continuation line so a long command is readable and
+// still copies as one shell line (the backslashes continue it).
+func writeCommand(w io.Writer, e gallery.Entry) {
+	args := e.ApplyArgs()
+	head := strings.Join(args[:3], " ") // atelier apply <name>
+	fmt.Fprintf(w, "    %s", head)
+	rest := args[3:]
+	for i := 0; i+1 < len(rest); i += 2 {
+		fmt.Fprintf(w, " \\\n        %s %s", rest[i], rest[i+1])
+	}
+	fmt.Fprintln(w)
+}
+
+// runGalleryRequires prints, one per line, the inputs an entry's preset cannot
+// supply. It is a machine-readable helper for `gallery-check`, which fills them
+// with placeholders so it can validate an entry whose module declares
+// deployment-specific required inputs.
+func runGalleryRequires(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("gallery requires takes exactly one entry name")
+	}
+	entry, ok := gallery.Find(args[0])
+	if !ok {
+		return fmt.Errorf("no gallery entry named %q", args[0])
+	}
+	for _, r := range entry.Requires {
+		fmt.Println(r)
 	}
 	return nil
 }

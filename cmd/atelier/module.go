@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -285,16 +286,14 @@ func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string
 	return nil
 }
 
-// runModuleAdd implements `atelier module add <url>`.
+// runModuleAdd implements `atelier module add <url>`. It scaffolds a wrapper for
+// the module and opens the editor on it. `module add` is the TUI path: unlike
+// `module apply`, it does not run `terraform init`/`apply`, and it never picks a
+// revision for you (the gallery name supplies one).
 func runModuleAdd(args []string) error {
 	opts, err := parseModuleArgs(args)
 	if err != nil {
 		return err
-	}
-	// `module add` writes into the current directory; only `module apply`
-	// creates and moves into a directory of its own.
-	if opts.Dir != "" {
-		return fmt.Errorf("--dir is only valid for 'atelier module apply'; 'module add' writes to the current directory")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -320,14 +319,25 @@ func runModuleAdd(args []string) error {
 		return err
 	}
 
-	// Determine if this is a fresh bootstrap or an additive operation.
-	wrapperExists := mainTFExists(cwd)
+	// An existing wrapper in CWD is the additive case: append a block to it and
+	// open the editor there. Otherwise `module add` creates a directory of its
+	// own, named after the candidate (or --dir/--as), exactly as `module apply`
+	// does — but stops before init/apply.
+	if mainTFExists(cwd) {
+		return addModuleToWrapper(cwd, opts)
+	}
+	return addModuleInNewDir(cwd, opts)
+}
 
-	// Confirm the target directory before writing anything into it. `module
-	// add` has no path argument, so the only thing standing between a
-	// mistyped `cd` and a main.tf in the user's home directory is this check.
-	// An established wrapper (main.tf plus .atelier/) is skipped: the user has
-	// already told us this directory is a wrapper.
+// addModuleToWrapper appends a module block to an existing wrapper in dir and
+// opens the editor on it.
+func addModuleToWrapper(dir string, opts moduleOpts) error {
+	ctx, cancel := interruptContext()
+	defer cancel()
+
+	// Confirm the target directory before writing anything into it. `module add`
+	// has no path argument, so the only thing standing between a mistyped `cd`
+	// and a main.tf in the user's home directory is this check.
 	//
 	// This runs BEFORE the SIGINT handler below is installed, deliberately.
 	// signal.NotifyContext converts Ctrl-C into a context cancellation instead
@@ -337,12 +347,8 @@ func runModuleAdd(args []string) error {
 	// bare "context canceled". While the only thing running is a prompt, the
 	// default SIGINT behaviour — exit immediately — is exactly what the user is
 	// asking for.
-	if !isWrapperDir(cwd) {
-		action := "Bootstrap an Atelier wrapper in"
-		if wrapperExists {
-			action = "Add a module block to main.tf in"
-		}
-		ok, err := confirmTargetDir(cwd, action, opts.Yes)
+	if !isWrapperDir(dir) {
+		ok, err := confirmTargetDir(dir, "Add a module block to main.tf in", opts.Yes)
 		if err != nil {
 			return err
 		}
@@ -351,48 +357,6 @@ func runModuleAdd(args []string) error {
 		}
 	}
 
-	ctx, cancel := interruptContext()
-	defer cancel()
-
-	if !wrapperExists {
-		// Fresh bootstrap of a new wrapper from the given module URL. Clone,
-		// wrapper authoring and failure cleanup are shared with `import
-		// --source` (bootstrapFreshWrapper) so the two stay in lockstep.
-		res, cleanup, err := bootstrapFreshWrapper(cwd, cwd, opts.Source, opts.Ref, opts.ModulePath)
-		if err != nil {
-			return err
-		}
-		if res.State == nil {
-			// Multiple candidates — user needs --module.
-			printCandidates(os.Stdout, res.Candidates)
-			return nil
-		}
-
-		// If --as was provided, rename the block the bootstrap just wrote under
-		// the candidate-derived name. Re-writing the state under the new name
-		// would append a second block rather than rename the first.
-		if opts.As != "" {
-			if err := res.State.RenameModuleBlock(sanitizeBlockName(opts.As)); err != nil {
-				cleanup()
-				return err
-			}
-		}
-
-		// Apply --var-file values (explicit files win), then --var overrides.
-		if err := applyVarFlags(res.State, cwd, res.CloneDir, res.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
-			cleanup()
-			return err
-		}
-		if len(opts.VarFiles) > 0 || len(opts.Vars) > 0 {
-			if err := res.State.Write(); err != nil {
-				cleanup()
-				return err
-			}
-		}
-		return launchTUI(res, cwd)
-	}
-
-	// Wrapper already exists — additive: append a new module block.
 	stop := startSpinner("Cloning and preparing module…")
 	defer stop()
 
@@ -400,7 +364,7 @@ func runModuleAdd(args []string) error {
 	// module whose Terraform lives in a subdirectory (e.g. `terraform/`) is
 	// appended with the correct `//<subdir>` source and shows its variables.
 	prep, err := bootstrap.PrepareModule(ctx, bootstrap.InitOptions{
-		WrapperDir:  cwd,
+		WrapperDir:  dir,
 		Source:      opts.Source,
 		LocalSource: modulesource.IsLocal(opts.Source),
 		Ref:         opts.Ref,
@@ -417,7 +381,7 @@ func runModuleAdd(args []string) error {
 	}
 	state := prep.State
 
-	existingBlocks, _ := wrapper.ReadModuleBlocks(cwd)
+	existingBlocks, _ := wrapper.ReadModuleBlocks(dir)
 
 	// Refuse to add a module the wrapper already has at the same ref.
 	//
@@ -471,7 +435,7 @@ func runModuleAdd(args []string) error {
 
 	// Apply --var-file values to the module being added, before writing it,
 	// then --var overrides on top.
-	if err := applyVarFlags(state, cwd, prep.CloneDir, prep.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
+	if err := applyVarFlags(state, dir, prep.CloneDir, prep.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
 		return err
 	}
 
@@ -482,12 +446,132 @@ func runModuleAdd(args []string) error {
 
 	fmt.Fprintf(os.Stderr, "Added module %q from %s\n", blockName, opts.Source)
 
-	// Load existing wrapper and launch TUI.
-	res, err := bootstrap.LoadExisting(ctx, cwd, nil)
+	return openWrapper(dir)
+}
+
+// addModuleInNewDir scaffolds a wrapper into a fresh directory — named after the
+// discovered candidate, or by --dir/--as — and opens the editor on it. It shares
+// target resolution and the staged write with `module apply`, but stops before
+// `terraform init`/`apply`: `add` is the TUI path.
+func addModuleInNewDir(cwd string, opts moduleOpts) error {
+	ctx, cancel := interruptContext()
+	defer cancel()
+
+	target, _, err := scaffoldIntoTarget(ctx, cwd, opts)
 	if err != nil {
 		return err
 	}
-	return launchTUI(res, cwd)
+	if target == "" {
+		return nil // multiple candidates; already reported
+	}
+	return openWrapper(target)
+}
+
+// scaffoldIntoTarget clones the module, writes a wrapper into a staging
+// directory beside the target, applies --as/--var-file/--var, and moves it into
+// place. It returns the target path and the authored State, or "" when the
+// module had multiple candidates (nothing written; the candidate list has been
+// printed).
+//
+// It is the shared body of the "create a new directory" path for `module add`
+// and `module apply`, which differ only in their tail (open the TUI vs. run
+// init/apply).
+func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (string, *wrapper.State, error) {
+	// Resolve an explicit target now so a collision is caught before the
+	// clone. A derived name is only known after candidate discovery.
+	explicitTarget := ""
+	if opts.Dir != "" || opts.As != "" {
+		explicitTarget = opts.Dir
+		if explicitTarget == "" {
+			explicitTarget = opts.As
+		}
+		if !filepath.IsAbs(explicitTarget) {
+			explicitTarget = filepath.Join(cwd, explicitTarget)
+		}
+		explicitTarget = filepath.Clean(explicitTarget)
+		if err := checkApplyTarget(explicitTarget); err != nil {
+			return "", nil, err
+		}
+	}
+
+	// Stage under the target's parent so the final move is a same-filesystem
+	// rename. Staging keeps the clone to one round trip while still letting the
+	// directory be named after the discovered module candidate.
+	parent := cwd
+	if explicitTarget != "" {
+		parent = filepath.Dir(explicitTarget)
+		if err := os.MkdirAll(parent, 0o755); err != nil {
+			return "", nil, err
+		}
+	}
+	staging, err := os.MkdirTemp(parent, ".atelier-add-*")
+	if err != nil {
+		return "", nil, err
+	}
+	moved := false
+	defer func() {
+		if !moved {
+			_ = os.RemoveAll(staging)
+		}
+	}()
+
+	res, cleanup, err := bootstrapFreshWrapper(cwd, staging, opts.Source, opts.Ref, opts.ModulePath)
+	if err != nil {
+		return "", nil, err
+	}
+	if res.State == nil {
+		// Multiple candidates — user needs --module. Nothing was written.
+		printCandidates(os.Stdout, res.Candidates)
+		return "", nil, nil
+	}
+
+	// --as renames the HCL block the bootstrap wrote under the candidate-derived
+	// name. Re-writing under the new name would append a second block, so use
+	// the rename primitive (which also updates State.ModuleBlockName). The
+	// later Write persists any --var values on top of it.
+	if opts.As != "" {
+		if err := res.State.RenameModuleBlock(sanitizeBlockName(opts.As)); err != nil {
+			cleanup()
+			return "", nil, err
+		}
+	}
+	// Apply --var-file values, then --var overrides on top, before the wrapper
+	// moves (the clone the names resolve against still lives under staging).
+	if err := applyVarFlags(res.State, staging, res.CloneDir, res.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	if opts.As != "" || len(opts.VarFiles) > 0 || len(opts.Vars) > 0 {
+		if err := res.State.Write(); err != nil {
+			cleanup()
+			return "", nil, err
+		}
+	}
+
+	target := explicitTarget
+	if target == "" {
+		name := bootstrap.ModuleDirName(res.ModulePath, modulesource.RepoBasename(opts.Source))
+		target = filepath.Join(cwd, name)
+		if err := checkApplyTarget(target); err != nil {
+			cleanup()
+			return "", nil, err
+		}
+	}
+
+	// Move the staged wrapper into place. An existing empty directory is
+	// reused; a non-empty one was refused by checkApplyTarget.
+	if info, err := os.Stat(target); err == nil && info.IsDir() {
+		if err := os.Remove(target); err != nil {
+			cleanup()
+			return "", nil, err
+		}
+	}
+	if err := os.Rename(staging, target); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	moved = true
+	return target, res.State, nil
 }
 
 // runModuleApply implements `atelier module apply <url>`: scaffold a wrapper in
@@ -524,110 +608,36 @@ func runModuleApply(args []string) error {
 		return err
 	}
 
-	// Resolve an explicit target now so a collision is caught before the
-	// clone. A derived name is only known after candidate discovery.
-	explicitTarget := ""
-	if opts.Dir != "" || opts.As != "" {
-		explicitTarget = opts.Dir
-		if explicitTarget == "" {
-			explicitTarget = opts.As
-		}
-		if !filepath.IsAbs(explicitTarget) {
-			explicitTarget = filepath.Join(cwd, explicitTarget)
-		}
-		explicitTarget = filepath.Clean(explicitTarget)
-		if err := checkApplyTarget(explicitTarget); err != nil {
-			return err
-		}
-	}
-
-	// Stage under the target's parent so the final move is a same-filesystem
-	// rename. Staging keeps the clone to one round trip while still letting the
-	// directory be named after the discovered module candidate.
-	parent := cwd
-	if explicitTarget != "" {
-		parent = filepath.Dir(explicitTarget)
-		if err := os.MkdirAll(parent, 0o755); err != nil {
-			return err
-		}
-	}
-	staging, err := os.MkdirTemp(parent, ".atelier-apply-*")
+	ctx, cancel := interruptContext()
+	defer cancel()
+	target, state, err := scaffoldIntoTarget(ctx, cwd, opts)
 	if err != nil {
 		return err
 	}
-	moved := false
-	defer func() {
-		if !moved {
-			_ = os.RemoveAll(staging)
-		}
-	}()
-
-	res, cleanup, err := bootstrapFreshWrapper(cwd, staging, opts.Source, opts.Ref, opts.ModulePath)
-	if err != nil {
-		return err
-	}
-	if res.State == nil {
-		// Multiple candidates — user needs --module. Nothing was written.
-		printCandidates(os.Stdout, res.Candidates)
-		return nil
-	}
-
-	// --as renames the HCL block the bootstrap wrote under the candidate-derived
-	// name. Re-writing under the new name would append a second block, so use
-	// the rename primitive (which also updates State.ModuleBlockName). The
-	// later Write persists any --var values on top of it.
-	if opts.As != "" {
-		if err := res.State.RenameModuleBlock(sanitizeBlockName(opts.As)); err != nil {
-			cleanup()
-			return err
-		}
-	}
-	// Apply --var-file values, then --var overrides on top, before the wrapper
-	// moves (the clone the names resolve against still lives under staging).
-	if err := applyVarFlags(res.State, staging, res.CloneDir, res.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
-		cleanup()
-		return err
-	}
-	if opts.As != "" || len(opts.VarFiles) > 0 || len(opts.Vars) > 0 {
-		if err := res.State.Write(); err != nil {
-			cleanup()
-			return err
-		}
-	}
-
-	target := explicitTarget
 	if target == "" {
-		name := bootstrap.ModuleDirName(res.ModulePath, modulesource.RepoBasename(opts.Source))
-		target = filepath.Join(cwd, name)
-		if err := checkApplyTarget(target); err != nil {
-			cleanup()
-			return err
-		}
+		return nil // multiple candidates; already reported
 	}
-
-	// Move the staged wrapper into place. An existing empty directory is
-	// reused; a non-empty one was refused by checkApplyTarget.
-	if info, err := os.Stat(target); err == nil && info.IsDir() {
-		if err := os.Remove(target); err != nil {
-			cleanup()
-			return err
-		}
-	}
-	if err := os.Rename(staging, target); err != nil {
-		cleanup()
-		return err
-	}
-	moved = true
 
 	// Required variables with no value would make Terraform reject the apply.
 	// The wrapper is already in place, so point at the flag that fixes it.
-	if missing := unsetRequiredVars(res.State); len(missing) > 0 {
+	if missing := unsetRequiredVars(state); len(missing) > 0 {
 		return fmt.Errorf("module requires a value for %s; pass --var NAME=VALUE (or --var-file) and re-run.\nWrapper written to %s",
 			strings.Join(missing, ", "), target)
 	}
 
 	fmt.Fprintf(os.Stderr, "Wrapper written to %s\n", target)
 	return applyWrapper(target, !interactive)
+}
+
+// openWrapper loads the wrapper in dir and launches the TUI on it.
+func openWrapper(dir string) error {
+	ctx, cancel := interruptContext()
+	defer cancel()
+	res, err := bootstrap.LoadExisting(ctx, dir, nil)
+	if err != nil {
+		return err
+	}
+	return launchTUI(res, dir)
 }
 
 // checkApplyTarget refuses a target directory that already holds files.

@@ -353,8 +353,10 @@ worked Juju example.
 `atelier module add <git-url|gallery-name>` is the primary entry point for
 adding modules:
 
-- If no wrapper exists, bootstraps a fresh wrapper.
-- If a wrapper exists, appends a `module {}` block to `main.tf`.
+- If the current directory is already a wrapper, appends a `module {}` block to
+  its `main.tf`. Otherwise it creates a directory — named after the discovered
+  module candidate, or by `--dir`/`--as` — and scaffolds a fresh wrapper there,
+  so `module add` no longer requires a hand-made `mkdir && cd`.
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
 - Accepts a gallery entry name (§6.8) in place of a URL: the name expands to the
@@ -369,10 +371,12 @@ adding modules:
   and lists replace wholesale.
 - Runs the target-directory preflight (§6.5) before writing anything.
 - Refuses to add a module the wrapper already references at the same ref (§6.7).
-- Runs `terraform init` and launches the TUI with the new module focused. When
-  stdin or stdout is not a terminal — a script, CI, or `atelier module add … <
-  /dev/null` — the TUI is skipped and the command exits after writing the
-  wrapper, so presets can be applied fully non-interactively.
+- Does **not** run `terraform init` or `terraform apply`, then launches the TUI
+  with the new module focused — `module add` is the editor path; `module apply`
+  (§6.9) is the deploy path. When stdin or stdout is not a terminal — a script,
+  CI, or `atelier module add … < /dev/null` — the TUI is skipped and the command
+  exits after writing the wrapper, so presets can be applied fully
+  non-interactively.
 - If the bootstrap fails partway, removes the `.atelier/` directory it created,
   leaving the target as it was found.
 
@@ -418,10 +422,12 @@ See [ADR-0002](adr/0002-author-and-plan-scope.md).
 
 ### 6.5 Target-directory preflight
 
-`atelier module add` has no path argument and `atelier import --source` defaults
-to the current directory, so both write a wrapper into wherever the shell
-happens to be. Before writing anything, they inspect the target and — if
-anything looks wrong — print the findings and ask for confirmation.
+`atelier import --source` defaults to the current directory, and `atelier module
+add` writes into the current directory when one already holds a wrapper. Before
+writing anything, they inspect the target and — if anything looks wrong — print
+the findings and ask for confirmation. When `module add` creates its own
+directory (`--dir`/`--as`, or the candidate-derived name), a non-empty target is
+refused rather than scaffolded over (§6.9).
 
 Findings are one of two levels:
 
