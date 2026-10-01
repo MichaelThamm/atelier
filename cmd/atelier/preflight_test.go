@@ -117,7 +117,10 @@ func TestInspectTarget_declarationCollisionsAreNotes(t *testing.T) {
 	}
 }
 
-func TestInspectTarget_nestedWrapperAlarms(t *testing.T) {
+// A deliberate independent wrapper below another wrapper is a supported layout
+// (a parent can host several related wrappers and serve them presets), so it is
+// reported as a note and must not prompt.
+func TestInspectTarget_nestedWrapperBelowWrapperIsANote(t *testing.T) {
 	outer := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outer, "main.tf"), []byte("# wrapper\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -130,8 +133,32 @@ func TestInspectTarget_nestedWrapperAlarms(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := inspectTarget(inner)
-	if !hasConcern(got, levelAlarm, "inside an existing wrapper") {
-		t.Errorf("expected an alarm about nesting; got %+v", got)
+	if hasConcern(got, levelAlarm, "inside an existing wrapper") {
+		t.Errorf("a normal directory below a wrapper must not alarm; got %+v", got)
+	}
+	if !hasConcern(got, levelNote, "inside another wrapper") {
+		t.Errorf("expected a note about the parent wrapper; got %+v", got)
+	}
+}
+
+// Scaffolding inside the wrapper's own machinery is a stray `cd` and must alarm.
+func TestInspectTarget_insideWrapperMachineryAlarms(t *testing.T) {
+	for _, internal := range []string{".atelier", ".terraform"} {
+		outer := t.TempDir()
+		if err := os.WriteFile(filepath.Join(outer, "main.tf"), []byte("# wrapper\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(outer, ".atelier"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		inner := filepath.Join(outer, internal, "nested")
+		if err := os.MkdirAll(inner, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		got := inspectTarget(inner)
+		if !hasConcern(got, levelAlarm, "internal state") {
+			t.Errorf("inside %s must alarm; got %+v", internal, got)
+		}
 	}
 }
 
@@ -153,7 +180,8 @@ func TestInspectTarget_nestedWrapperStopsAtRepoBoundary(t *testing.T) {
 	if err := os.MkdirAll(inner, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := inspectTarget(inner); hasConcern(got, levelAlarm, "inside an existing wrapper") {
+	if got := inspectTarget(inner); hasConcern(got, levelAlarm, "inside an existing wrapper") ||
+		hasConcern(got, levelNote, "inside another wrapper") {
 		t.Errorf("walk crossed a repository boundary; got %+v", got)
 	}
 }

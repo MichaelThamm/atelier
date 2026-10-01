@@ -42,9 +42,10 @@ module (typically a public git repository), and Atelier:
 - Produce a wrapper directory that is runnable without Atelier installed.
 - Round-trip cleanly: a user can hand-edit `main.tf` between sessions and
   Atelier respects the edits (modulo Atelier's own write rules; see §10).
-- Let users curate their own reusable presets via a wrapper-local
-  `atelier.local.yaml`, without adding any Atelier files to the upstream
-  module repository.
+- Let users curate their own reusable presets as `.tfvars` bundles in a walk-up
+  `atelier.presets/` directory, and let product repos commit presets under
+  `<module>/presets/`. Atelier reads only Terraform-native `.tfvars` from
+  upstream, and only when named.
 - Distribute as a single static Go binary.
 
 ### Non-goals (not implemented)
@@ -91,10 +92,10 @@ environment manager. The following are permanently out of scope (see
   working directory. Contains a `module {}` block referencing the chosen
   module via its git source, the user's variable overrides, and supporting
   files.
-- **Local presets file** — `atelier.local.yaml`, a user-owned file discovered
-  by walking up from the wrapper directory. Declares named presets (bundles of
-  variable overrides). Optional; the upstream module repository is never read
-  for Atelier files. See §11.
+- **Preset bundle** — a named `.tfvars` file. Personal bundles live in an
+  `atelier.presets/` directory discovered by walking up from the wrapper
+  directory; product presets live in the module repo under `<module>/presets/`.
+  Applied with `--var-file` or the TUI `F` picker. See §11.
 - **Session** — one invocation of `atelier` against a wrapper directory.
 - **`.atelier/`** — a hidden subdirectory inside the wrapper holding
   Atelier-managed internal state (module clone cache, session metadata).
@@ -244,6 +245,9 @@ atelier module add <git-url> --as <name>   # add with explicit HCL block name
 atelier module add <git-url> --ref <ref>   # add at a specific ref
 atelier module add <git-url> --module <subdir>  # skip the candidate picker
 atelier module add <git-url> --yes         # skip the target-directory confirmation (§6.5)
+atelier module add <git-url> --var-file <path|name>  # seed values from a .tfvars file (local path or repo-local name; repeatable/comma-separated)
+atelier module add <git-url> --var <K=V>   # set a single module input (repeatable; wins over --var-file)
+atelier module add <git-url> --list-var-files  # print the .tfvars bundles available (local + module repo)
 atelier module rm <name> [--force]         # remove a module from the wrapper
 atelier module list                        # list modules in the wrapper
 atelier import [PROVIDER] [flags]          # import live resources into Terraform state
@@ -301,8 +305,12 @@ Flags:
   general, so not written to `main.tf` — except that when the module declares a
   variable of the same name and leaves it unset, that input is seeded from it,
   so the same value never has to be given twice.
-- `--preset <name>` — apply a named preset from `atelier.local.yaml`
-  (repeatable).
+- `--var-file <path|name>` — seed values from a `.tfvars` file (repeatable): a
+  local path, a walk-up `atelier.presets/` bundle, or a name committed to the
+  module repo.
+- `--list-var-files` — print the `.tfvars` bundles discoverable locally and in
+  the module repo (source-labelled), then exit without importing. Requires
+  `--source`, since the repo is only searched after a clone.
 - `--dry-run` — write an `imports.tf` artifact of the matched resources, plan
   with it in place, report the preview, and stop. Terraform state is untouched.
 - `--provider-version <ver>` — pin the provider version constraint.
@@ -314,7 +322,7 @@ Flags:
 - `--verbose` — print the full match trace, including every live object.
 
 Variables the module declares without a default must be supplied (via `--var`,
-a `--preset`, or the wrapper): Terraform cannot plan without them, and
+a `--var-file`, or the wrapper): Terraform cannot plan without them, and
 `terraform query` — which loads the root module — rejects the run first.
 Identity values such as the Juju model UUID are not among them; Atelier seeds or
 derives those itself.
@@ -334,8 +342,14 @@ worked Juju example.
 - If a wrapper exists, appends a `module {}` block to `main.tf`.
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
-- Applies any `--preset` values (a named preset from walk-up
-  `atelier.local.yaml`) and writes them to `main.tf`.
+- Applies any `--var-file` values (a local path, a walk-up `atelier.presets/`
+  bundle, or a name committed to the module repo), then any `--var` overrides,
+  and writes them to the wrapper. `--var` wins over `--var-file`. For an
+  object/map value the override *deep-merges* key-by-key into whatever is
+  already set, so leaving a field out of `--var` preserves the value from the
+  file rather than dropping it: `--var-file no-ingress --var
+  'ingress={alertmanager=true}'` disables ingress except Alertmanager. Scalars
+  and lists replace wholesale.
 - Runs the target-directory preflight (§6.5) before writing anything.
 - Refuses to add a module the wrapper already references at the same ref (§6.7).
 - Runs `terraform init` and launches the TUI with the new module focused. When
@@ -395,11 +409,13 @@ anything looks wrong — print the findings and ask for confirmation.
 Findings are one of two levels:
 
 - **warning** — prompts. The directory holds files Atelier did not put there,
-  contains Terraform files, sits inside another wrapper, looks like the root of
-  a project of another kind (`go.mod`, `package.json`, `charmcraft.yaml`, …), or
-  is the user's home/config directory or the filesystem root.
+  contains Terraform files, sits inside another wrapper's `.atelier/` or
+  `.terraform/`, looks like the root of a project of another kind (`go.mod`,
+  `package.json`, `charmcraft.yaml`, …), or is the user's home/config directory
+  or the filesystem root.
 - **note** — printed but never prompts. Describes a write Atelier is about to
-  skip, e.g. an existing `required_providers` block or provider configuration.
+  skip (an existing `required_providers` block or provider configuration), or an
+  ordinary directory below another wrapper, which becomes an independent root.
 
 Rules:
 
@@ -463,6 +479,44 @@ same command run twice — and never blocks a genuinely distinct revision. The
 different-ref note covers the residual gap.
 
 See [ADR-0030](adr/0030-target-directory-preflight.md).
+
+### 6.8 `.tfvars` preset bundles
+
+Presets are Terraform-native `.tfvars` files, not a bespoke format
+([ADR-0031](adr/0031-presets-as-tfvars-bundles.md)). Atelier discovers them from
+two sources and applies them to the wrapper's module arguments; the wrapper
+shape is always the classic sparse `main.tf` (there is no pass-through mode —
+[ADR-0031](adr/0031-presets-as-tfvars-bundles.md)).
+
+- `--var-file <path|name>` seeds values from a Terraform variable file
+  (repeatable; comma-separated names accepted; later files win over earlier
+  ones). A local path is used as-is; a bare name is resolved first against
+  personal walk-up bundles (`<ancestor>/atelier.presets/<name>.tfvars`, nearest
+  ancestor wins), then in the cloned module repository (`<module>/presets/`,
+  `<module>/examples/`, `<repo>/terraform/presets/`,
+  `<repo>/terraform/examples/`, `<repo>/presets/`, `<repo>/examples/`). A name
+  that does not resolve produces an error listing the bundles found locally and
+  in the repo.
+- `--list-var-files` prints the available bundles (source-labelled) without
+  writing anything. On `module add` it needs no other flag; on `import` it
+  requires `--source`, since the repo is only searched after a clone.
+- `--var <K=V>` sets a single module input directly (repeatable). It is applied
+  after every `--var-file`, so it wins, and accepts an HCL expression for
+  structured values (e.g. `--var 'ingress={alertmanager=false}'`). An
+  object/map value deep-merges over the same variable's current value. A name
+  the module does not declare, or a value that does not fit the declared type,
+  is reported as a warning and skipped — `--var` is explicit input, so a typo is
+  never applied silently.
+- An attribute a `--var-file` does not fit — an undeclared name or a
+  type-mismatched value — is skipped with a warning; `--strict` makes those
+  binding problems fatal. Object/tuple values are not type-checked (Atelier's
+  cty view loses `optional()` metadata); Terraform catches nested-shape errors.
+- **The TUI uses these bundles directly.** `F` lists the discovered presets —
+  personal `[local]` and repo `[repo]`, with the description taken from each
+  file's leading comment — and applies the selected one. `S` saves the current
+  non-default configuration as a new `atelier.presets/<name>.tfvars` in the
+  wrapper directory. The `atelier.local.yaml` mechanism is no longer used by the
+  TUI (see §11).
 
 ## 7. TUI layout
 
@@ -853,90 +907,27 @@ When `atelier module add` bootstraps a new wrapper, it writes:
 
 See [ADR-0007](adr/0007-sparse-wrapper-write-rule.md).
 
-## 11. Local presets (`atelier.local.yaml`)
+## 11. Presets (`.tfvars` bundles)
 
-Presets are **user-owned and wrapper-local**. Atelier never reads presets (or
-any manifest) from the upstream module repository — the upstream repo stays
-free of Atelier files. Instead, presets live in an `atelier.local.yaml` file
-that Atelier discovers by **walking up** from the wrapper directory. This lets
-a single file placed at a parent directory (e.g.
-`tf-testing/atelier.local.yaml`) be shared by every wrapper beneath it.
+Presets are named `.tfvars` bundles. Atelier discovers them from two sources
+([ADR-0031](adr/0031-presets-as-tfvars-bundles.md)):
 
-```yaml
-modules:
-  # "." matches the wrapper's primary module regardless of its upstream
-  # sub-path. This is the ergonomic default for a shared local file.
-  - path: "."
-    presets:
-      - name: minimal
-        description: "Single-unit dev deployment; TLS off; placeholder S3."
-        sets:
-          internal_tls: false
-          alertmanager:
-            units: 1
-```
+- **Personal** bundles in an `atelier.presets/` directory at any ancestor of the
+  wrapper, discovered by walking up (nearest wins). One shared directory at a
+  parent serves every wrapper beneath it.
+- **Product** presets committed to the module repo (`<module>/presets/`; the
+  older `<module>/examples/` location is still supported for runnable examples
+  and existing value files, and `presets/` wins on a name collision).
 
-### 11.1 Discovery and precedence
+The TUI `F` picker lists both sources (source-labelled, with the description
+from each file's leading comment) and applies the selected bundle; `S` saves
+the current non-default configuration as a new
+`atelier.presets/<name>.tfvars`. The CLI equivalent is `--var-file <name>`
+(§6.8); `--list-var-files` prints what is available.
 
-- Atelier collects every `atelier.local.yaml` found from the wrapper directory
-  up to the filesystem root (or `$HOME`, whichever comes first).
-- Files nearer the wrapper take precedence: when two files declare a preset
-  with the same `name`, the nearer file wins. Otherwise presets are unioned.
-- Within a single file, a module entry whose `path` exactly matches the
-  wrapper's primary module sub-path takes precedence over a `path: "."` entry.
-- A malformed `atelier.local.yaml` is skipped with a warning; it never aborts
-  launch.
-
-### 11.2 Field semantics
-
-- `path` — required. Either `"."` (matches this wrapper's primary module) or
-  the module's sub-path within its upstream repo (e.g. `terraform/cos`).
-- `name` — optional and ignored for local files (only used historically to
-  name candidates; candidate names are now always derived heuristically).
-- `description` — optional and ignored for local files.
-- `presets` — the point of the file. Named bundles of variable overrides users
-  apply in bulk from the TUI (`F`). Each preset entry has:
-  - `name` — required. Display name in the preset picker; also the key used for
-    nearest-wins precedence across files.
-  - `description` — optional. Shown below the name in the picker.
-  - `sets` — required. A map of variable names to values. Values follow YAML
-    natural typing and are converted to the variable's declared Terraform type
-    at load time. Variables referenced in `sets` that don't exist in the
-    module are silently dropped; type-mismatched values are silently skipped.
-    Object values merge over the object type's declared defaults (fields you
-    don't set fall back to their defaults), then the whole variable value is
-    replaced.
-
-### 11.3 What is *not* supported
-
-- Reading presets or any manifest from the upstream module repository. This was
-  removed; see [ADR-0022](adr/0022-local-presets.md) (supersedes ADR-0010).
-- Local override of candidate names/descriptions (presets only, for now).
-- Variable annotations, or required-version constraints for Atelier itself.
-
-### 11.4 Generating a preset from the current configuration (`S`)
-
-Pressing `S` in the editor snapshots the wrapper's current configuration into a
-new preset, so a working `atelier.local.yaml` can be authored without learning
-the DSL by hand (see [ADR-0026](adr/0026-save-preset.md)).
-
-- The generated `sets:` captures exactly the non-default arguments Atelier would
-  write to `main.tf` (the sparse-plus-required rule, [ADR-0007](adr/0007-sparse-wrapper-write-rule.md)),
-  so the preset mirrors what you see in the file.
-- **Sensitive variables are omitted** from generation: they are written directly
-  to `main.tf` and are not duplicated into the preset YAML. (Hand-authored
-  secrets in the file still load via `F`; only generation omits them.) Wired
-  reference expressions (`var.`/`module.`/`data.`/`local.`) are also omitted —
-  the `sets:` DSL holds concrete values only.
-- `S` prompts for a preset `name` (required) and optional `description`, then
-  writes a **new** `atelier.local.yaml` in the wrapper directory.
-- **Create-only.** If an `atelier.local.yaml` already exists in the wrapper
-  directory, `S` refuses and writes nothing — Atelier never merges into or
-  overwrites a file you may have hand-authored. Edit that file directly to add
-  more presets, or move it to a parent to share it. If every value is already
-  at its default, `S` reports there is nothing to save.
-
-See [ADR-0022](adr/0022-local-presets.md).
+Personal bundles are found at the wrapper directory itself and at every ancestor
+above it, so `my_wrapper/atelier.presets/foo.tfvars` works without a parent
+directory; a bundle nearer the wrapper overrides a same-named one further up.
 
 ## 12. Provider configuration
 

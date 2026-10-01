@@ -53,4 +53,8 @@ type RefSwitchResult struct {
 	// The planner re-runs init -upgrade on the next plan, and
 	// `terraform validate` surfaces the specific diagnostics in the meantime.
 	InitIncomplete bool
+	// Presets is the refreshed `.tfvars` bundle list for the new ref. A repo
+	// can ship examples on one ref but not another, and the picker is
+	// otherwise only built at launch, so a switch must replace it.
+	Presets []ResolvedPreset
 }

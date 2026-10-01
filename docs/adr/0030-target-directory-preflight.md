@@ -9,7 +9,9 @@ collision detection in the wrapper bootstrap with content-based detection.
 Amends [ADR-0018](0018-additive-module-command.md) (adds step 0 to `module add`,
 and constrains its block-name uniquification) and
 [ADR-0004](0004-wrapper-layout.md) (which assumed a target directory that is
-"typically empty").
+"typically empty"). Amended by [ADR-0032](0032-nested-wrapper-preflight-scope.md):
+the nested-wrapper finding prompts only when the target is inside a wrapper's
+`.atelier/` or `.terraform/`, not for an ordinary directory below a wrapper.
 
 ## Context
 

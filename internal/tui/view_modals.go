@@ -123,15 +123,20 @@ func (m *Model) renderWarnDetail() string {
 	return m.renderModalFrame(title, formatCheckWarnings(m.checkWarnings), "[Esc] close")
 }
 
-// renderPresetPicker renders a centered modal for preset selection.
+// renderPresetPicker renders a centered modal for bundle selection. Each row
+// shows the source ([local] personal walk-up, [repo] committed to the module)
+// and the description from the file's leading comment.
 func (m *Model) renderPresetPicker() string {
 	var b strings.Builder
 	for i, p := range m.presets {
 		cursor := "  "
 		name := p.Name
+		if p.Source != "" {
+			name = "[" + p.Source + "] " + name
+		}
 		if i == m.presetCursor {
 			cursor = styleCursorActive.Render("▸ ")
-			name = styleCursorActive.Render(p.Name)
+			name = styleCursorActive.Render(name)
 		}
 		line := cursor + name
 		if p.Description != "" {
@@ -151,7 +156,7 @@ func (m *Model) renderSavePresetModal() string {
 	if name, _, _, _ := m.activeRefInfo(); name != "" {
 		fmt.Fprintf(&b, "Module:  %s\n", styleDescription.Render(name))
 	}
-	_, n := snapshotPreset(m.State, "", "")
+	_, n := 0, len(snapshotValues(m.State))
 	noun := "variables"
 	if n == 1 {
 		noun = "variable"
@@ -176,8 +181,7 @@ func (m *Model) renderSavePresetModal() string {
 	fmt.Fprintf(&b, "Name:         %s\n", m.savePresetName.ViewInline())
 	fmt.Fprintf(&b, "Description:  %s\n", m.savePresetDesc.ViewInline())
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, styleDescription.Render(fmt.Sprintf("Writes a new %s for the current configuration.",
-		"atelier.local.yaml")))
+	fmt.Fprintln(&b, styleDescription.Render("Writes a new atelier.presets/<name>.tfvars bundle."))
 
 	return m.renderModalFrame("Save preset", b.String(),
 		"[Tab] name/desc   [Enter] save   [Esc] cancel")

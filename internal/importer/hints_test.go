@@ -465,7 +465,7 @@ func TestCheckMissingRequiredArgument_ModuleInputDoesNotSuggestQueryVar(t *testi
 	if contains(hint.Details, "--query-var") {
 		t.Errorf("a missing module input must not advise --query-var:\n%s", hint.Details)
 	}
-	for _, want := range []string{"--var model_uuid=<value>", "--preset"} {
+	for _, want := range []string{"--var model_uuid=<value>", "--var-file"} {
 		if !contains(hint.Details, want) {
 			t.Errorf("details should mention %q, got:\n%s", want, hint.Details)
 		}
@@ -483,7 +483,7 @@ func TestCheckMissingRequiredArgument_QueryEngineInputSuggestsQueryVar(t *testin
 	if !contains(hint.Details, "--query-var model_uuid=<value>") {
 		t.Errorf("should advise --query-var, got:\n%s", hint.Details)
 	}
-	if contains(hint.Details, "--preset") {
+	if contains(hint.Details, "--var-file") {
 		t.Errorf("a query-engine input is not a module input:\n%s", hint.Details)
 	}
 }
@@ -499,7 +499,7 @@ Missing required argument: The argument "channel" is required, but no definition
 	if contains(hint.Details, "--query-var") {
 		t.Errorf("must not advise --query-var:\n%s", hint.Details)
 	}
-	for _, want := range []string{"channel", "s3_endpoint", "--preset"} {
+	for _, want := range []string{"channel", "s3_endpoint", "--var-file"} {
 		if !contains(hint.Summary+hint.Details, want) {
 			t.Errorf("should mention %q", want)
 		}

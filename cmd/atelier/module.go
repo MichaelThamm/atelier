@@ -15,9 +15,19 @@ import (
 )
 
 const moduleUsage = `Usage:
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR] [--preset NAME] [--yes]
+  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
+                                [--var-file PATH|NAME] [--var KEY=VALUE]
+                                [--list-var-files] [--strict] [--yes]
                                                Add a module to the wrapper.
-                                               --preset applies a named preset from atelier.local.yaml.
+                                               --var-file seeds values from a Terraform variable file: a local
+                                               path, a name in an ancestor atelier.presets/ directory (walk-up),
+                                               or a name committed to the module repo. Comma-separate or repeat
+                                               for several (e.g. --var-file cos-s3,cos-units); later files win.
+                                               --var sets a single module input (repeatable); --var wins over
+                                               --var-file.
+                                               --list-var-files prints the local and repo .tfvars bundles available.
+                                               --strict makes var-file binding warnings (unknown variables,
+                                               type mismatches) fatal instead of warnings.
   atelier module rm <name> [--force]           Remove a module from the wrapper.
   atelier module list                          List modules in the wrapper.
 `
@@ -42,12 +52,15 @@ func runModule(args []string) error {
 
 // moduleAddOpts holds parsed flags for `atelier module add`.
 type moduleAddOpts struct {
-	Source     string   // positional git URL
-	As         string   // --as: explicit HCL block name
-	Ref        string   // --ref: git ref
-	ModulePath string   // --module: candidate subdir
-	Presets    []string // --preset: named preset from atelier.local.yaml
-	Yes        bool     // --yes/-y: skip the target-directory confirmation
+	Source       string   // positional git URL
+	As           string   // --as: explicit HCL block name
+	Ref          string   // --ref: git ref
+	ModulePath   string   // --module: candidate subdir
+	VarFiles     []string // --var-file: seed values from a .tfvars file or repo-local name (repeatable)
+	Vars         []string // --var: KEY=VALUE overrides applied after all var-files (repeatable)
+	Yes          bool     // --yes/-y: skip the target-directory confirmation
+	ListVarFiles bool     // --list-var-files: print the repo's .tfvars files and exit
+	Strict       bool     // --strict: make var-file binding warnings fatal
 }
 
 func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
@@ -58,6 +71,10 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 		switch a {
 		case "--yes", "-y":
 			opts.Yes = true
+		case "--list-var-files":
+			opts.ListVarFiles = true
+		case "--strict":
+			opts.Strict = true
 		case "--as":
 			i++
 			if i >= len(args) {
@@ -76,15 +93,32 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 				return opts, fmt.Errorf("--module requires a path")
 			}
 			opts.ModulePath = args[i]
-		case "--preset":
+		case "--var-file":
 			i++
 			if i >= len(args) {
-				return opts, fmt.Errorf("--preset requires a name")
+				return opts, fmt.Errorf("--var-file requires a path")
 			}
-			opts.Presets = append(opts.Presets, args[i])
+			opts.VarFiles = appendVarFileList(opts.VarFiles, args[i])
+		case "--var":
+			i++
+			if i >= len(args) {
+				return opts, fmt.Errorf("--var requires KEY=VALUE")
+			}
+			if err := validateVarPair(args[i]); err != nil {
+				return opts, err
+			}
+			opts.Vars = append(opts.Vars, args[i])
 		default:
-			if strings.HasPrefix(a, "--preset=") {
-				opts.Presets = append(opts.Presets, strings.TrimPrefix(a, "--preset="))
+			if strings.HasPrefix(a, "--var-file=") {
+				opts.VarFiles = appendVarFileList(opts.VarFiles, strings.TrimPrefix(a, "--var-file="))
+				continue
+			}
+			if strings.HasPrefix(a, "--var=") {
+				pair := strings.TrimPrefix(a, "--var=")
+				if err := validateVarPair(pair); err != nil {
+					return opts, err
+				}
+				opts.Vars = append(opts.Vars, pair)
 				continue
 			}
 			if strings.HasPrefix(a, "-") {
@@ -103,6 +137,53 @@ func parseModuleAddArgs(args []string) (moduleAddOpts, error) {
 	return opts, nil
 }
 
+// appendVarFileList splits a comma-separated --var-file value into individual
+// names/paths. Commas are the one-shot syntax for several bundles
+// (`--var-file cos-s3,cos-units`); repeating the flag remains equivalent.
+func appendVarFileList(dst []string, raw string) []string {
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			dst = append(dst, p)
+		}
+	}
+	return dst
+}
+
+// validateVarPair checks a `KEY=VALUE` --var argument and reports the same
+// errors as import's --var parsing. The key must be a valid HCL identifier.
+func validateVarPair(pair string) error {
+	k, _, ok := strings.Cut(pair, "=")
+	if !ok || k == "" {
+		return fmt.Errorf("--var expects KEY=VALUE, got %q", pair)
+	}
+	return validateVarKey(k)
+}
+
+// varsToMap turns validated `KEY=VALUE` pairs into the map applyVarOverrides
+// expects. A value may itself contain `=`; only the first one splits.
+func varsToMap(pairs []string) map[string]string {
+	out := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		if k, v, ok := strings.Cut(p, "="); ok {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// printVarFiles renders the `--list-var-files` output: one line per bundle,
+// source-labelled (`local` walk-up or `repo`), name first so a long list stays
+// scannable.
+func printVarFiles(files []bootstrap.VarFile) {
+	if len(files) == 0 {
+		fmt.Println("No .tfvars bundles found (checked atelier.presets/ up-tree and the module repo).")
+		return
+	}
+	for _, f := range files {
+		fmt.Printf("[%s] %-24s %s\n", f.Source, f.Name, f.Display)
+	}
+}
+
 // runModuleAdd implements `atelier module add <url>`.
 func runModuleAdd(args []string) error {
 	opts, err := parseModuleAddArgs(args)
@@ -113,6 +194,28 @@ func runModuleAdd(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// --list-var-files clones the module to a scratch directory, prints the
+	// `.tfvars` bundles discoverable locally and in the repository, then exits
+	// (ADR-0031). The clone is removed before returning, so nothing is written
+	// and no preflight is needed. It runs before the terraform check because
+	// listing needs only git.
+	if opts.ListVarFiles {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		files, err := bootstrap.ListVarFiles(ctx, bootstrap.InitOptions{
+			WrapperDir: cwd,
+			Source:     opts.Source,
+			Ref:        opts.Ref,
+			ModulePath: opts.ModulePath,
+		})
+		if err != nil {
+			return err
+		}
+		printVarFiles(files)
+		return nil
+	}
+
 	if _, err := tfexec.Locate(); err != nil {
 		return err
 	}
@@ -185,12 +288,31 @@ func runModuleAdd(args []string) error {
 			}
 		}
 
-		// Apply --preset values, then persist them to main.tf.
-		if len(opts.Presets) > 0 {
-			if err := applyPresets(cwd, res.State, opts.Presets); err != nil {
+		// Apply --var-file values (explicit files win), then --var overrides.
+		// A name is resolved against the cloned module repo or a walk-up
+		// bundle; a local path is used as-is. Values become module arguments
+		// in main.tf.
+		if len(opts.VarFiles) > 0 {
+			resolved, rerr := bootstrap.ResolveVarFiles(cwd, res.CloneDir, res.ModulePath, opts.VarFiles)
+			if rerr != nil {
 				cleanup()
-				return err
+				return rerr
 			}
+			warns, aerr := applyVarFiles(res.State, resolved, opts.Strict)
+			if aerr != nil {
+				cleanup()
+				return aerr
+			}
+			for _, w := range warns {
+				fmt.Fprintln(os.Stderr, "warning:", w)
+			}
+		}
+		if len(opts.Vars) > 0 {
+			for _, w := range applyVarOverrides(res.State, varsToMap(opts.Vars)) {
+				fmt.Fprintln(os.Stderr, "warning:", w)
+			}
+		}
+		if len(opts.VarFiles) > 0 || len(opts.Vars) > 0 {
 			if err := res.State.Write(); err != nil {
 				cleanup()
 				return err
@@ -284,10 +406,24 @@ func runModuleAdd(args []string) error {
 	}
 	state.ModuleBlockName = blockName
 
-	// Apply --preset values to the module being added, before writing it.
-	if len(opts.Presets) > 0 {
-		if err := applyPresets(cwd, state, opts.Presets); err != nil {
-			return err
+	// Apply --var-file values to the module being added, before writing it,
+	// then --var overrides on top.
+	if len(opts.VarFiles) > 0 {
+		resolved, rerr := bootstrap.ResolveVarFiles(cwd, prep.CloneDir, prep.ModulePath, opts.VarFiles)
+		if rerr != nil {
+			return rerr
+		}
+		warns, aerr := applyVarFiles(state, resolved, opts.Strict)
+		if aerr != nil {
+			return aerr
+		}
+		for _, w := range warns {
+			fmt.Fprintln(os.Stderr, "warning:", w)
+		}
+	}
+	if len(opts.Vars) > 0 {
+		for _, w := range applyVarOverrides(state, varsToMap(opts.Vars)) {
+			fmt.Fprintln(os.Stderr, "warning:", w)
 		}
 	}
 

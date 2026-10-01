@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -245,234 +243,25 @@ func TestConvertStringToCty_InvalidHCL(t *testing.T) {
 	}
 }
 
-// --- applyPresets ---
-
-func TestApplyPresets_SinglePreset(t *testing.T) {
-	// Create a temporary directory with an atelier.local.yaml file.
-	dir := t.TempDir()
-
-	// Create a minimal atelier.local.yaml with a preset.
-	yamlContent := `
-modules:
-  - path: "."
-    presets:
-      - name: test-preset
-        description: "Test preset"
-        sets:
-          model_uuid: "test-uuid-123"
-`
-	if err := os.WriteFile(filepath.Join(dir, "atelier.local.yaml"), []byte(yamlContent), 0o644); err != nil {
-		t.Fatal(err)
+func TestValidateImportFlags_VarFileRequiresSource(t *testing.T) {
+	if err := validateImportFlags([]string{"x.tfvars"}, "", false); err == nil {
+		t.Error("expected an error for --var-file without --source")
 	}
-
-	// Create a wrapper state with a variable declaration.
-	state := &wrapper.State{
-		Dir:    dir,
-		Values: make(map[string]cty.Value),
-		Vars: []tfvars.Variable{
-			{
-				Name: "model_uuid",
-				Type: &tftypes.Type{Kind: tftypes.KindString},
-			},
-		},
+	if err := validateImportFlags([]string{"x.tfvars"}, "https://example.com/m.git", false); err != nil {
+		t.Errorf("unexpected error with --source: %v", err)
 	}
-
-	// Apply the preset.
-	err := applyPresets(dir, state, []string{"test-preset"})
-	if err != nil {
-		t.Fatalf("applyPresets() error = %v", err)
-	}
-
-	// Check that the preset value was applied.
-	val, ok := state.Values["model_uuid"]
-	if !ok {
-		t.Fatal("model_uuid not found in state.Values")
-	}
-	if val.AsString() != "test-uuid-123" {
-		t.Errorf("model_uuid = %q, want %q", val.AsString(), "test-uuid-123")
+	if err := validateImportFlags(nil, "", false); err != nil {
+		t.Errorf("unexpected error with no var files: %v", err)
 	}
 }
 
-func TestApplyPresets_MultiplePresets(t *testing.T) {
-	// Create a temporary directory with an atelier.local.yaml file.
-	dir := t.TempDir()
-
-	// Create a minimal atelier.local.yaml with multiple presets.
-	yamlContent := `
-modules:
-  - path: "."
-    presets:
-      - name: preset-1
-        description: "First preset"
-        sets:
-          model_uuid: "uuid-from-preset-1"
-      - name: preset-2
-        description: "Second preset"
-        sets:
-          model_uuid: "uuid-from-preset-2"
-`
-	if err := os.WriteFile(filepath.Join(dir, "atelier.local.yaml"), []byte(yamlContent), 0o644); err != nil {
-		t.Fatal(err)
+func TestValidateImportFlags_ListVarFilesRequiresSource(t *testing.T) {
+	if err := validateImportFlags(nil, "", true); err == nil {
+		t.Error("expected an error for --list-var-files without --source")
 	}
-
-	// Create a wrapper state with a variable declaration.
-	state := &wrapper.State{
-		Dir:    dir,
-		Values: make(map[string]cty.Value),
-		Vars: []tfvars.Variable{
-			{
-				Name: "model_uuid",
-				Type: &tftypes.Type{Kind: tftypes.KindString},
-			},
-		},
+	if err := validateImportFlags(nil, "https://example.com/m.git", true); err != nil {
+		t.Errorf("unexpected error with --source: %v", err)
 	}
-
-	// Apply both presets (preset-2 should override preset-1).
-	err := applyPresets(dir, state, []string{"preset-1", "preset-2"})
-	if err != nil {
-		t.Fatalf("applyPresets() error = %v", err)
-	}
-
-	// Check that preset-2's value won.
-	val, ok := state.Values["model_uuid"]
-	if !ok {
-		t.Fatal("model_uuid not found in state.Values")
-	}
-	if val.AsString() != "uuid-from-preset-2" {
-		t.Errorf("model_uuid = %q, want %q", val.AsString(), "uuid-from-preset-2")
-	}
-}
-
-func TestApplyPresets_VarOverridesPreset(t *testing.T) {
-	// Create a temporary directory with an atelier.local.yaml file.
-	dir := t.TempDir()
-
-	// Create a minimal atelier.local.yaml with a preset.
-	yamlContent := `
-modules:
-  - path: "."
-    presets:
-      - name: test-preset
-        description: "Test preset"
-        sets:
-          model_uuid: "uuid-from-preset"
-`
-	if err := os.WriteFile(filepath.Join(dir, "atelier.local.yaml"), []byte(yamlContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a wrapper state with a variable declaration.
-	state := &wrapper.State{
-		Dir:    dir,
-		Values: make(map[string]cty.Value),
-		Vars: []tfvars.Variable{
-			{
-				Name: "model_uuid",
-				Type: &tftypes.Type{Kind: tftypes.KindString},
-			},
-		},
-	}
-
-	// --var flag should override preset.
-	config := map[string]string{
-		"model_uuid": "uuid-from-var",
-	}
-
-	// Apply the preset and then the --var override.
-	err := applyPresets(dir, state, []string{"test-preset"})
-	if err != nil {
-		t.Fatalf("applyPresets() error = %v", err)
-	}
-	applyVarOverrides(state, config)
-
-	// Check that --var flag won.
-	val, ok := state.Values["model_uuid"]
-	if !ok {
-		t.Fatal("model_uuid not found in state.Values")
-	}
-	if val.AsString() != "uuid-from-var" {
-		t.Errorf("model_uuid = %q, want %q", val.AsString(), "uuid-from-var")
-	}
-}
-
-func TestApplyPresets_PresetNotFound(t *testing.T) {
-	// Create a temporary directory with an atelier.local.yaml file.
-	dir := t.TempDir()
-
-	// Create a minimal atelier.local.yaml with a preset.
-	yamlContent := `
-modules:
-  - path: "."
-    presets:
-      - name: existing-preset
-        description: "Existing preset"
-        sets:
-          model_uuid: "test-uuid"
-`
-	if err := os.WriteFile(filepath.Join(dir, "atelier.local.yaml"), []byte(yamlContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a wrapper state.
-	state := &wrapper.State{
-		Dir:    dir,
-		Values: make(map[string]cty.Value),
-		Vars: []tfvars.Variable{
-			{
-				Name: "model_uuid",
-				Type: &tftypes.Type{Kind: tftypes.KindString},
-			},
-		},
-	}
-
-	// Try to apply a non-existent preset.
-	err := applyPresets(dir, state, []string{"non-existent-preset"})
-	if err == nil {
-		t.Fatal("expected error for non-existent preset, got nil")
-	}
-	if !contains(err.Error(), "non-existent-preset") {
-		t.Errorf("error should mention the preset name, got: %v", err)
-	}
-}
-
-func TestApplyPresets_NoPresetsFile(t *testing.T) {
-	// Create a temporary directory without an atelier.local.yaml file.
-	dir := t.TempDir()
-
-	// Create a wrapper state.
-	state := &wrapper.State{
-		Dir:    dir,
-		Values: make(map[string]cty.Value),
-		Vars: []tfvars.Variable{
-			{
-				Name: "model_uuid",
-				Type: &tftypes.Type{Kind: tftypes.KindString},
-			},
-		},
-	}
-
-	// Try to apply a preset when no file exists.
-	err := applyPresets(dir, state, []string{"test-preset"})
-	if err == nil {
-		t.Fatal("expected error when no presets file exists, got nil")
-	}
-	if !contains(err.Error(), "no presets found") {
-		t.Errorf("error should mention no presets found, got: %v", err)
-	}
-}
-
-// contains checks if a string contains a substring.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // --- mergeWrapperStateIntoConfig ---
@@ -620,6 +409,90 @@ func TestDescribeProviders(t *testing.T) {
 	}
 	if got := describeProviders([]string{"", ""}); !strings.Contains(got, "no provider could be determined") {
 		t.Errorf("got %q, want the undetermined phrase", got)
+	}
+}
+
+// --- applyVarOverrides: object merge ---
+
+func TestApplyVarOverrides_ObjectMergesOverExisting(t *testing.T) {
+	v := mustVarT(t, "ingress", `object({alertmanager=optional(bool,true),loki=optional(bool,true),prometheus=optional(bool,true)})`, cty.NilVal, true)
+	s := seedState(t, v)
+	// A var-file set every key false...
+	s.Values["ingress"] = cty.ObjectVal(map[string]cty.Value{
+		"alertmanager": cty.False,
+		"loki":         cty.False,
+		"prometheus":   cty.False,
+	})
+	// ...and --var turns one back on. The others must survive.
+	applyVarOverrides(s, varsToMap([]string{"ingress={alertmanager=true}"}))
+
+	got := s.Values["ingress"].AsValueMap()
+	if got["alertmanager"] != cty.True {
+		t.Errorf("alertmanager = %v, want true", got["alertmanager"])
+	}
+	if got["loki"] != cty.False || got["prometheus"] != cty.False {
+		t.Errorf("unmentioned keys were lost: %v", got)
+	}
+}
+
+func TestApplyVarOverrides_ObjectDeepMerge(t *testing.T) {
+	v := mustVarT(t, "app", `object({units=optional(number,1),cfg=optional(object({a=optional(string,"x"),b=optional(string,"y")}))})`, cty.NilVal, true)
+	s := seedState(t, v)
+	s.Values["app"] = cty.ObjectVal(map[string]cty.Value{
+		"units": cty.NumberIntVal(3),
+		"cfg": cty.ObjectVal(map[string]cty.Value{
+			"a": cty.StringVal("x"),
+			"b": cty.StringVal("y"),
+		}),
+	})
+	applyVarOverrides(s, varsToMap([]string{`app={cfg={a="z"}}`}))
+
+	app := s.Values["app"].AsValueMap()
+	if app["units"].AsBigFloat().String() != "3" {
+		t.Errorf("units = %v, want 3 (untouched)", app["units"])
+	}
+	cfg := app["cfg"].AsValueMap()
+	if cfg["a"].AsString() != "z" {
+		t.Errorf("cfg.a = %v, want z", cfg["a"])
+	}
+	if cfg["b"].AsString() != "y" {
+		t.Errorf("cfg.b = %v, want y (nested merge)", cfg["b"])
+	}
+}
+
+func TestApplyVarOverrides_ScalarReplaces(t *testing.T) {
+	s := seedState(t, mustVarT(t, "internal_tls", "bool", cty.True, true))
+	s.Values["internal_tls"] = cty.True
+	applyVarOverrides(s, varsToMap([]string{"internal_tls=false"}))
+	if s.Values["internal_tls"] != cty.False {
+		t.Errorf("internal_tls = %v, want false", s.Values["internal_tls"])
+	}
+}
+
+// cty's AsValueMap panics on null/unknown objects, so the merge guard must be
+// exercised: a null existing value is replaced, not merged into.
+func TestApplyVarOverrides_NullExistingValueReplacedNotMerged(t *testing.T) {
+	s := seedState(t, mustVarT(t, "ingress", `object({a=optional(bool,true)})`, cty.NilVal, true))
+	s.Values["ingress"] = cty.NullVal(cty.Object(map[string]cty.Type{"a": cty.Bool}))
+
+	warns := applyVarOverrides(s, varsToMap([]string{"ingress={a=false}"}))
+	if len(warns) != 0 {
+		t.Fatalf("unexpected warnings: %v", warns)
+	}
+	got := s.Values["ingress"]
+	if got.IsNull() {
+		t.Fatal("null value should have been replaced by the override")
+	}
+	if got.AsValueMap()["a"] != cty.False {
+		t.Errorf("a = %v, want false", got.AsValueMap()["a"])
+	}
+}
+
+func TestMergeObjects_NonObjectOverrideWins(t *testing.T) {
+	base := cty.ObjectVal(map[string]cty.Value{"a": cty.True})
+	// A non-objectish override replaces wholesale rather than merging.
+	if got := mergeObjects(base, cty.NullVal(base.Type())); !got.IsNull() {
+		t.Errorf("merge with a null override = %v, want null", got)
 	}
 }
 

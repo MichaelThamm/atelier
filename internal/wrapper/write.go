@@ -18,16 +18,15 @@ const (
 	MainTF        = "main.tf"
 	VersionsTF    = "versions.tf"
 	ProvidersTF   = "providers.tf"
-	VariablesTF   = "variables.tf"
 	GitignoreFile = ".gitignore"
 	ReadmeFile    = "README.md"
 	AtelierDir    = ".atelier"
 )
 
 // Write reflects the State to disk. It writes main.tf using the
-// sparse-plus-required rule. providers.tf, versions.tf, and the housekeeping
-// files are only generated at bootstrap time; subsequent writes leave them
-// alone (the user may have edited them).
+// sparse-plus-required rule (ADR-0007). providers.tf, versions.tf, and the
+// housekeeping files are only generated at bootstrap time; subsequent writes
+// leave them alone (the user may have edited them).
 func (s *State) Write() error {
 	if err := s.writeMain(); err != nil {
 		return fmt.Errorf("write main.tf: %w", err)

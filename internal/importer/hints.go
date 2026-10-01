@@ -295,7 +295,7 @@ func checkMissingRequiredArgument(errMsg string) *ErrorHint {
 	// are not interchangeable:
 	//
 	//   - the wrapper's module {} block is missing a module input, fixed with
-	//     --var, a --preset, or by editing the wrapper;
+	//     --var, a --var-file, or by editing the wrapper;
 	//   - a list {} block in the generated query file is missing a required
 	//     config attribute, fixed with --query-var.
 	//
@@ -322,7 +322,7 @@ func checkMissingRequiredArgument(errMsg string) *ErrorHint {
 	}
 	fix := "To fix this, supply " + plural(len(names), "it", "them") + " and re-run:\n" +
 		"  --var " + strings.Join(names, "=<value> --var ") + "=<value>\n" +
-		"or set " + plural(len(names), "it", "them") + " in the wrapper, or apply a --preset that covers " +
+		"or set " + plural(len(names), "it", "them") + " in the wrapper, or apply a --var-file that covers " +
 		plural(len(names), "it", "them") + "."
 
 	switch {
