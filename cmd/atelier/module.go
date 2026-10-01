@@ -432,36 +432,19 @@ func runModuleAdd(args []string) error {
 }
 
 // bootstrapFreshWrapper clones a remote module source and writes a wrapper
-// into dir: the single fresh-bootstrap path shared by `module add` (into the
-// working directory) and `import --source` (into the import target). Keeping
-// one implementation means the two cannot drift — `import --source` offers
-// exactly the same clone, failure cleanup and warnings as `module add`.
+// into dir, printing a spinner and any bootstrap warnings. The clone, authoring
+// and transactional cleanup are bootstrap.FreshWrapper, so `module add` and
+// `import --source` cannot drift.
 //
 // It returns a result with a nil State when the module has multiple Terraform
 // candidates (nothing was written); the caller decides how to present the
 // candidate list — `module add` prints it and exits 0, `import --source`
-// prints it and errors.
-//
-// A bootstrap that fails partway must not leave a clone behind in a directory
-// that never became a wrapper — but only an .atelier/ this run created is
-// removed, so a retry inside an established wrapper never destroys its state.
-// The returned cleanup closure does that removal; callers invoke it on their
-// own post-bootstrap failure paths (e.g. a rename or preset-write error),
-// matching `module add`'s previous behaviour.
+// prints it and errors. The returned cleanup closure removes an .atelier/
+// this run created; callers invoke it on their own post-bootstrap failure
+// paths.
 func bootstrapFreshWrapper(dir, source, ref, modulePath string) (*bootstrap.Result, func(), error) {
 	if _, err := tfexec.Locate(); err != nil {
 		return nil, nil, err
-	}
-
-	atelierDir := filepath.Join(dir, wrapper.AtelierDir)
-	createdAtelierDir := false
-	if _, err := os.Stat(atelierDir); os.IsNotExist(err) {
-		createdAtelierDir = true
-	}
-	cleanup := func() {
-		if createdAtelierDir {
-			_ = os.RemoveAll(atelierDir)
-		}
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -469,7 +452,7 @@ func bootstrapFreshWrapper(dir, source, ref, modulePath string) (*bootstrap.Resu
 
 	stop := startSpinner("Cloning and preparing module…")
 	defer stop()
-	res, err := bootstrap.InitNew(ctx, bootstrap.InitOptions{
+	fresh, err := bootstrap.FreshWrapper(ctx, bootstrap.InitOptions{
 		WrapperDir: dir,
 		Source:     source,
 		Ref:        ref,
@@ -477,19 +460,17 @@ func bootstrapFreshWrapper(dir, source, ref, modulePath string) (*bootstrap.Resu
 	})
 	stop()
 	if err != nil {
-		cleanup()
 		return nil, nil, err
 	}
-	if res.State == nil {
+	if fresh.State == nil {
 		// Multiple candidates — nothing written. The caller presents them.
-		cleanup()
-		return res, nil, nil
+		return fresh.Result, nil, nil
 	}
 
-	for _, w := range res.Warnings {
+	for _, w := range fresh.Warnings {
 		fmt.Fprintln(os.Stderr, "warning:", w)
 	}
-	return res, cleanup, nil
+	return fresh.Result, fresh.Release, nil
 }
 
 // runModuleRm implements `atelier module rm <name>`.

@@ -497,6 +497,49 @@ func InitNew(ctx context.Context, opts InitOptions) (*Result, error) {
 	}, nil
 }
 
+// FreshResult is the outcome of FreshWrapper: the same as InitNew, plus a
+// Release closure the caller invokes only after a successful entire operation
+// to confirm the new .atelier/ directory may be kept. See FreshWrapper.
+type FreshResult struct {
+	*Result
+	// Release is a no-op on success; on a caller failure it removes the
+	// .atelier/ this run created. Callers that finish successfully simply do
+	// not call it.
+	Release func()
+}
+
+// FreshWrapper bootstraps a wrapper for a module source, with transactional
+// cleanup: if the operation fails after this returns, the .atelier/ directory
+// is removed — but only when this run created it, so a retry inside an
+// established wrapper never destroys existing state.
+//
+// It is the one fresh-bootstrap entry point, shared by `module add` and
+// `import --source`. The spinner and warning formatting stay in the CLI; this
+// is orchestration only. A result with a nil State means the repo had multiple
+// candidates and nothing was written (the caller presents them).
+//
+// The returned release closure must be called by the caller if, and only if, a
+// later step in the same operation fails.
+func FreshWrapper(ctx context.Context, opts InitOptions) (*FreshResult, error) {
+	atelierDir := filepath.Join(opts.WrapperDir, wrapper.AtelierDir)
+	createdAtelierDir := false
+	if _, err := os.Stat(atelierDir); os.IsNotExist(err) {
+		createdAtelierDir = true
+	}
+	release := func() {
+		if createdAtelierDir {
+			_ = os.RemoveAll(atelierDir)
+		}
+	}
+
+	res, err := InitNew(ctx, opts)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	return &FreshResult{Result: res, Release: release}, nil
+}
+
 // LoadExisting opens an existing wrapper directory. It re-reads session.json
 // (auto-rehydrating if missing per SPEC §6.1), re-resolves the ref against
 // the remote (best-effort; we don't error if offline), and parses main.tf to
