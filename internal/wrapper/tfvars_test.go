@@ -159,6 +159,41 @@ variable "hosts" {
 	}
 }
 
+// TestHasComplexShape covers the predicate that decides whether a var-file
+// value is converted. Only object/tuple-containing types are skipped; scalars
+// and scalar collections must still be converted (and so still report a genuine
+// mismatch).
+func TestHasComplexShape(t *testing.T) {
+	cases := []struct {
+		typ  string
+		want bool
+	}{
+		{"string", false},
+		{"number", false},
+		{"any", false},
+		{"list(string)", false},
+		{"map(number)", false},
+		{"set(string)", false},
+		{"object({a = string})", true},
+		{"list(object({a = string}))", true},
+		{"map(object({a = optional(string)}))", true},
+		{"set(object({a = string}))", true},
+		{"tuple([string, number])", true},
+		{"list(map(object({a = string})))", true},
+	}
+	for _, c := range cases {
+		t.Run(c.typ, func(t *testing.T) {
+			vars := tfVarsVars(t, "variable \"v\" {\n  type = "+c.typ+"\n}\n")
+			if len(vars) != 1 || vars[0].Type == nil {
+				t.Fatalf("failed to parse type %q", c.typ)
+			}
+			if got := hasComplexShape(vars[0].Type); got != c.want {
+				t.Errorf("hasComplexShape(%s) = %v, want %v", c.typ, got, c.want)
+			}
+		})
+	}
+}
+
 // TestRenderTFVarsValues_sparse covers the TUI `S` sink directly: required
 // values are written, changed optionals are written, object values are written
 // partially (only fields that differ from their optional() default), and
