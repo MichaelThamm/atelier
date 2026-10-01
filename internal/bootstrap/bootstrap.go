@@ -21,6 +21,7 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/candidate"
 	"github.com/MichaelThamm/atelier/internal/gitops"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/session"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
@@ -133,7 +134,7 @@ func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedS
 		}
 	}
 
-	repoName := repoBasename(opts.Source)
+	repoName := modulesource.RepoBasename(opts.Source)
 	cloneDir = filepath.Join(CloneSubdir(opts.WrapperDir), repoName)
 
 	// Warm-start fast path: if a previous clone is already checked out at the
@@ -200,13 +201,13 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 	if err != nil {
 		return nil, fmt.Errorf("read required_providers: %w", err)
 	}
-	wrappedSource := composeSource(sourceURL, modulePath, literalRef)
+	wrappedSource := modulesource.Compose(sourceURL, modulePath, literalRef)
 
 	providers := DefaultProviderBlocks(req)
 	values := map[string]cty.Value{}
 	state := &wrapper.State{
 		Dir:               wrapperDir,
-		ModuleBlockName:   ModuleBlockName(modulePath, repoBasename(sourceURL)),
+		ModuleBlockName:   ModuleBlockName(modulePath, modulesource.RepoBasename(sourceURL)),
 		Source:            wrappedSource,
 		Vars:              vars,
 		Values:            values,
@@ -229,8 +230,8 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 func PrepareStateFromMain(wrapperDir, modulePath, literalRef, sourceURL string) *wrapper.State {
 	return &wrapper.State{
 		Dir:             wrapperDir,
-		ModuleBlockName: ModuleBlockName(modulePath, repoBasename(sourceURL)),
-		Source:          composeSource(sourceURL, modulePath, literalRef),
+		ModuleBlockName: ModuleBlockName(modulePath, modulesource.RepoBasename(sourceURL)),
+		Source:          modulesource.Compose(sourceURL, modulePath, literalRef),
 		Vars:            nil,
 		Values:          map[string]cty.Value{},
 	}
@@ -329,6 +330,100 @@ func PrepareModule(ctx context.Context, opts InitOptions) (*ModulePrep, error) {
 	}, nil
 }
 
+// LoadModuleBlock clones the module named by an existing main.tf module block
+// and assembles its state, reading the variable schema from the clone and
+// overlaying the values already written into that block. It performs no
+// candidate discovery — the sub-path comes from the block's source — so it is
+// safe to call concurrently for every secondary block.
+//
+// The caller supplies the block's HCL label and source verbatim: the label is
+// what Write targets, and the source is what the wrapper records.
+func (b *BlockLoader) LoadModuleBlock(ctx context.Context, wrapperDir, blockName, source string) (*wrapper.State, string, string, error) {
+	remote, ref := modulesource.Decompose(source)
+	if remote == "" {
+		return nil, "", "", fmt.Errorf("module block %q has no source", blockName)
+	}
+	modulePath := modulesource.ModulePath(source)
+
+	cloneDir, sha, err := ResolveAndClone(ctx, InitOptions{
+		WrapperDir:  wrapperDir,
+		Source:      remote,
+		LocalSource: modulesource.IsLocal(remote),
+		Ref:         ref,
+		ModulePath:  modulePath,
+		GitRunner:   b.Runner,
+	})
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	state, err := PrepareState(wrapperDir, cloneDir, modulePath, sha, ref, remote)
+	if err != nil {
+		return nil, "", "", err
+	}
+	state.ModuleBlockName = blockName
+	state.Source = source
+
+	pm, err := wrapper.ReadMainForBlock(wrapperDir, blockName, state.Vars)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("read existing values from main.tf: %w", err)
+	}
+	if pm != nil {
+		for k, v := range pm.Values {
+			state.Values[k] = v
+		}
+		state.UnknownAttrs = pm.UnknownAttrs
+	}
+	return state, cloneDir, sha, nil
+}
+
+// BlockLoader clones and prepares individual module blocks named by a
+// wrapper's main.tf. It carries the git runner so every block in a wrapper is
+// fetched the same way.
+type BlockLoader struct {
+	// Runner fetches module sources. Nil means the production git runner.
+	Runner gitops.Runner
+}
+
+// LoadRefState clones the module at a new ref and reassembles its state for a
+// ref switch: the new schema, plus the block's values and wired expressions
+// carried over for every variable that still exists.
+//
+// blockName pins the HCL label to write (it need not match the name derived
+// from the candidate path). priorValues and priorAttrs are the currently-loaded
+// values and wired expressions; only those naming a variable in the new schema
+// survive, so stale inputs are dropped rather than written back.
+func LoadRefState(ctx context.Context, opts InitOptions, blockName string, priorValues map[string]cty.Value, priorAttrs []wrapper.RawAttr) (*wrapper.State, string, string, error) {
+	cloneDir, sha, err := ResolveAndClone(ctx, opts)
+	if err != nil {
+		return nil, "", "", err
+	}
+	state, err := PrepareState(opts.WrapperDir, cloneDir, opts.ModulePath, sha, opts.Ref, opts.Source)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if blockName != "" {
+		state.ModuleBlockName = blockName
+	}
+	state.EnsureValues()
+
+	keep := make(map[string]bool, len(state.Vars))
+	for _, v := range state.Vars {
+		keep[v.Name] = true
+	}
+	for name, val := range priorValues {
+		if keep[name] {
+			state.Values[name] = val
+		}
+	}
+	for _, ra := range priorAttrs {
+		if keep[ra.Name] {
+			state.UnknownAttrs = append(state.UnknownAttrs, ra)
+		}
+	}
+	return state, cloneDir, sha, nil
+}
+
 // InitNew runs the full init flow up to (but not including) launching the
 // TUI: clone, discover candidates, build State, write wrapper files, save
 // session.
@@ -422,12 +517,12 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		if pm == nil {
 			return nil, fmt.Errorf("not a wrapper directory: run 'atelier module add <url>' to bootstrap")
 		}
-		srcURL, refStr := decomposeSource(pm.Source)
+		srcURL, refStr := modulesource.Decompose(pm.Source)
 		prev = &session.Session{
 			SourceURL:           srcURL,
 			LiteralRef:          refStr,
 			ModuleBlockName:     pm.ModuleBlockName,
-			ModuleCandidatePath: modulePathFromSource(pm.Source),
+			ModuleCandidatePath: modulesource.ModulePath(pm.Source),
 		}
 	}
 
@@ -438,7 +533,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 	// Re-derive it from the primary module block's source in main.tf.
 	if prev.ModuleCandidatePath == "" {
 		if pm, err := wrapper.ReadMain(wrapperDir, nil); err == nil && pm != nil {
-			prev.ModuleCandidatePath = modulePathFromSource(pm.Source)
+			prev.ModuleCandidatePath = modulesource.ModulePath(pm.Source)
 		}
 	}
 
@@ -450,7 +545,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 	cloneDir, currentSHA, err := ResolveAndClone(ctx, InitOptions{
 		WrapperDir:  wrapperDir,
 		Source:      prev.SourceURL,
-		LocalSource: isLocalSource(prev.SourceURL),
+		LocalSource: modulesource.IsLocal(prev.SourceURL),
 		Ref:         prev.LiteralRef,
 		ModulePath:  prev.ModuleCandidatePath,
 		GitRunner:   gitRunner,
@@ -632,91 +727,6 @@ func DefaultProviderBlocks(req map[string]wrapper.RequiredProvider) []wrapper.Pr
 	return out
 }
 
-// repoBasename pulls a meaningful directory name from a git URL. For
-// `git::https://x/y/z.git` it returns "z"; for `git@x:y/z.git` it returns
-// "z"; for local paths it returns the directory basename.
-func repoBasename(src string) string {
-	s := src
-	if strings.HasPrefix(s, "git::") {
-		s = strings.TrimPrefix(s, "git::")
-	}
-	if i := strings.Index(s, "?"); i >= 0 {
-		s = s[:i]
-	}
-	s = strings.TrimSuffix(s, ".git")
-	s = strings.TrimSuffix(s, "/")
-	if i := strings.LastIndexAny(s, "/:"); i >= 0 {
-		s = s[i+1:]
-	}
-	if s == "" || s == "." || s == ".." {
-		s = "repo"
-	}
-	return s
-}
-
-// composeSource builds the canonical wrapper-source URL from a remote URL,
-// candidate path, and ref.
-func composeSource(remote, modulePath, ref string) string {
-	url := remote
-	if !strings.HasPrefix(url, "git::") &&
-		!strings.HasPrefix(url, "./") &&
-		!strings.HasPrefix(url, "../") &&
-		!strings.HasPrefix(url, "/") {
-		url = "git::" + url
-	}
-	if modulePath != "" && modulePath != "." {
-		url += "//" + modulePath
-	}
-	if ref != "" {
-		url += "?ref=" + ref
-	}
-	return url
-}
-
-// modulePathFromSource extracts the "//<subdir>" module path from a
-// Terraform git source string, returning "" when the source points at the
-// repository root. It mirrors decomposeSource's path-stripping logic but
-// returns the discarded subdirectory instead of the base URL.
-func modulePathFromSource(source string) string {
-	s := source
-	if q := strings.Index(s, "?ref="); q >= 0 {
-		s = s[:q]
-	}
-	s = strings.TrimPrefix(s, "git::")
-	searchFrom := 0
-	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
-		searchFrom = schemeEnd + 3
-	}
-	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
-		return s[searchFrom+idx+2:]
-	}
-	return ""
-}
-
-// decomposeSource splits "git::https://...//path?ref=v1" into the base URL
-// and ref. Used during rehydrate. The `//<modulepath>` separator is a
-// Terraform convention indicating a subdirectory within the cloned repo.
-func decomposeSource(s string) (url, ref string) {
-	url = s
-	if i := strings.Index(url, "?ref="); i >= 0 {
-		ref = url[i+len("?ref="):]
-		url = url[:i]
-	}
-	url = strings.TrimPrefix(url, "git::")
-	// Strip the `//<path>` modulepath suffix. We need to skip the `://`
-	// scheme separator first to avoid eating it.
-	search := url
-	offset := 0
-	if i := strings.Index(search, "://"); i >= 0 {
-		offset = i + 3
-		search = url[offset:]
-	}
-	if j := strings.Index(search, "//"); j >= 0 {
-		url = url[:offset+j]
-	}
-	return url, ref
-}
-
 // ModuleBlockName derives a valid HCL identifier from a directory path.
 // When the path is "." (root module), fallbackName is used instead.
 //
@@ -789,12 +799,4 @@ func ConvertVariables(vars []tfvars.Variable) []wrapper.TFVar {
 		out[i] = v
 	}
 	return out
-}
-
-// isLocalSource reports whether a source string refers to a local filesystem
-// path rather than a git remote.
-func isLocalSource(src string) bool {
-	return strings.HasPrefix(src, "./") ||
-		strings.HasPrefix(src, "../") ||
-		strings.HasPrefix(src, "/")
 }

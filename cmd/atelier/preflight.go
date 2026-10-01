@@ -342,6 +342,14 @@ func isWrapperDir(dir string) bool {
 	return err == nil && info.IsDir()
 }
 
+// mainTFExists reports whether dir contains a main.tf. Weaker than
+// isWrapperDir: a hand-authored main.tf with no .atelier/ is not a wrapper, but
+// Atelier still appends a module block to it rather than bootstrapping over it.
+func mainTFExists(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, wrapper.MainTF))
+	return err == nil
+}
+
 // summariseEntries renders a bounded, comma-separated list so a prompt about a
 // directory holding 400 files stays one line long.
 func summariseEntries(names []string) string {

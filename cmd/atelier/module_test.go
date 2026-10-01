@@ -4,11 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/MichaelThamm/atelier/internal/tftypes"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -87,129 +88,6 @@ func TestVarsToMap_SplitsOnFirstEquals(t *testing.T) {
 	}
 }
 
-func TestApplyVarOverrides_WinsOverVarFiles(t *testing.T) {
-	s := seedState(t,
-		mustVarT(t, "name", "string", cty.NilVal, false),
-		mustVarT(t, "replicas", "number", cty.NumberIntVal(1), true),
-	)
-	s.Values["name"] = cty.StringVal("from-file")
-
-	warns := applyVarOverrides(s, varsToMap([]string{"name=from-var", "replicas=5"}))
-
-	if len(warns) != 0 {
-		t.Errorf("unexpected warnings: %v", warns)
-	}
-	if v := s.Values["name"]; v.AsString() != "from-var" {
-		t.Errorf("name = %v, want --var to win over the var-file", v)
-	}
-	if v := s.Values["replicas"]; v.AsBigFloat().String() != "5" {
-		t.Errorf("replicas = %v, want 5", v)
-	}
-}
-
-// An undeclared --var name is reported, not silently dropped.
-func TestApplyVarOverrides_UnknownVariableWarns(t *testing.T) {
-	s := seedState(t, mustVarT(t, "name", "string", cty.NilVal, false))
-	warns := applyVarOverrides(s, varsToMap([]string{"nonexistent=1"}))
-	if len(warns) != 1 || !strings.Contains(warns[0], "unknown variable") {
-		t.Errorf("warnings = %v, want one about an unknown variable", warns)
-	}
-	if _, ok := s.Values["nonexistent"]; ok {
-		t.Error("unknown variable should not be written")
-	}
-}
-
-// A --var value that does not fit the declared type is reported, not dropped.
-func TestApplyVarOverrides_TypeMismatchWarns(t *testing.T) {
-	s := seedState(t, mustVarT(t, "replicas", "number", cty.NumberIntVal(1), true))
-	warns := applyVarOverrides(s, varsToMap([]string{"replicas=abc"}))
-	if len(warns) != 1 || !strings.Contains(warns[0], "does not fit type") {
-		t.Errorf("warnings = %v, want one about a type mismatch", warns)
-	}
-}
-
-// Warnings are ordered deterministically even though the input is a map.
-func TestApplyVarOverrides_WarningsSorted(t *testing.T) {
-	s := seedState(t, mustVarT(t, "name", "string", cty.NilVal, false))
-	warns := applyVarOverrides(s, varsToMap([]string{"zzz=1", "aaa=1", "mmm=1"}))
-	if len(warns) != 3 {
-		t.Fatalf("warnings = %v, want 3", warns)
-	}
-	for i := 1; i < len(warns); i++ {
-		if warns[i-1] > warns[i] {
-			t.Errorf("warnings not sorted: %v", warns)
-		}
-	}
-}
-
-// --- applyVarFiles ---
-
-func TestApplyVarFiles_LaterWinsAndMissingErrors(t *testing.T) {
-	dir := t.TempDir()
-	a := filepath.Join(dir, "a.tfvars")
-	b := filepath.Join(dir, "b.tfvars")
-	if err := os.WriteFile(a, []byte("name = \"from-a\"\nreplicas = 2\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(b, []byte("name = \"from-b\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	s := seedState(t,
-		mustVarT(t, "name", "string", cty.NilVal, false),
-		mustVarT(t, "replicas", "number", cty.NumberIntVal(1), true),
-	)
-	warns, err := applyVarFiles(s, []string{a, b}, false)
-	if err != nil {
-		t.Fatalf("applyVarFiles: %v", err)
-	}
-	if len(warns) != 0 {
-		t.Errorf("unexpected warnings: %v", warns)
-	}
-	if v := s.Values["name"]; v.AsString() != "from-b" {
-		t.Errorf("name = %v, want the later file to win", v)
-	}
-	if v := s.Values["replicas"]; v.AsBigFloat().String() != "2" {
-		t.Errorf("replicas = %v, want 2 from the first file", v)
-	}
-	if _, err := applyVarFiles(s, []string{filepath.Join(dir, "missing.tfvars")}, false); err == nil {
-		t.Error("expected an error for a missing --var-file")
-	}
-}
-
-// TestApplyVarFiles_warnsAndStrictFails pins the ADR-0031 binding behaviour:
-// an undeclared name and a type-mismatched value are skipped and reported; no
-// invalid value reaches the wrapper, and --strict turns the report into an
-// error so a rotted example fails CI instead of silently under-applying.
-func TestApplyVarFiles_warnsAndStrictFails(t *testing.T) {
-	dir := t.TempDir()
-	f := filepath.Join(dir, "bad.tfvars")
-	if err := os.WriteFile(f, []byte("bogus = 1\nreplicas = \"three\"\nname = \"ok\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	s := seedState(t,
-		mustVarT(t, "name", "string", cty.NilVal, false),
-		mustVarT(t, "replicas", "number", cty.NumberIntVal(1), true),
-	)
-	warns, err := applyVarFiles(s, []string{f}, false)
-	if err != nil {
-		t.Fatalf("non-strict must warn, not fail: %v", err)
-	}
-	if len(warns) != 2 {
-		t.Errorf("want 2 warnings (unknown name + type mismatch), got %v", warns)
-	}
-	if v := s.Values["name"]; v.AsString() != "ok" {
-		t.Errorf("valid value not applied: %v", v)
-	}
-	if _, ok := s.Values["replicas"]; ok {
-		t.Error("mismatched value must be skipped, not applied")
-	}
-	if _, err := applyVarFiles(s, []string{f}, true); err == nil {
-		t.Error("--strict should make binding problems fatal")
-	}
-}
-
 func TestParseModuleAddArgs_ListVarFiles(t *testing.T) {
 	opts, err := parseModuleAddArgs([]string{"url", "--list-var-files"})
 	if err != nil {
@@ -217,6 +95,46 @@ func TestParseModuleAddArgs_ListVarFiles(t *testing.T) {
 	}
 	if !opts.ListVarFiles {
 		t.Error("ListVarFiles not set")
+	}
+}
+
+// --- applyVarFlags ---
+
+// applyVarFlags encodes the rule `module add` relies on: a --var-file seeds
+// values, then --var overrides win. This pins that ordering at the shared
+// helper, so a refactor of either caller cannot silently flip it.
+func TestApplyVarFlags_VarWinsOverVarFile(t *testing.T) {
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, "seed.tfvars")
+	if err := os.WriteFile(bundle, []byte("name = \"from-file\"\nreplicas = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	state := &wrapper.State{
+		Vars: []tfvars.Variable{
+			{Name: "name", Type: &tftypes.Type{Kind: tftypes.KindString}},
+			{Name: "replicas", Type: &tftypes.Type{Kind: tftypes.KindNumber}, HasDefault: true, Default: cty.NumberIntVal(1)},
+		},
+		Values: map[string]cty.Value{},
+	}
+
+	err := applyVarFlags(state, dir, "", "", []string{bundle}, []string{"name=from-var"}, false)
+	if err != nil {
+		t.Fatalf("applyVarFlags: %v", err)
+	}
+	if v := state.Values["name"]; v.AsString() != "from-var" {
+		t.Errorf("name = %v, want --var to win over the var-file", v)
+	}
+	if v := state.Values["replicas"]; v.AsBigFloat().String() != "2" {
+		t.Errorf("replicas = %v, want 2 from the var-file", v)
+	}
+}
+
+// A missing --var-file is an error, not a silent skip.
+func TestApplyVarFlags_MissingFileErrors(t *testing.T) {
+	state := &wrapper.State{Values: map[string]cty.Value{}}
+	if err := applyVarFlags(state, t.TempDir(), "", "", []string{"nope.tfvars"}, nil, false); err == nil {
+		t.Error("expected an error for a missing --var-file")
 	}
 }
 

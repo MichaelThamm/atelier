@@ -11,15 +11,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/importer"
 	"github.com/MichaelThamm/atelier/internal/importer/providers"
-	"github.com/MichaelThamm/atelier/internal/tftypes"
-	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -246,7 +242,7 @@ func runImport(args []string) error {
 		if rerr != nil {
 			return rerr
 		}
-		warns, aerr := applyVarFiles(wrapperState, resolved, false)
+		warns, aerr := wrapper.ApplyVarFiles(wrapperState, resolved, false)
 		if aerr != nil {
 			return aerr
 		}
@@ -273,7 +269,7 @@ func runImport(args []string) error {
 			fmt.Fprintf(os.Stderr, "Using query variable(s) for module input(s): %s\n",
 				strings.Join(seeded, ", "))
 		}
-		for _, w := range applyVarOverrides(wrapperState, config) {
+		for _, w := range wrapper.ApplyVarOverrides(wrapperState, config) {
 			fmt.Fprintln(os.Stderr, "warning:", w)
 		}
 		// Propagate wrapper values back into config so that downstream
@@ -576,8 +572,7 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	// If the directory already has a wrapper, re-hydrate its state by
 	// re-cloning the module (needed for variable declarations used by
 	// post-import normalisation).
-	mainPath := filepath.Join(dir, wrapper.MainTF)
-	if _, err := os.Stat(mainPath); err == nil {
+	if mainTFExists(dir) {
 		fmt.Fprintln(os.Stderr, "Wrapper already exists; loading module variables…")
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer cancel()
@@ -598,14 +593,7 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 
 	if res.State == nil {
 		// Multiple candidates — user needs --module.
-		fmt.Fprintln(os.Stderr, "Multiple module candidates found. Re-run with --module <path>:")
-		for _, c := range res.Candidates {
-			label := c.Path
-			if c.Name != "" {
-				label = fmt.Sprintf("%s — %s", c.Path, c.Name)
-			}
-			fmt.Fprintln(os.Stderr, "  "+label)
-		}
+		printCandidates(os.Stderr, res.Candidates)
 		return "", nil, "", "", fmt.Errorf("multiple module candidates; specify one with --module")
 	}
 
@@ -639,7 +627,7 @@ func seedFromQueryVars(state *wrapper.State, queryConfig map[string]string) []st
 		if cur, ok := state.VariableValue(name); ok && cur != cty.NilVal && !cur.IsNull() {
 			continue // already set — leave the user's value alone
 		}
-		val := convertStringToCty(queryConfig[name], v)
+		val := wrapper.ConvertStringToCty(queryConfig[name], v)
 		if val == cty.NilVal {
 			continue
 		}
@@ -648,82 +636,6 @@ func seedFromQueryVars(state *wrapper.State, queryConfig map[string]string) []st
 		seeded = append(seeded, name)
 	}
 	return seeded
-}
-
-// applyVarOverrides merges --var flag values into the wrapper state, converting
-// string values to typed cty.Values based on the variable declarations. It
-// returns warnings for values it could not apply — an undeclared name, or a
-// value that does not convert to the declared type — so `--var` fails as loudly
-// as `--var-file` rather than silently dropping the input.
-//
-// For an object/map variable, a supplied value is deep-merged into whatever
-// value is already present rather than replacing it wholesale. This is what
-// lets `--var-file no-ingress --var 'ingress={alertmanager=true}'` mean what it
-// reads like: disable ingress except Alertmanager. Replacement would drop the
-// keys the --var does not mention, and because those keys then compare as
-// unset, the sparse writer would omit the whole attribute and the module would
-// fall back to its defaults — the opposite of the user's intent.
-func applyVarOverrides(state *wrapper.State, config map[string]string) []string {
-	state.EnsureValues()
-	var warnings []string
-	for _, varName := range sortedKeys(config) {
-		strVal := config[varName]
-		v := state.FindVar(varName)
-		if v == nil {
-			warnings = append(warnings, fmt.Sprintf("--var %s: unknown variable ignored", varName))
-			continue
-		}
-		val := convertStringToCty(strVal, v)
-		if val == cty.NilVal {
-			warnings = append(warnings, fmt.Sprintf("--var %s=%s: value does not fit type %s, ignored", varName, strVal, declaredType(v)))
-			continue
-		}
-		if existing, ok := state.Values[varName]; ok && isObjectish(val) && isObjectish(existing) {
-			val = mergeObjects(existing, val)
-		}
-		state.Values[varName] = val
-	}
-	return warnings
-}
-
-// declaredType renders a variable's declared type for a diagnostic, falling
-// back to "any" when the module did not declare one.
-func declaredType(v *tfvars.Variable) string {
-	if v == nil || v.Type == nil {
-		return "any"
-	}
-	return v.Type.String()
-}
-
-// isObjectish reports whether a value is a non-null object or map, the shapes
-// that support key-wise merging.
-func isObjectish(v cty.Value) bool {
-	if v == cty.NilVal || v.IsNull() || !v.IsKnown() {
-		return false
-	}
-	t := v.Type()
-	return t.IsObjectType() || t.IsMapType()
-}
-
-// mergeObjects deep-merges override into base: keys present in both recurse when
-// both sides are objects, otherwise override wins. Keys only in base are kept,
-// so fields the override does not mention survive.
-func mergeObjects(base, override cty.Value) cty.Value {
-	if !isObjectish(base) || !isObjectish(override) {
-		return override
-	}
-	out := map[string]cty.Value{}
-	for k, v := range base.AsValueMap() {
-		out[k] = v
-	}
-	for k, v := range override.AsValueMap() {
-		if existing, ok := out[k]; ok && isObjectish(existing) && isObjectish(v) {
-			out[k] = mergeObjects(existing, v)
-			continue
-		}
-		out[k] = v
-	}
-	return cty.ObjectVal(out)
 }
 
 // mergeWrapperStateIntoConfig propagates string-typed values from the wrapper
@@ -762,94 +674,6 @@ func validateImportFlags(varFiles []string, sourceArg string, listVarFiles bool)
 		return fmt.Errorf("--list-var-files requires --source: there is no module repo to search otherwise")
 	}
 	return nil
-}
-
-// applyVarFiles merges values from one or more Terraform variable files into
-// the state. Later files win over earlier ones; variables a file does not set
-// are left untouched. Files may have any name (the common `-var-file` usage).
-// Undeclared names and type-mismatched values are skipped and returned as
-// warnings; when strict is set they become a hard error instead, so a
-// committed example cannot rot silently when a variable is renamed or its type
-// changes (ADR-0031). Persisting is the caller's job via state.Write().
-func applyVarFiles(state *wrapper.State, paths []string, strict bool) ([]string, error) {
-	state.EnsureValues()
-	var warnings []string
-	for _, p := range paths {
-		if _, err := os.Stat(p); err != nil {
-			return nil, fmt.Errorf("var-file %s: %w", p, err)
-		}
-		vals, diags, err := wrapper.ReadTFVarsFileChecked(p, state.Vars)
-		if err != nil {
-			return nil, err
-		}
-		if !diags.Empty() {
-			for _, n := range diags.Unknown {
-				warnings = append(warnings, fmt.Sprintf("%s: unknown variable %q ignored", p, n))
-			}
-			for _, m := range diags.Mismatched {
-				warnings = append(warnings, fmt.Sprintf("%s: %s ignored", p, m))
-			}
-			if strict {
-				return nil, fmt.Errorf("var-file did not apply cleanly:\n  %s", strings.Join(warnings, "\n  "))
-			}
-		}
-		for name, v := range vals {
-			state.Values[name] = v
-		}
-	}
-	return warnings, nil
-}
-
-// convertStringToCty converts a string value to a cty.Value based on the
-// variable's declared type. This is used to convert --var flag values to
-// typed values for the wrapper state.
-func convertStringToCty(strVal string, v *tfvars.Variable) cty.Value {
-	if v == nil || v.Type == nil {
-		// No type info; treat as string.
-		return cty.StringVal(strVal)
-	}
-
-	typ := v.Type
-	switch typ.Kind {
-	case tftypes.KindString:
-		return cty.StringVal(strVal)
-	case tftypes.KindBool:
-		switch strings.ToLower(strVal) {
-		case "true", "1", "yes":
-			return cty.True
-		case "false", "0", "no":
-			return cty.False
-		default:
-			return cty.NilVal // invalid bool
-		}
-	case tftypes.KindNumber:
-		// Try to parse as a number.
-		// First, try to parse as an integer.
-		var n int64
-		if _, err := fmt.Sscanf(strVal, "%d", &n); err == nil {
-			return cty.NumberIntVal(n)
-		}
-		// Then, try to parse as a float.
-		var f float64
-		if _, err := fmt.Sscanf(strVal, "%f", &f); err == nil {
-			return cty.NumberFloatVal(f)
-		}
-		return cty.NilVal // invalid number
-	case tftypes.KindObject, tftypes.KindMap, tftypes.KindList, tftypes.KindSet:
-		// Parse HCL expressions (objects, maps, lists, sets).
-		expr, diags := hclsyntax.ParseExpression([]byte(strVal), "", hcl.Pos{Line: 1, Column: 1})
-		if diags.HasErrors() {
-			return cty.NilVal
-		}
-		val, diags := expr.Value(nil)
-		if diags.HasErrors() {
-			return cty.NilVal
-		}
-		return val
-	default:
-		// For any other types, return nil and let terraform handle it.
-		return cty.NilVal
-	}
 }
 
 // tfexecLocate checks that terraform/tofu is on PATH. It is a thin wrapper

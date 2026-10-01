@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
+	"github.com/MichaelThamm/atelier/internal/candidate"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
@@ -159,8 +162,9 @@ func validateVarPair(pair string) error {
 	return validateVarKey(k)
 }
 
-// varsToMap turns validated `KEY=VALUE` pairs into the map applyVarOverrides
-// expects. A value may itself contain `=`; only the first one splits.
+// varsToMap turns validated `KEY=VALUE` pairs into the map
+// wrapper.ApplyVarOverrides expects. A value may itself contain `=`; only the
+// first one splits.
 func varsToMap(pairs []string) map[string]string {
 	out := make(map[string]string, len(pairs))
 	for _, p := range pairs {
@@ -182,6 +186,45 @@ func printVarFiles(files []bootstrap.VarFile) {
 	for _, f := range files {
 		fmt.Printf("[%s] %-24s %s\n", f.Source, f.Name, f.Display)
 	}
+}
+
+// printCandidates lists module candidates when a repository has several and
+// none was chosen. Callers print and exit without writing.
+func printCandidates(w io.Writer, cands []candidate.Candidate) {
+	fmt.Fprintln(w, "Multiple module candidates found. Re-run with --module <path>:")
+	for _, c := range cands {
+		label := c.Path
+		if c.Name != "" {
+			label = fmt.Sprintf("%s — %s", c.Path, c.Name)
+		}
+		fmt.Fprintln(w, "  "+label)
+	}
+}
+
+// applyVarFlags layers `--var-file` bundles then `--var` overrides onto state
+// and prints any binding warnings to stderr, in the `--var`-wins-over-
+// `--var-file` order (ADR-0031). Names resolve against the cloned module repo
+// or a walk-up bundle; a local path is used as-is. It does not write, so the
+// caller persists with state.Write(). import uses its own value flow because
+// it interleaves seeding from query variables.
+func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string, varFiles, vars []string, strict bool) error {
+	if len(varFiles) > 0 {
+		resolved, err := bootstrap.ResolveVarFiles(wrapperDir, cloneDir, modulePath, varFiles)
+		if err != nil {
+			return err
+		}
+		warns, err := wrapper.ApplyVarFiles(state, resolved, strict)
+		if err != nil {
+			return err
+		}
+		for _, w := range warns {
+			fmt.Fprintln(os.Stderr, "warning:", w)
+		}
+	}
+	for _, w := range wrapper.ApplyVarOverrides(state, varsToMap(vars)) {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+	return nil
 }
 
 // runModuleAdd implements `atelier module add <url>`.
@@ -221,11 +264,7 @@ func runModuleAdd(args []string) error {
 	}
 
 	// Determine if this is a fresh bootstrap or an additive operation.
-	mainPath := filepath.Join(cwd, wrapper.MainTF)
-	wrapperExists := false
-	if _, err := os.Stat(mainPath); err == nil {
-		wrapperExists = true
-	}
+	wrapperExists := mainTFExists(cwd)
 
 	// Confirm the target directory before writing anything into it. `module
 	// add` has no path argument, so the only thing standing between a
@@ -268,14 +307,7 @@ func runModuleAdd(args []string) error {
 		}
 		if res.State == nil {
 			// Multiple candidates — user needs --module.
-			fmt.Println("Multiple module candidates found. Re-run with --module <path>:")
-			for _, c := range res.Candidates {
-				label := c.Path
-				if c.Name != "" {
-					label = fmt.Sprintf("%s — %s", c.Path, c.Name)
-				}
-				fmt.Println("  " + label)
-			}
+			printCandidates(os.Stdout, res.Candidates)
 			return nil
 		}
 
@@ -289,28 +321,9 @@ func runModuleAdd(args []string) error {
 		}
 
 		// Apply --var-file values (explicit files win), then --var overrides.
-		// A name is resolved against the cloned module repo or a walk-up
-		// bundle; a local path is used as-is. Values become module arguments
-		// in main.tf.
-		if len(opts.VarFiles) > 0 {
-			resolved, rerr := bootstrap.ResolveVarFiles(cwd, res.CloneDir, res.ModulePath, opts.VarFiles)
-			if rerr != nil {
-				cleanup()
-				return rerr
-			}
-			warns, aerr := applyVarFiles(res.State, resolved, opts.Strict)
-			if aerr != nil {
-				cleanup()
-				return aerr
-			}
-			for _, w := range warns {
-				fmt.Fprintln(os.Stderr, "warning:", w)
-			}
-		}
-		if len(opts.Vars) > 0 {
-			for _, w := range applyVarOverrides(res.State, varsToMap(opts.Vars)) {
-				fmt.Fprintln(os.Stderr, "warning:", w)
-			}
+		if err := applyVarFlags(res.State, cwd, res.CloneDir, res.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
+			cleanup()
+			return err
 		}
 		if len(opts.VarFiles) > 0 || len(opts.Vars) > 0 {
 			if err := res.State.Write(); err != nil {
@@ -327,9 +340,7 @@ func runModuleAdd(args []string) error {
 
 	// Run the same clone + candidate-discovery flow as a fresh bootstrap, so a
 	// module whose Terraform lives in a subdirectory (e.g. `terraform/`) is
-	// appended with the correct `//<subdir>` source and thus shows its
-	// variables in the TUI. Skipping discovery here previously appended such
-	// modules at the repo root, leaving them with no editable variables.
+	// appended with the correct `//<subdir>` source and shows its variables.
 	prep, err := bootstrap.PrepareModule(ctx, bootstrap.InitOptions{
 		WrapperDir: cwd,
 		Source:     opts.Source,
@@ -342,14 +353,7 @@ func runModuleAdd(args []string) error {
 	}
 	if prep.State == nil {
 		// Multiple candidates — user needs --module. Nothing was written.
-		fmt.Println("Multiple module candidates found. Re-run with --module <path>:")
-		for _, c := range prep.Candidates {
-			label := c.Path
-			if c.Name != "" {
-				label = fmt.Sprintf("%s — %s", c.Path, c.Name)
-			}
-			fmt.Println("  " + label)
-		}
+		printCandidates(os.Stdout, prep.Candidates)
 		return nil
 	}
 	state := prep.State
@@ -408,23 +412,8 @@ func runModuleAdd(args []string) error {
 
 	// Apply --var-file values to the module being added, before writing it,
 	// then --var overrides on top.
-	if len(opts.VarFiles) > 0 {
-		resolved, rerr := bootstrap.ResolveVarFiles(cwd, prep.CloneDir, prep.ModulePath, opts.VarFiles)
-		if rerr != nil {
-			return rerr
-		}
-		warns, aerr := applyVarFiles(state, resolved, opts.Strict)
-		if aerr != nil {
-			return aerr
-		}
-		for _, w := range warns {
-			fmt.Fprintln(os.Stderr, "warning:", w)
-		}
-	}
-	if len(opts.Vars) > 0 {
-		for _, w := range applyVarOverrides(state, varsToMap(opts.Vars)) {
-			fmt.Fprintln(os.Stderr, "warning:", w)
-		}
+	if err := applyVarFlags(state, cwd, prep.CloneDir, prep.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
+		return err
 	}
 
 	// Write the new module block to main.tf.
@@ -602,7 +591,7 @@ func runModuleList(args []string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tSOURCE\tREF")
 	for _, blk := range blocks {
-		src, ref := decomposeModuleSource(blk.Source)
+		src, ref := modulesource.Decompose(blk.Source)
 		if ref == "" {
 			ref = "-"
 		}
@@ -678,10 +667,10 @@ type moduleSourceIdentity struct {
 // with or without the `.git` suffix, with a trailing slash — and a raw string
 // compare would call those different modules.
 func moduleIdentity(source string) moduleSourceIdentity {
-	remote, ref := decomposeModuleSource(source)
+	remote, ref := modulesource.Decompose(source)
 	return moduleSourceIdentity{
 		remote: normaliseRemote(remote),
-		path:   strings.Trim(modulePathFromSource(source), "/"),
+		path:   strings.Trim(modulesource.ModulePath(source), "/"),
 		ref:    ref,
 	}
 }

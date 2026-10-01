@@ -33,6 +33,7 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/gitops"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/session"
 	tfstate "github.com/MichaelThamm/atelier/internal/state"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
@@ -183,7 +184,7 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	m := tui.New(state, state.ModuleBlockName)
 	m.LiteralRef = res.LiteralRef
 	m.ResolvedSHA = res.ResolvedSHA
-	m.SourceURL = sourceURLFromState(state)
+	m.SourceURL = modulesource.Remote(state.Source)
 	m.WrapperDir = wrapperDir
 	m.SetPresets(presets)
 
@@ -220,14 +221,14 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 
 	// Populate the primary module's ref identity + per-module switcher so the
 	// R key can switch it independently of any secondaries.
-	m.Modules[0].SourceURL = sourceURLFromState(state)
+	m.Modules[0].SourceURL = modulesource.Remote(state.Source)
 	m.Modules[0].Ref = res.LiteralRef
 	m.Modules[0].ResolvedSHA = res.ResolvedSHA
 	if res.LiteralRef != "" || res.ResolvedSHA != "" {
 		m.Modules[0].Switcher = &prodRefSwitcher{
 			wrapperDir:          wrapperDir,
-			sourceURL:           sourceURLFromState(state),
-			modulePath:          modulePathFromState(state),
+			sourceURL:           modulesource.Remote(state.Source),
+			modulePath:          modulesource.ModulePath(state.Source),
 			blockName:           state.ModuleBlockName,
 			isPrimary:           true,
 			currentVars:         state.Vars,
@@ -406,44 +407,12 @@ func loadSecondaryModules(m *tui.Model, wrapperDir, primaryBlockName string) {
 // loadSecondaryModule clones and parses a secondary module's variables and
 // builds its ref identity + per-module switcher.
 func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.ModuleBlockInfo) *tui.ModuleEntry {
-	srcURL, ref := decomposeModuleSource(blk.Source)
-	if srcURL == "" {
+	state, _, sha, err := secondaryLoader.LoadModuleBlock(ctx, wrapperDir, blk.Name, blk.Source)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: skip module %q: %v\n", blk.Name, err)
 		return nil
 	}
-	modPath := modulePathFromSource(blk.Source)
-
-	// Clone into .atelier/clone/<reponame>, limited to the module subdir.
-	cloneDir, sha, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
-		WrapperDir:  wrapperDir,
-		Source:      srcURL,
-		LocalSource: isLocalPath(srcURL),
-		Ref:         ref,
-		ModulePath:  modPath,
-		GitRunner:   &gitops.Git{},
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: skip module %q: clone failed: %v\n", blk.Name, err)
-		return nil
-	}
-
-	state, err := bootstrap.PrepareState(wrapperDir, cloneDir, modPath, sha, ref, srcURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: skip module %q: prepare state failed: %v\n", blk.Name, err)
-		return nil
-	}
-	state.ModuleBlockName = blk.Name
-	state.Source = blk.Source
-
-	// Overlay existing values from main.tf.
-	pm, err := wrapper.ReadMainForBlock(wrapperDir, blk.Name, state.Vars)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: module %q: could not read existing values from main.tf: %v\n", blk.Name, err)
-	} else if pm != nil {
-		for k, v := range pm.Values {
-			state.Values[k] = v
-		}
-		state.UnknownAttrs = pm.UnknownAttrs
-	}
+	srcURL, ref := modulesource.Decompose(blk.Source)
 
 	entry := tui.ModuleEntry{
 		State:       state,
@@ -454,11 +423,11 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 	}
 	// Only git-sourced modules can be ref-switched; local sources get no
 	// switcher (R is a no-op for them).
-	if !isLocalPath(srcURL) {
+	if !modulesource.IsLocal(srcURL) {
 		entry.Switcher = &prodRefSwitcher{
 			wrapperDir:          wrapperDir,
 			sourceURL:           srcURL,
-			modulePath:          modPath,
+			modulePath:          modulesource.ModulePath(blk.Source),
 			blockName:           blk.Name,
 			isPrimary:           false,
 			currentVars:         state.Vars,
@@ -469,89 +438,9 @@ func loadSecondaryModule(ctx context.Context, wrapperDir string, blk wrapper.Mod
 	return &entry
 }
 
-// decomposeModuleSource parses a terraform module source string into the
-// git URL and ref components.
-func decomposeModuleSource(source string) (url, ref string) {
-	s := source
-	if i := strings.Index(s, "?ref="); i >= 0 {
-		ref = s[i+len("?ref="):]
-		s = s[:i]
-	}
-	s = strings.TrimPrefix(s, "git::")
-	// Strip the "//<path>" module sub-path suffix.
-	searchFrom := 0
-	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
-		searchFrom = schemeEnd + 3
-	}
-	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
-		s = s[:searchFrom+idx]
-	}
-	return s, ref
-}
-
-// modulePathFromSource extracts the module sub-path from a terraform source.
-func modulePathFromSource(source string) string {
-	s := source
-	// Strip ?ref= query.
-	if q := strings.Index(s, "?ref="); q >= 0 {
-		s = s[:q]
-	}
-	s = strings.TrimPrefix(s, "git::")
-	// Find the "//" separator after the scheme.
-	searchFrom := 0
-	if schemeEnd := strings.Index(s, "://"); schemeEnd >= 0 {
-		searchFrom = schemeEnd + 3
-	}
-	if idx := strings.Index(s[searchFrom:], "//"); idx >= 0 {
-		return s[searchFrom+idx+2:]
-	}
-	return ""
-}
-
-// isLocalPath heuristically checks if a source looks like a local path.
-func isLocalPath(source string) bool {
-	return strings.HasPrefix(source, "/") ||
-		strings.HasPrefix(source, "./") ||
-		strings.HasPrefix(source, "../")
-}
-
-func modulePathFromState(s *wrapper.State) string {
-	// Extract the module sub-path from the source attribute. Terraform git
-	// sources use "//" to separate the repo URL from the sub-directory, e.g.
-	// "git::https://host/repo.git//terraform/cos-lite?ref=main"
-	src := s.Source
-	idx := strings.LastIndex(src, "//")
-	if idx < 0 {
-		return ""
-	}
-	sub := src[idx+2:]
-	// Strip ?ref=... query suffix if present.
-	if q := strings.IndexByte(sub, '?'); q >= 0 {
-		sub = sub[:q]
-	}
-	return sub
-}
-
-// sourceURLFromState extracts the git remote URL from the state's Source,
-// stripping the git:: prefix, module path suffix, and ?ref= query.
-func sourceURLFromState(s *wrapper.State) string {
-	src := s.Source
-	src = strings.TrimPrefix(src, "git::")
-	// Strip ?ref= query first (it's always at the end).
-	if idx := strings.Index(src, "?ref="); idx >= 0 {
-		src = src[:idx]
-	}
-	// Strip module sub-path indicated by "//" after the host/repo portion.
-	// Skip past the scheme's "://" to avoid matching it.
-	searchFrom := 0
-	if schemeEnd := strings.Index(src, "://"); schemeEnd >= 0 {
-		searchFrom = schemeEnd + 3
-	}
-	if idx := strings.Index(src[searchFrom:], "//"); idx >= 0 {
-		src = src[:searchFrom+idx]
-	}
-	return src
-}
+// secondaryLoader clones and prepares the non-primary module blocks read from
+// main.tf.
+var secondaryLoader = &bootstrap.BlockLoader{Runner: &gitops.Git{}}
 
 // prodRefSwitcher implements tui.RefSwitcher by re-cloning the module at a
 // new ref, re-parsing variables, and running terraform init -upgrade.
@@ -576,68 +465,24 @@ func (s *prodRefSwitcher) SetProgress(p *tui.ProgressTracker) {
 }
 
 func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.RefSwitchResult, error) {
-	// Re-clone at the new ref.
 	if s.progress != nil {
 		s.progress.SetPhase("Cloning at new ref…")
 	}
-	cloneDir, sha, err := bootstrap.ResolveAndClone(ctx, bootstrap.InitOptions{
+	// Clone the new revision and re-read its variable schema. Carry over the
+	// user's values for variables that still exist — required variables must be
+	// present in the HCL for init to succeed. Values not in the new schema are
+	// dropped (reported as OrphanedVars below).
+	state, cloneDir, sha, err := bootstrap.LoadRefState(ctx, bootstrap.InitOptions{
 		WrapperDir: s.wrapperDir,
 		Source:     s.sourceURL,
 		Ref:        newRef,
 		ModulePath: s.modulePath,
-	})
+	}, s.blockName, s.currentValues, s.currentUnknownAttrs)
 	if err != nil {
 		return nil, err
 	}
-
-	// Re-parse variables from the new clone.
-	if s.progress != nil {
-		s.progress.SetPhase("Parsing variables…")
-	}
-	state, err := bootstrap.PrepareState(s.wrapperDir, cloneDir, s.modulePath, sha, newRef, s.sourceURL)
-	if err != nil {
-		return nil, err
-	}
-	// PrepareState derives a block name from the module path, which may not
-	// match the actual HCL label in main.tf (especially for secondary
-	// modules). Pin it to the block we're switching so Write targets the
-	// correct module block.
-	if s.blockName != "" {
-		state.ModuleBlockName = s.blockName
-	}
-
 	// Write the wrapper main.tf with the new source (ref) before running init,
 	// so Terraform sees the updated module source during initialisation.
-	// Carry over existing user values for variables that still exist in the
-	// new ref — required variables must be present in the HCL for init to
-	// succeed.
-	if state.Values == nil {
-		state.Values = make(map[string]cty.Value)
-	}
-	newVarNames := make(map[string]bool, len(state.Vars))
-	for _, v := range state.Vars {
-		newVarNames[v.Name] = true
-	}
-	for name, val := range s.currentValues {
-		if newVarNames[name] {
-			state.Values[name] = val
-		}
-	}
-	// Carry over wired expressions (UnknownAttrs) for variables that still
-	// exist in the new ref. These do NOT live in Values, so without this the
-	// state.Write() below would drop them from the rewritten module block —
-	// e.g. model_uuid = data.juju_model.service_model.uuid disappears, leaving
-	// an invalid module that terraform init/plan rejects.
-	if len(s.currentUnknownAttrs) > 0 {
-		carried := make([]wrapper.RawAttr, 0, len(s.currentUnknownAttrs))
-		for _, ra := range s.currentUnknownAttrs {
-			if newVarNames[ra.Name] {
-				carried = append(carried, ra)
-			}
-		}
-		state.UnknownAttrs = carried
-	}
-	// Write the wrapper main.tf with the new source (ref) before running init.
 	if err := state.Write(); err != nil {
 		return nil, fmt.Errorf("write wrapper: %w", err)
 	}
@@ -673,6 +518,10 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	oldVarNames := make(map[string]bool, len(s.currentVars))
 	for _, v := range s.currentVars {
 		oldVarNames[v.Name] = true
+	}
+	newVarNames := make(map[string]bool, len(state.Vars))
+	for _, v := range state.Vars {
+		newVarNames[v.Name] = true
 	}
 
 	var orphaned []string
