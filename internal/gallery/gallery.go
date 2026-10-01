@@ -47,14 +47,20 @@ type Entry struct {
 	Requires []string `json:"requires,omitempty"`
 }
 
-// ApplyCommand renders the user-facing one-liner: apply the gallery entry by
-// name, with a `--var` placeholder for each deployment-specific input.
-func (e Entry) ApplyCommand() string {
-	cmd := "atelier apply " + e.Name
+// ApplyArgs is the user-facing command, as argv tokens, to apply this entry:
+// `atelier apply <name>`, with `--var <name>=<name>` for each input the entry
+// cannot supply. Returned as tokens so callers can render or join it.
+func (e Entry) ApplyArgs() []string {
+	args := []string{"atelier", "apply", e.Name}
 	for _, r := range e.Requires {
-		cmd += " --var " + r + "=<" + r + ">"
+		args = append(args, "--var", r+"=<"+r+">")
 	}
-	return cmd
+	return args
+}
+
+// ApplyCommand renders the user-facing command as a single line.
+func (e Entry) ApplyCommand() string {
+	return strings.Join(e.ApplyArgs(), " ")
 }
 
 // ScaffoldCommand renders the non-applying form CI runs: scaffold the entry by

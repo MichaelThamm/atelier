@@ -7,32 +7,23 @@
     "ref": "6a39d83883f92e0581f5c94144c6ddee2a16e140"
   },
   {
-    "name": "cos",
-    "description": "The full Canonical Observability Stack: logging, metrics, and tracing, plus a catalogue and dashboard.",
-    "module": "https://github.com/canonical/observability-stack",
-    "subdir": "terraform/cos",
-    "ref": "d1598ff3bdf9a25af69145fd557a913e2a13a314",
-    "preset": "cos-single-unit",
-    "requires": ["s3_access_key", "s3_secret_key", "s3_endpoint"]
-  },
-  {
     "name": "cos-lite",
-    "description": "COS Lite: the lightest Canonical Observability Stack — metrics, logs, dashboards, and alerts. Deploys with defaults.",
+    "description": "COS Lite: the lightest Canonical Observability Stack — metrics, logs, dashboards, and alerts.",
     "module": "https://github.com/canonical/observability-stack",
     "subdir": "terraform/cos-lite",
     "ref": "d1598ff3bdf9a25af69145fd557a913e2a13a314"
   },
   {
-    "name": "cos-lite-no-ingress",
-    "description": "COS Lite without ingress: no Traefik and no per-component ingress, for a cluster with its own routing.",
+    "name": "cos",
+    "description": "The full Canonical Observability Stack: logging, metrics, and tracing, plus a catalogue and dashboard.",
     "module": "https://github.com/canonical/observability-stack",
-    "subdir": "terraform/cos-lite",
+    "subdir": "terraform/cos",
     "ref": "d1598ff3bdf9a25af69145fd557a913e2a13a314",
-    "preset": "cos-lite-no-ingress"
+    "requires": ["s3_access_key", "s3_secret_key", "s3_endpoint"]
   },
   {
     "name": "haproxy-product",
-    "description": "HAProxy product deployment protecting a single hostname.",
+    "description": "HAProxy product deployment protecting one hostname.",
     "module": "https://github.com/canonical/haproxy-operator",
     "subdir": "terraform/product",
     "ref": "a4b85299f23740e8b7570b05a0d7d4aabcd3c476",
@@ -45,8 +36,7 @@
     "module": "https://github.com/canonical/loki-operators",
     "subdir": "terraform",
     "ref": "918cd150255446faf65b26d0ee1d3a894045df94",
-    "preset": "loki-dev",
-    "requires": ["model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
+    "requires": ["channel", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
   },
   {
     "name": "mimir-operators",
@@ -54,8 +44,7 @@
     "module": "https://github.com/canonical/mimir-operators",
     "subdir": "terraform",
     "ref": "be8a7017f51d036ad7fef1bb78b1af59a9d61877",
-    "preset": "mimir-dev",
-    "requires": ["model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
+    "requires": ["channel", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
   },
   {
     "name": "tempo-operators",
@@ -63,7 +52,6 @@
     "module": "https://github.com/canonical/tempo-operators",
     "subdir": "terraform",
     "ref": "b69711084f6b754d4b3eb783a687c596bc134293",
-    "preset": "tempo-dev",
-    "requires": ["model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
+    "requires": ["channel", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
   }
 ]
