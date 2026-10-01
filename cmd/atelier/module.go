@@ -202,10 +202,11 @@ func printCandidates(w io.Writer, cands []candidate.Candidate) {
 }
 
 // applyVarFlags layers `--var-file` bundles then `--var` overrides onto state
-// and prints any binding warnings to stderr. It is the one implementation of
-// the `--var`-wins-over-`--var-file` order (ADR-0031), shared by `module add`
-// and `import --source`. Names resolve against the cloned module repo or a
-// walk-up bundle; a local path is used as-is. It does not write.
+// and prints any binding warnings to stderr, in the `--var`-wins-over-
+// `--var-file` order (ADR-0031). Names resolve against the cloned module repo
+// or a walk-up bundle; a local path is used as-is. It does not write, so the
+// caller persists with state.Write(). import uses its own value flow because
+// it interleaves seeding from query variables.
 func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string, varFiles, vars []string, strict bool) error {
 	if len(varFiles) > 0 {
 		resolved, err := bootstrap.ResolveVarFiles(wrapperDir, cloneDir, modulePath, varFiles)

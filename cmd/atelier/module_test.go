@@ -100,9 +100,9 @@ func TestParseModuleAddArgs_ListVarFiles(t *testing.T) {
 
 // --- applyVarFlags ---
 
-// applyVarFlags encodes the one rule both `module add` and `import` rely on:
-// a --var-file seeds values, then --var overrides win. This pins that ordering
-// at the shared helper, so a refactor of either caller cannot silently flip it.
+// applyVarFlags encodes the rule `module add` relies on: a --var-file seeds
+// values, then --var overrides win. This pins that ordering at the shared
+// helper, so a refactor of either caller cannot silently flip it.
 func TestApplyVarFlags_VarWinsOverVarFile(t *testing.T) {
 	dir := t.TempDir()
 	bundle := filepath.Join(dir, "seed.tfvars")
