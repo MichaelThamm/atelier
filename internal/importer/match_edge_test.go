@@ -179,57 +179,6 @@ func TestIdentityMatch_EmptyLive(t *testing.T) {
 	}
 }
 
-// --- endpointPairSetEqual ---
-
-func TestEndpointPairSetEqual_Equal(t *testing.T) {
-	a := []string{"app1:ep1", "app2:ep2"}
-	b := []string{"app1:ep1", "app2:ep2"}
-	if !endpointPairSetEqual(a, b) {
-		t.Error("expected true")
-	}
-}
-
-func TestEndpointPairSetEqual_DifferentLength(t *testing.T) {
-	if endpointPairSetEqual([]string{"a:b"}, []string{"a:b", "c:d"}) {
-		t.Error("expected false")
-	}
-}
-
-func TestEndpointPairSetEqual_DifferentContent(t *testing.T) {
-	if endpointPairSetEqual([]string{"a:b"}, []string{"a:x"}) {
-		t.Error("expected false")
-	}
-}
-
-func TestEndpointPairSetEqual_BothEmpty(t *testing.T) {
-	if !endpointPairSetEqual(nil, nil) {
-		t.Error("expected true for both nil")
-	}
-}
-
-// --- offerURLFromIdentity ---
-
-func TestOfferURLFromIdentity_Normal(t *testing.T) {
-	got := offerURLFromIdentity(map[string]any{"id": "admin/model:offer"})
-	if got != "admin/model:offer" {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestOfferURLFromIdentity_Nil(t *testing.T) {
-	got := offerURLFromIdentity(nil)
-	if got != "" {
-		t.Errorf("got %q, want empty", got)
-	}
-}
-
-func TestOfferURLFromIdentity_NoID(t *testing.T) {
-	got := offerURLFromIdentity(map[string]any{"other": "value"})
-	if got != "" {
-		t.Errorf("got %q, want empty", got)
-	}
-}
-
 // --- PlannedCreates includeExisting ---
 
 func TestPlannedCreates_IncludeExisting_IncludesNoOp(t *testing.T) {
@@ -293,7 +242,7 @@ func TestPlannedCreates_IncludeExisting_SkipsUnimportableInBothModes(t *testing.
 // --- Match empty inputs ---
 
 func TestMatch_EmptyInputs(t *testing.T) {
-	matched, unmatchedP, unmatchedL := Match(nil, nil, false)
+	matched, unmatchedP, unmatchedL := Match(nil, nil, nil, false)
 	if len(matched) != 0 {
 		t.Errorf("matched: got %d, want 0", len(matched))
 	}
@@ -309,7 +258,7 @@ func TestMatch_NoLive(t *testing.T) {
 	planned := []PlannedResource{
 		{Address: "juju_application.app", Type: "juju_application", PlannedName: "app"},
 	}
-	matched, unmatchedP, unmatchedL := Match(nil, planned, false)
+	matched, unmatchedP, unmatchedL := Match(nil, planned, nil, false)
 	if len(matched) != 0 {
 		t.Errorf("matched: got %d, want 0", len(matched))
 	}
@@ -325,7 +274,7 @@ func TestMatch_NoPlanned(t *testing.T) {
 	live := []tfexec.LiveResource{
 		{ResourceType: "juju_application", DisplayName: "app"},
 	}
-	matched, unmatchedP, unmatchedL := Match(live, nil, false)
+	matched, unmatchedP, unmatchedL := Match(live, nil, nil, false)
 	if len(matched) != 0 {
 		t.Errorf("matched: got %d, want 0", len(matched))
 	}
@@ -334,70 +283,5 @@ func TestMatch_NoPlanned(t *testing.T) {
 	}
 	if len(unmatchedL) != 1 {
 		t.Errorf("unmatchedLive: got %d, want 1", len(unmatchedL))
-	}
-}
-
-// --- extractIntegrationEndpointPairs ---
-
-func TestExtractIntegrationEndpointPairs_Normal(t *testing.T) {
-	attrs := map[string]any{
-		"application": []any{
-			map[string]any{"name": "app1", "endpoint": "ep1"},
-			map[string]any{"name": "app2", "endpoint": "ep2"},
-		},
-	}
-	got := extractIntegrationEndpointPairs(attrs)
-	want := []string{"app1:ep1", "app2:ep2"}
-	if len(got) != len(want) {
-		t.Fatalf("got %d, want %d", len(got), len(want))
-	}
-	for i, w := range want {
-		if got[i] != w {
-			t.Errorf("index %d: got %q, want %q", i, got[i], w)
-		}
-	}
-}
-
-func TestExtractIntegrationEndpointPairs_NoApplication(t *testing.T) {
-	got := extractIntegrationEndpointPairs(map[string]any{"other": "x"})
-	if got != nil {
-		t.Errorf("got %v, want nil", got)
-	}
-}
-
-func TestExtractIntegrationEndpointPairs_EmptyApps(t *testing.T) {
-	got := extractIntegrationEndpointPairs(map[string]any{"application": []any{}})
-	if len(got) != 0 {
-		t.Errorf("got %d, want 0", len(got))
-	}
-}
-
-// --- parseIntegrationIDEndpointPairs ---
-
-func TestParseIntegrationIDEndpointPairs_Normal(t *testing.T) {
-	identity := map[string]any{"id": "uuid:app1:ep1:app2:ep2"}
-	got := parseIntegrationIDEndpointPairs(identity)
-	want := []string{"app1:ep1", "app2:ep2"}
-	if len(got) != len(want) {
-		t.Fatalf("got %d, want %d", len(got), len(want))
-	}
-	for i, w := range want {
-		if got[i] != w {
-			t.Errorf("index %d: got %q, want %q", i, got[i], w)
-		}
-	}
-}
-
-func TestParseIntegrationIDEndpointPairs_NilIdentity(t *testing.T) {
-	got := parseIntegrationIDEndpointPairs(nil)
-	if got != nil {
-		t.Errorf("got %v, want nil", got)
-	}
-}
-
-func TestParseIntegrationIDEndpointPairs_WrongParts(t *testing.T) {
-	got := parseIntegrationIDEndpointPairs(map[string]any{"id": "only:three"})
-	if got != nil {
-		t.Errorf("got %v, want nil", got)
 	}
 }

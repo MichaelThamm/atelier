@@ -44,6 +44,20 @@ type MatchedImport struct {
 	Identity     map[string]any // live object's provider identity (e.g. {"id": "uuid:app1:ep1:app2:ep2"})
 }
 
+// FallbackMatcher lets a provider add matching rules for resource types the
+// generic identity/name phases cannot resolve. It runs only after those phases
+// yield zero or multiple candidates, and returns the indexes of unused live
+// objects that match. The caller treats a single index as a match and any
+// other count (including zero) as unresolved, so a fallback should return every
+// candidate it finds rather than collapsing an ambiguous result to nil — that
+// keeps the ambiguity visible to the verbose trace.
+//
+// It exists because some resources are keyed by provider-internal composite
+// identities — Juju integrations by endpoint pairs, offers by URL — which the
+// core must not hardcode. PlannedAttrs is the plan's After value; live is the
+// full live set; used marks live objects already consumed this run.
+type FallbackMatcher func(resourceType, targetName, plannedName string, plannedAttrs map[string]any, live []tfexec.LiveResource, used []bool, verbose bool) []int
+
 // unimportableTypes lists resource types that have no live counterpart and
 // can never be imported. These are Terraform core / internal resources (e.g.
 // terraform_data used for replace_triggers, computed interfaces, etc.) that
@@ -111,7 +125,7 @@ func PlannedCreates(plan *tfjson.Plan, includeExisting bool) []PlannedResource {
 // qualifies; zero or multiple candidates leave it unmatched (reported so the
 // user can resolve it). Each live object is consumed by at most one planned
 // resource.
-func Match(live []tfexec.LiveResource, planned []PlannedResource, verbose bool) (matched []MatchedImport, unmatchedPlanned []PlannedResource, unmatchedLive []tfexec.LiveResource) {
+func Match(live []tfexec.LiveResource, planned []PlannedResource, fallback FallbackMatcher, verbose bool) (matched []MatchedImport, unmatchedPlanned []PlannedResource, unmatchedLive []tfexec.LiveResource) {
 	used := make([]bool, len(live))
 
 	if verbose {
@@ -127,7 +141,7 @@ func Match(live []tfexec.LiveResource, planned []PlannedResource, verbose bool) 
 			fmt.Fprintf(os.Stderr, "\n[match] planned: %s type=%s targetName=%q plannedName=%q identity=%v\n",
 				p.Address, p.Type, targetName, p.PlannedName, p.Identity)
 		}
-		candidates := candidateIndexes(p.Type, targetName, p.PlannedName, p.Identity, p.PlannedAttrs, live, used, verbose)
+		candidates := candidateIndexes(p.Type, targetName, p.PlannedName, p.Identity, p.PlannedAttrs, live, used, fallback, verbose)
 		if verbose {
 			fmt.Fprintf(os.Stderr, "  -> %d candidates\n", len(candidates))
 		}
@@ -171,12 +185,13 @@ func Match(live []tfexec.LiveResource, planned []PlannedResource, verbose bool) 
 //     on all shared keys. If exactly one matches, use it.
 //  2. Name-based fallback: match by display name against the Terraform
 //     resource label (targetName) or the planned attribute name (plannedName).
-//  3. Attribute-based match for integrations: match by application + endpoint
-//     pair when the planned and live resources share those attributes.
+//  3. Provider fallback: when a FallbackMatcher is supplied, it gets a chance
+//     to resolve types the generic phases cannot (e.g. Juju integrations keyed
+//     by endpoint pairs, offers by URL).
 //
 // Later phases run only when earlier phases yield zero or multiple candidates.
 func candidateIndexes(resourceType, targetName, plannedName string,
-	plannedIdentity, plannedAttrs map[string]any, live []tfexec.LiveResource, used []bool, verbose bool) []int {
+	plannedIdentity, plannedAttrs map[string]any, live []tfexec.LiveResource, used []bool, fallback FallbackMatcher, verbose bool) []int {
 
 	// Phase 1: exact identity match (provider-declared, preferred).
 	if len(plannedIdentity) > 0 {
@@ -216,102 +231,10 @@ func candidateIndexes(resourceType, targetName, plannedName string,
 		}
 	}
 
-	// Phase 3: attribute-based match for Juju integration and offer resources.
-	//
-	// juju_integration: identity is { "id": "<uuid>:<app1>:<ep1>:<app2>:<ep2>" }
-	// and "application" is a SetNestedBlock (not a simple attribute). AfterIdentity
-	// is nil for planned creates (identity is computed). Match by extracting
-	// (app_name, endpoint) pairs from the planned After.application nested block
-	// and comparing with the parsed identity from the live resource. Both names
-	// AND endpoints must match to disambiguate resources with the same apps but
-	// different endpoints (e.g. grafana_dashboards vs grafana_sources).
-	//
-	// juju_offer: identity is { "id": "<offer_url>" }. Match by application_name
-	// from the planned After against the live display name or parsed identity.
-	if len(plannedAttrs) > 0 {
-		if resourceType == "juju_integration" {
-			plannedPairs := extractIntegrationEndpointPairs(plannedAttrs)
-			if verbose {
-				fmt.Fprintf(os.Stderr, "  [integration] plannedPairs=%v\n", plannedPairs)
-			}
-			if len(plannedPairs) > 0 {
-				var out []int
-				for i, lr := range live {
-					if used[i] || lr.ResourceType != resourceType {
-						continue
-					}
-					livePairs := parseIntegrationIDEndpointPairs(lr.Identity)
-					if len(livePairs) > 0 && endpointPairSetEqual(plannedPairs, livePairs) {
-						out = append(out, i)
-					}
-				}
-				if len(out) == 1 {
-					return out
-				}
-			}
-		}
-		if resourceType == "juju_offer" {
-			pAppName, _ := plannedAttrs["application_name"].(string)
-			pName, _ := plannedAttrs["name"].(string)
-			if verbose {
-				fmt.Fprintf(os.Stderr, "  [offer] pAppName=%q pName=%q plannedAttrs=%v\n", pAppName, pName, plannedAttrs)
-			}
-			if pName != "" || pAppName != "" {
-				// Phase 3a: match by offer name (exact, from planned "name" attribute).
-				if pName != "" {
-					var out []int
-					for i, lr := range live {
-						if used[i] || lr.ResourceType != resourceType {
-							continue
-						}
-						liveURL := offerURLFromIdentity(lr.Identity)
-						if liveURL == "" {
-							continue
-						}
-						liveOfferName := liveURL
-						if dot := strings.LastIndex(liveURL, "."); dot >= 0 {
-							liveOfferName = liveURL[dot+1:]
-						}
-						if verbose {
-							fmt.Fprintf(os.Stderr, "  [offer]   live[%d] %s liveOfferName=%q pName=%q match=%v\n", i, lr.DisplayName, liveOfferName, pName, liveOfferName == pName)
-						}
-						if liveOfferName == pName {
-							out = append(out, i)
-						}
-					}
-					if verbose {
-						fmt.Fprintf(os.Stderr, "  [offer] phase3a (pName) -> %d candidates\n", len(out))
-					}
-					if len(out) == 1 {
-						return out
-					}
-				}
-				// Phase 3b: match by application_name containment in URL.
-				if pAppName != "" {
-					var out []int
-					for i, lr := range live {
-						if used[i] || lr.ResourceType != resourceType {
-							continue
-						}
-						liveURL := offerURLFromIdentity(lr.Identity)
-						if liveURL == "" {
-							continue
-						}
-						if verbose {
-							fmt.Fprintf(os.Stderr, "  [offer]   live[%d] %s url=%q containsAppName=%v\n", i, lr.DisplayName, liveURL, strings.Contains(liveURL, pAppName))
-						}
-						if strings.Contains(liveURL, pAppName) {
-							out = append(out, i)
-						}
-					}
-					if verbose {
-						fmt.Fprintf(os.Stderr, "  [offer] phase3b (pAppName) -> %d candidates\n", len(out))
-					}
-					if len(out) == 1 {
-						return out
-					}
-				}
-			}
+	// Phase 3: provider-specific fallback, if the selected provider offers one.
+	if fallback != nil {
+		if out := fallback(resourceType, targetName, plannedName, plannedAttrs, live, used, verbose); len(out) == 1 {
+			return out
 		}
 	}
 
@@ -347,80 +270,4 @@ func shortName(addr string) string {
 		return addr[i+1:]
 	}
 	return addr
-}
-
-// extractIntegrationEndpointPairs extracts (app_name, endpoint) pairs from the
-// planned After attributes of a juju_integration resource. The "application"
-// attribute is a SetNestedBlock containing objects with "name" and "endpoint"
-// fields. Returns a sorted slice of "name:endpoint" strings.
-func extractIntegrationEndpointPairs(attrs map[string]any) []string {
-	raw, ok := attrs["application"]
-	if !ok {
-		return nil
-	}
-	apps, ok := raw.([]any)
-	if !ok {
-		return nil
-	}
-	var pairs []string
-	for _, a := range apps {
-		m, ok := a.(map[string]any)
-		if !ok {
-			continue
-		}
-		name, _ := m["name"].(string)
-		endpoint, _ := m["endpoint"].(string)
-		if name != "" && endpoint != "" {
-			pairs = append(pairs, name+":"+endpoint)
-		}
-	}
-	sort.Strings(pairs)
-	return pairs
-}
-
-// parseIntegrationIDEndpointPairs parses the identity "id" string of a
-// juju_integration to extract (app_name, endpoint) pairs. The ID format is:
-//
-//	<model_uuid>:<provider_app>:<provider_endpoint>:<requirer_app>:<requirer_endpoint>
-//
-// Returns a sorted slice of "name:endpoint" strings.
-func parseIntegrationIDEndpointPairs(identity map[string]any) []string {
-	if identity == nil {
-		return nil
-	}
-	idStr, ok := identity["id"].(string)
-	if !ok {
-		return nil
-	}
-	parts := strings.Split(idStr, ":")
-	if len(parts) != 5 {
-		return nil
-	}
-	pairs := []string{parts[1] + ":" + parts[2], parts[3] + ":" + parts[4]}
-	sort.Strings(pairs)
-	return pairs
-}
-
-// endpointPairSetEqual checks if two sorted string slices contain the same
-// elements. Each element is a "name:endpoint" pair.
-func endpointPairSetEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// offerURLFromIdentity extracts the "id" value from a juju_offer identity map.
-// The identity ID is the offer URL (e.g. "admin/model.foobar:my-offer").
-func offerURLFromIdentity(identity map[string]any) string {
-	if identity == nil {
-		return ""
-	}
-	id, _ := identity["id"].(string)
-	return id
 }

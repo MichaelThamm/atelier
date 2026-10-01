@@ -179,6 +179,10 @@ type Options struct {
 	// in Result.UnresolvedIDs and nothing is imported. Each provider supplies
 	// its own implementation.
 	BuildImportID ImportIDFunc
+	// MatchFallback is the provider's optional matcher for resource types the
+	// generic identity/name phases cannot resolve. Nil when the provider has
+	// none.
+	MatchFallback FallbackMatcher
 	// WrapperState is the parsed wrapper state, carried from setupSourceModule
 	// so post-import steps can access variable declarations without re-reading
 	// from disk. Nil when --source was not used.
@@ -501,7 +505,7 @@ func Generate(ctx context.Context, opts Options) (_ *Result, rerr error) {
 		}
 	}
 
-	matched, unmatchedPlanned, unmatchedLive := Match(live, planResult.AllModuleResources, opts.Verbose)
+	matched, unmatchedPlanned, unmatchedLive := Match(live, planResult.AllModuleResources, opts.MatchFallback, opts.Verbose)
 
 	res.UnmatchedPlanned = unmatchedPlanned
 	res.UnmatchedLive = unmatchedLive
