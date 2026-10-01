@@ -555,8 +555,10 @@ Sequence:
 2. Choose a **target directory** and create it. By default it is named after
    the module candidate (`terraform/cos-lite` → `cos-lite`; a generic
    `terraform/` candidate falls back to the repository name), with `--as` or
-   `--dir <path>` overriding. The clone is staged next to the target and
-   renamed into place, so there is exactly one clone.
+   `--dir <path>` overriding. `--as` names both the directory and the HCL
+   block, so a hyphenated `--as my-prom` gives directory `my-prom` and block
+   `my_prom` (HCL identifiers cannot contain hyphens). The clone is staged next
+   to the target and renamed into place, so there is exactly one clone.
 3. Write the wrapper (bootstrap) into the target.
 4. Run `terraform init`, then **`terraform apply`**.
 

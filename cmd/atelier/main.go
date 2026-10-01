@@ -9,7 +9,7 @@
 //	atelier module list                         list modules in the wrapper
 //	atelier module apply <git-url> [--module SUBDIR] [--ref REF] [--dir PATH]
 //	                                            scaffold a wrapper in a new directory, then
-//	                                            init and interactively apply it
+//	                                            init and apply it
 //	atelier tidy [PATH] [--write]               prune arguments left at their default
 //	atelier purge [PATH] [--force]              remove .atelier/ and .clone/
 //
@@ -67,12 +67,12 @@ Usage:
                                 [--dir PATH] [--var-file PATH|NAME]
                                 [--var KEY=VALUE] [--list-var-files]
                                                Scaffold a wrapper in a new directory, then run
-                                               'terraform init' and Terraform's own interactive
-                                               'terraform apply'. The directory is named after the
-                                               module candidate unless --as or --dir says otherwise.
-                                               The plan is confirmed at Terraform's prompt; there
-                                               is no auto-approve. 'atelier apply <git-url>' is
-                                               an alias for this command.
+                                               'terraform init' and 'terraform apply'. The directory
+                                               is named after the module candidate unless --as or
+                                               --dir says otherwise. At a terminal you confirm the
+                                               plan at Terraform's prompt; with no terminal it
+                                               applies with -auto-approve.
+                                               'atelier apply <git-url>' is an alias.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).

@@ -39,9 +39,9 @@ const moduleUsage = `Usage:
                                 [--var KEY=VALUE] [--list-var-files] [--strict]
                                                Scaffold a wrapper in a new directory (named after the
                                                module candidate, or --as/--dir), then run
-                                               'terraform init' and Terraform's own interactive
-                                               'terraform apply'. The user confirms the plan at
-                                               Terraform's prompt; there is no auto-approve.
+                                               'terraform init' and 'terraform apply'. At a terminal
+                                               you confirm the plan at Terraform's prompt; with no
+                                               terminal it applies with -auto-approve.
 `
 
 // runModule dispatches the `atelier module` subcommand.
@@ -473,9 +473,8 @@ func runModuleAdd(args []string) error {
 }
 
 // runModuleApply implements `atelier module apply <url>`: scaffold a wrapper in
-// a new directory, then run `terraform init` and Terraform's own interactive
-// `terraform apply` (ADR-0034). It saves the user from `mkdir && cd &&
-// terraform init && terraform apply`.
+// a new directory, then run `terraform init` and `terraform apply` (ADR-0034).
+// It saves the user from `mkdir && cd && terraform init && terraform apply`.
 func runModuleApply(args []string) error {
 	opts, err := parseModuleArgs(args)
 	if err != nil {
