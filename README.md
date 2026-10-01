@@ -67,13 +67,35 @@ go install github.com/MichaelThamm/atelier/cmd/atelier@latest
 ## Quick start
 
 Start a new wrapper from any public git repo containing Terraform modules.
-`module add` bootstraps the wrapper on first use:
+`module add` bootstraps the wrapper on first use. This example uses COS Lite
+(`canonical/observability-stack`), which ships [preset
+bundles](#presets), so you get a runnable wrapper in one command:
+
+```bash
+mkdir cos-lite && cd cos-lite
+atelier module add \
+  https://github.com/canonical/observability-stack.git \
+  --module terraform/cos-lite \
+  --var-file no-ingress < /dev/null
+```
+
+`--var-file` seeds values the module needs from a preset; redirecting stdin
+(`< /dev/null`) skips the TUI, so the command works unattended in scripts and
+CI. Without `--var-file` (or with a module that ships no presets),
+`module add` opens the TUI to fill in required values.
+
+The same flow works for any module — for example
+[`terraform-aws-modules/terraform-aws-vpc`](https://github.com/terraform-aws-modules/terraform-aws-vpc):
 
 ```bash
 mkdir my-vpc && cd my-vpc
 atelier module add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
-atelier module add https://github.com/canonical/observability-stack.git --module terraform/cos-lite
 ```
+
+`module add` takes no directory argument — create the directory and `cd` into
+it first. An empty directory (as `mkdir` makes) never prompts; a non-empty one
+is confirmed before anything is written, and `--yes` skips that prompt
+([ADR-0030](docs/adr/0030-target-directory-preflight.md)).
 
 Re-open an existing wrapper (run with no arguments in the wrapper dir):
 ```bash
@@ -83,9 +105,9 @@ atelier
 > **Note:** run `atelier --help` for the full command list, including `atelier
 > module add|rm|list`, `atelier tidy`, and `atelier purge`.
 
-> **Note:** [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform)
-> is used in the demos below: its module has many inputs, so it shows the
-> variable list well.
+> **Note:** the demos below use
+> [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform):
+> its module has many inputs, so it shows the variable list well.
 
 <details>
 <summary>Demo: adding a module</summary>
@@ -149,14 +171,15 @@ selected one. Press `S` to save the current non-default configuration as a new
 ### Applying a preset from the CLI
 
 `atelier module add` accepts `--var-file`, which seeds a wrapper from one or
-more bundles and exits without opening the TUI — useful in scripts and CI.
-Comma-separate several bundles, or repeat the flag; later files win.
+more bundles. Redirecting stdin (`< /dev/null`) skips the TUI, so it runs
+unattended in scripts and CI. Comma-separate several bundles, or repeat the
+flag; later files win.
 
 ```bash
 mkdir cos && cd cos
 atelier module add https://github.com/canonical/observability-stack.git \
   --module terraform/cos \
-  --var-file single-unit,no-ingress,s3-seaweedfs
+  --var-file single-unit,no-ingress,s3-seaweedfs < /dev/null
 ```
 
 `--var` sets a single input directly and wins over any `--var-file`:
@@ -165,7 +188,7 @@ atelier module add https://github.com/canonical/observability-stack.git \
 atelier module add https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite \
   --var-file no-ingress \
-  --var 'model={uuid="<MODEL_UUID>"}'
+  --var 'model={uuid="<MODEL_UUID>"}' < /dev/null
 ```
 
 For an object value, `--var` deep-merges over what the bundles set, so
@@ -188,8 +211,12 @@ atelier module add https://github.com/canonical/observability-stack.git \
 [repo] single-unit              terraform/cos/presets/single-unit.tfvars
 ```
 
-Piping stdin from `/dev/null` (or running without a terminal) makes Atelier
-skip the TUI rather than error, so the command never blocks.
+Redirecting stdin (`< /dev/null`) makes these examples non-interactive, so they
+run unattended. A non-empty target directory is confirmed before anything is
+written; an empty one (as created by `mkdir`) is not, and `--yes` skips the
+prompt in scripts that target a directory already holding files
+([ADR-0030](docs/adr/0030-target-directory-preflight.md)). Without a terminal on
+stdin the preflight fails, naming `--yes`.
 
 <details>
 <summary>Demo: saving a preset</summary>
@@ -307,7 +334,7 @@ mkdir cos-lite && cd cos-lite
 atelier module add \
   https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite \
-  --var-file no-ingress
+  --var-file no-ingress < /dev/null
 ```
 
 **Import an existing deployment into that shape:**
