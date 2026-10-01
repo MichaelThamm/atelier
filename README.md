@@ -405,7 +405,7 @@ Atelier persists terraform's diagnostics under the wrapper's
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What Atelier does today and what's not yet implemented |
 | [docs/how-to/](docs/how-to/) | Step-by-step guides |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
-| [docs/examples/](docs/examples/) | Sample wrappers |
+| [docs/examples/](docs/examples/) | Sample preset bundles (`atelier.presets/`) |
 
 ## Testing
 
