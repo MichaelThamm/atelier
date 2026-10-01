@@ -673,14 +673,16 @@ func applyWrapper(dir string, autoApprove bool) error {
 		return err
 	}
 
-	// init is non-interactive; stream its progress so module and provider
-	// fetches are visible. Clear the writers before apply, which attaches the
-	// terminal itself when interactive.
-	stop := startSpinner("Running terraform init…")
+	// init is non-interactive; stream Terraform's own progress (module and
+	// provider fetches) rather than animating a spinner alongside it. The two
+	// would race on the same terminal: the spinner writes carriage-return frames
+	// with no newline while Terraform writes newline-terminated lines, so a frame
+	// and Terraform's output land on the same line. Clear the writers before
+	// apply, which attaches the terminal itself when interactive.
+	fmt.Fprintln(os.Stderr, "Running terraform init…")
 	tf.SetStdout(os.Stdout)
 	tf.SetStderr(os.Stderr)
 	err = tf.Init(ctx)
-	stop()
 	tf.SetStdout(nil)
 	tf.SetStderr(nil)
 	if err != nil {
