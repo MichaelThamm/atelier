@@ -3,7 +3,9 @@ package importer
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -62,7 +64,7 @@ func RenderImportsFile(ids map[string]string, note ...string) []byte {
 	sb.WriteString("# module declares, apply will CREATE the ones it misses — duplicating live\n")
 	sb.WriteString("# infrastructure. Check `terraform plan` reports 0 to add first.\n")
 	sb.WriteString("\n")
-	for _, addr := range sortedKeys(ids) {
+	for _, addr := range slices.Sorted(maps.Keys(ids)) {
 		fmt.Fprintf(&sb, "import {\n  to = %s\n  id = %q\n}\n\n", addr, ids[addr])
 	}
 	return hclwrite.Format([]byte(sb.String()))
@@ -128,7 +130,7 @@ func SummarizePlan(plan *tfjson.Plan) PlanSummary {
 // reported command can be copy-pasted.
 func varArgs(vars map[string]string) string {
 	var sb strings.Builder
-	for _, k := range sortedKeys(vars) {
+	for _, k := range slices.Sorted(maps.Keys(vars)) {
 		fmt.Fprintf(&sb, " -var %s=%s", k, vars[k])
 	}
 	return sb.String()

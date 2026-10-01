@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -437,12 +439,12 @@ func asMap(v any) map[string]any {
 
 func diffCreate(after, sens, unknowns map[string]any) []AttributeDiffLine {
 	out := make([]AttributeDiffLine, 0, len(after))
-	for _, k := range sortedKeys(after) {
+	for _, k := range slices.Sorted(maps.Keys(after)) {
 		val := renderValue(after[k], isSensitive(sens, k), isUnknown(unknowns, k))
 		out = append(out, AttributeDiffLine{Marker: "+", Key: k, After: val})
 	}
 	// Also include keys that are unknown but not in after (after is nil for unknowns).
-	for _, k := range sortedKeys(unknowns) {
+	for _, k := range slices.Sorted(maps.Keys(unknowns)) {
 		if _, has := after[k]; !has && isUnknown(unknowns, k) {
 			out = append(out, AttributeDiffLine{Marker: "+", Key: k, After: "(known after apply)"})
 		}
@@ -452,7 +454,7 @@ func diffCreate(after, sens, unknowns map[string]any) []AttributeDiffLine {
 
 func diffDelete(before, sens map[string]any) []AttributeDiffLine {
 	out := make([]AttributeDiffLine, 0, len(before))
-	for _, k := range sortedKeys(before) {
+	for _, k := range slices.Sorted(maps.Keys(before)) {
 		val := renderValue(before[k], isSensitive(sens, k), false)
 		out = append(out, AttributeDiffLine{Marker: "-", Key: k, Before: val})
 	}
@@ -541,15 +543,6 @@ func isUnknown(unknowns map[string]any, key string) bool {
 	return ok && t
 }
 
-func sortedKeys(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
 // renderValue produces a compact one-line representation of a JSON-decoded
 // value. Lists/maps are rendered as their Go fmt; sensitive values are
 // masked; unknown values are labelled.
@@ -581,7 +574,7 @@ func renderValue(v any, sensitive, unknown bool) string {
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
 	case map[string]any:
-		keys := sortedKeys(t)
+		keys := slices.Sorted(maps.Keys(t))
 		parts := make([]string, 0, len(keys))
 		for _, k := range keys {
 			parts = append(parts, fmt.Sprintf("%s=%s", k, renderValue(t[k], false, false)))

@@ -127,10 +127,13 @@ converts, clones, or writes, find the one that already does it:
 If you cannot name the existing function, search before writing a new one.
 This table is the enforcement for duplication, backed by review — it is not
 worth a bespoke linter, and the standard duplicate-code tooling is noisy enough
-that projects routinely disable it. The one structural rule that *is* checked
-mechanically is dead code: `tools/codecheck` fails `just check` on any
-`internal/` package unreachable from `cmd/`. For deeper function-level
-reachability, run `go run golang.org/x/tools/cmd/deadcode@latest ./...`.
+that projects routinely disable it. Two structural rules *are* checked
+mechanically: `tools/codecheck` fails `just check` on any `internal/` package
+unreachable from `cmd/`, and `tools/deadcodecheck` fails on any function
+reachable from neither the binary nor a test (`deadcode -test`). Together they
+catch dead code without a dependency: the second runs the pinned
+`golang.org/x/tools/cmd/deadcode` at a fixed version. When a standard tool
+exists (as here), prefer it to a bespoke one.
 
 ## Layering
 
@@ -237,7 +240,8 @@ A change is done when all of the following hold:
 - Any new decision is captured as an ADR, with the index updated.
 - The change matches the scope boundaries above (no orchestration, no new
   configuration language, wrapper stays independently runnable).
-- `just code-check` passes (no internal package unreachable from `cmd/`).
+- `just code-check` passes (no internal package unreachable from `cmd/`, no
+  function unreachable from the binary and all tests).
 
 A **refactor** additionally satisfies: it names the duplication or layering
 problem it removes in the commit or PR; it does not add behavior; existing

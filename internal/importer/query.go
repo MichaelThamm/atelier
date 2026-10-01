@@ -16,8 +16,10 @@
 package importer
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -148,7 +150,7 @@ func RenderQueryFile(selected []ListResource, config map[string]string, existing
 
 	// Declare one variable per shared config key, in sorted order.
 	// Skip keys that already exist in the root module.
-	keys := sortedKeys(config)
+	keys := slices.Sorted(maps.Keys(config))
 	declared := 0
 	for _, k := range keys {
 		if skip[k] {
@@ -199,15 +201,6 @@ func configKeysFor(lr ListResource, keys []string) []string {
 		}
 	}
 	return out
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 // tokensTraversal renders a dotted traversal like `juju` or `var.model_uuid`

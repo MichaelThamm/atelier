@@ -182,11 +182,6 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm%ds", m, s)
 }
 
-// renderStatus composes the full footer (kept for plan view compatibility).
-func (m *Model) renderStatus() string {
-	return m.renderFooter()
-}
-
 func (m *Model) statusHints() string {
 	if m.height < 15 {
 		return "[?] help"

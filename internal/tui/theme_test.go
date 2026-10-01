@@ -61,7 +61,7 @@ func TestTheme_statusBar_planLoadingShowsSpinner(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.planState = planLoading
-	bar := m.renderStatus()
+	bar := m.renderFooter()
 	if !strings.Contains(bar, "Running terraform plan") {
 		t.Errorf("loading bar missing running-plan text; got: %q", bar)
 	}
@@ -72,7 +72,7 @@ func TestTheme_statusBar_errorRendersRedMark(t *testing.T) {
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.status = "boom"
 	m.statusLvl = statusError
-	bar := m.renderStatus()
+	bar := m.renderFooter()
 	if !strings.Contains(bar, "boom") {
 		t.Errorf("status missing error text; got: %q", bar)
 	}
