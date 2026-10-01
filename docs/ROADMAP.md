@@ -29,7 +29,6 @@ Concretely:
 - Presets: named `.tfvars` bundles discovered from an ancestor
   `atelier.presets/` directory (walk-up) and from the module repo's `presets/`,
   applied via `--var-file` or the TUI `F` picker, and saved with `S`.
-- Provider configuration via `terraform providers schema -json`.
 - Debounced `terraform validate` for inline validation feedback.
 - `terraform plan -json` rendering as a module-path tree with attribute diffs
   in a side pane.
@@ -38,9 +37,6 @@ Concretely:
 - Default-change surfacing on ref bump.
 - In-TUI ref switching (`R` key): re-clone, `terraform init -upgrade`,
   preserve user overrides, enabling cross-ref upgrade comparison workflows.
-- In-TUI output viewing (`O` key): shows planned output values before apply,
-  live state values after apply, with syntax-highlighted JSON and scrollable
-  navigation. Auto-generates `outputs.tf` to re-export module outputs.
 - Single static Go binary.
 - `atelier import [PROVIDER] [flags]`: import a running deployment into
   Terraform state. Discovers live resources via `terraform query`, matches
@@ -93,13 +89,19 @@ variable's declared default. A future version may add an explicit
 `[ Empty ] [ Null ]` toggle on the widget header for cases where users need to
 express the other interpretation.
 
-### ~~Sparse output re-export~~ ✓ Implemented
+### Provider configuration from schema
 
-~~Wrappers do not re-export module outputs.~~ Atelier now generates an
-`outputs.tf` in the wrapper that forwards all of the module's declared
-outputs. The in-TUI output view (`O` key) displays planned values before
-apply and live state values after apply, with syntax-highlighted JSON
-rendering.
+[ADR-0008](adr/0008-provider-schema-discovery.md) specifies reading the
+provider's configuration schema via `terraform providers schema -json` and
+presenting its attributes as a `Provider: <name>` pane. Today Atelier only
+writes empty stub `provider {}` blocks derived from the module's declared
+`required_providers`; the schema-driven pane is not implemented.
+
+### In-TUI output view and `outputs.tf`
+
+An `O`-keyed modal showing planned and live output values, and a generated
+`outputs.tf` re-exporting the module's outputs, were specified but are not
+implemented. `terraform output` works by running it directly in the wrapper.
 
 ### Conditional autoplan
 

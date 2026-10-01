@@ -112,14 +112,12 @@ or owns are listed below; the user may add their own (`.git/`, additional
 ├── main.tf              # module {} block calling the chosen module via git
 ├── versions.tf          # terraform { required_providers {...} } block
 ├── providers.tf         # provider "X" {...} blocks
-├── outputs.tf           # re-exports all module outputs (auto-generated)
 ├── README.md            # one-time auto-generated; user may edit freely
 ├── .gitignore           # one-time auto-generated; user may add to it
 └── .atelier/            # internal state; gitignored
     ├── clone/           # shallow clone of the module repo for introspection
     │   └── <module>/    # subdir matching the module candidate path
-    ├── cache/
-    │   └── providers/   # cached `terraform providers schema -json` outputs
+    ├── cache/           # scratch: cached plan files
     └── session.json     # last opened, resolved SHA, etc.
 ```
 
@@ -164,15 +162,16 @@ Terraform Registry sources are not yet supported.
    (README first paragraph → path). If exactly one candidate is found, skip
    the list and proceed.
 5. Resolve `terraform`'s presence and version (must be >= 1.5; tofu is
-   acceptable). Run `terraform init` in the chosen candidate directory inside
-   the clone (purely to populate provider schemas; Atelier does not invoke
-   plan from inside the clone).
-6. Run `terraform providers schema -json` to obtain provider configuration
-   schemas. Cache per `<provider-source>@<version>` in
-   `.atelier/cache/providers/`.
-7. Open the TUI on the wrapper. If `main.tf` does not yet exist (a fresh
+   acceptable).
+6. Open the TUI on the wrapper. If `main.tf` does not yet exist (a fresh
    init), bootstrap a minimal wrapper with the module reference and a stub
    provider block; the TUI then renders defaults and lets the user configure.
+
+Provider **configuration** via `terraform providers schema -json` is specified
+by [ADR-0008](adr/0008-provider-schema-discovery.md) but not yet implemented:
+`providers.tf` is written with empty stub blocks derived from the module's
+declared `required_providers`, and the TUI does not present provider
+attributes. See [ROADMAP.md](ROADMAP.md).
 
 See [ADR-0003](adr/0003-gitops-loading.md) and
 [ADR-0008](adr/0008-provider-schema-discovery.md).
@@ -250,6 +249,7 @@ atelier module add <git-url> --var <K=V>   # set a single module input (repeatab
 atelier module add <git-url> --list-var-files  # print the .tfvars bundles available (local + module repo)
 atelier module rm <name> [--force]         # remove a module from the wrapper
 atelier module list                        # list modules in the wrapper
+atelier tidy [PATH] [--write]              # prune module arguments left at their default value
 atelier import [PROVIDER] [flags]          # import live resources into Terraform state
 atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ directories
 atelier --help                             # print usage
@@ -268,8 +268,8 @@ That is the complete CLI surface. Notably absent:
   wrapper, or press `P`/`A` within the TUI).
 - No daemon mode or persistent sessions.
 
-Outputs are viewable from within the TUI (see §7.6); a standalone
-`atelier output` subcommand is not provided.
+There is no `atelier output` subcommand; run `terraform output` directly in the
+wrapper. (An in-TUI output view is specified but not implemented — see §7.6.)
 
 ### 6.1 Import subcommand
 
@@ -579,8 +579,6 @@ See [ADR-0015](adr/0015-multi-module-grouping.md).
     fields
 - Required variables (no `default`) show with a distinct marker
   (e.g. `[!]` when unset, indicating user must provide a value).
-- Provider configuration appears as a top-level pseudo-group named
-  `Provider: <name>` containing the provider's configuration attributes.
 
 ### 7.2 Right pane — editor
 
@@ -701,7 +699,6 @@ Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 m
   plan file. A spinner shows progress; success invalidates the plan (since
   the infrastructure now matches) and reloads the state. Errors are surfaced
   in the status bar and viewable via `L` (§7.7).
-- Pressing `O` shows the output view (see §7.6).
 - Pressing `L` shows the logs view (see §7.7).
 - `Esc` returns to the editor.
 - Inline per-attribute diffs *inside* tree nodes are not yet implemented; see
@@ -712,30 +709,10 @@ and [ADR-0014](adr/0014-unified-layout-budget.md).
 
 ### 7.6 Output view
 
-Triggered by `O` from the plan view. Shows module outputs in a scrollable
-modal with syntax-highlighted JSON values.
-
-- **Before apply:** displays planned output values extracted from the plan
-  file (`plan.OutputChanges`).
-- **After apply:** fetches live values from state via `terraform output -json`.
-- Sensitive outputs are masked (`<sensitive>`).
-- Navigation: `j`/`k` scroll line-by-line, `Ctrl+D`/`Ctrl+U` or `PgDn`/`PgUp`
-  for half-page jumps, `g`/`G` for top/bottom, `Esc`/`q` to dismiss.
-
-#### `outputs.tf` generation
-
-Atelier generates an `outputs.tf` in the wrapper that re-exports all of the
-module's declared outputs:
-
-```hcl
-output "offers" {
-  value = module.cos_lite.offers
-}
-```
-
-This file is generated at bootstrap (`atelier module add`) and kept in sync
-when re-opening an existing wrapper (`EnsureOutputs`). It enables `terraform
-output` to work outside Atelier and makes plan-time output values available.
+Not implemented. Earlier drafts specified an `O`-triggered modal and a
+generated `outputs.tf`; neither exists in the code today. `terraform output`
+still works by running it directly in the wrapper. Tracked in
+[ROADMAP.md](ROADMAP.md).
 
 ### 7.7 Logs view
 
@@ -908,10 +885,6 @@ When `atelier module add` bootstraps a new wrapper, it writes:
   module's declared provider requirements.
 - `providers.tf` — one `provider "<name>" {}` block per required provider,
   with stub attribute values the user will fill via the TUI.
-- `outputs.tf` — one `output "<name>" { value = module.<m>.<name> }` block per
-  module output, so that `terraform output` works outside Atelier and
-  plan-time output values are available in-TUI (see §7.6). Re-generated on
-  each session open (`EnsureOutputs`) to stay in sync with the module.
 - `.gitignore` — Atelier-managed entries:
   ```
   .atelier/
@@ -952,19 +925,22 @@ directory; a bundle nearer the wrapper overrides a same-named one further up.
 ## 12. Provider configuration
 
 The wrapper must contain `provider "<name>" {}` blocks for any provider the
-module requires. Atelier obtains the provider's configuration schema via
-`terraform providers schema -json` and presents the configurable attributes
-as a top-level pseudo-group in the left pane (`Provider: <name>`).
+module requires. Atelier derives these from the module's declared
+`required_providers` and writes empty stub blocks into `providers.tf`; the user
+fills their attributes in by hand.
+
+Schema-driven provider configuration — reading the provider's configuration
+schema via `terraform providers schema -json` and presenting its attributes as
+a top-level pseudo-group in the left pane (`Provider: <name>`) — is specified
+by [ADR-0008](adr/0008-provider-schema-discovery.md) but **not yet
+implemented**. See [ROADMAP.md](ROADMAP.md).
 
 ### 12.1 Sensitive provider attributes
 
-Attributes flagged `sensitive: true` in the schema are handled transparently:
-their values are written directly into `providers.tf` as literal arguments (or
-into `main.tf` via `Values`), just like any other variable. No separate secrets
-file or variable indirection is used.
-
-The TUI shows sensitive fields as masked (`***`) with a temporary reveal
-toggle.
+Not implemented, because schema-driven provider configuration is not (see
+above). When it lands, attributes flagged `sensitive: true` would be written as
+literal arguments like any other value, with no separate secrets file, and
+masked in the TUI.
 
 ## 13. Operational details
 
@@ -1027,9 +1003,6 @@ All panels, modals, header, and footer use **rounded borders** (`lipgloss.Rounde
 The focused panel's border is tinted with the primary accent colour (mauve);
 unfocused panels use the muted faint colour. This gives the entire TUI a
 consistent, boxed appearance.
-
-JSON output values in the output view use syntax highlighting: keys, strings,
-numbers, booleans, and null each have distinct colours drawn from the palette.
 
 ## 15. Inter-module wiring
 
