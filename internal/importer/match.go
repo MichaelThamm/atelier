@@ -47,7 +47,10 @@ type MatchedImport struct {
 // FallbackMatcher lets a provider add matching rules for resource types the
 // generic identity/name phases cannot resolve. It runs only after those phases
 // yield zero or multiple candidates, and returns the indexes of unused live
-// objects that match (empty when it has no rule for the type).
+// objects that match. The caller treats a single index as a match and any
+// other count (including zero) as unresolved, so a fallback should return every
+// candidate it finds rather than collapsing an ambiguous result to nil — that
+// keeps the ambiguity visible to the verbose trace.
 //
 // It exists because some resources are keyed by provider-internal composite
 // identities — Juju integrations by endpoint pairs, offers by URL — which the

@@ -232,3 +232,25 @@ func TestMatchIntegrationNoMatchWhenEndpointDiffers(t *testing.T) {
 		t.Fatalf("expected 2 matched (distinct endpoints), got %d: matched=%v unmatched=%v live=%v", len(matched), matched, unmatchedPlanned, unmatchedLive)
 	}
 }
+
+// An ambiguous offer — two live URLs containing the application name, and no
+// exact planned-name match — must stay unmatched, not resolve arbitrarily to
+// one of them.
+func TestMatchOfferAmbiguousStaysUnmatched(t *testing.T) {
+	live := []tfexec.LiveResource{
+		{ResourceType: "juju_offer", DisplayName: "a", Identity: map[string]any{"id": "admin/m.loki-extra"}},
+		{ResourceType: "juju_offer", DisplayName: "b", Identity: map[string]any{"id": "admin/m.loki-more"}},
+	}
+	planned := []importer.PlannedResource{{
+		Address:      "module.cos.juju_offer.x",
+		Type:         "juju_offer",
+		PlannedAttrs: map[string]any{"name": "loki-offer", "application_name": "loki"},
+	}}
+	matched, unmatchedPlanned, _ := importer.Match(live, planned, matchFallback, false)
+	if len(matched) != 0 {
+		t.Errorf("ambiguous offer matched uniquely: %+v", matched)
+	}
+	if len(unmatchedPlanned) != 1 {
+		t.Errorf("want 1 unmatched planned, got %d", len(unmatchedPlanned))
+	}
+}
