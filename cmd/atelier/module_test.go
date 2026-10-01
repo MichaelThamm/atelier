@@ -1,13 +1,8 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
-
-	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
@@ -84,129 +79,6 @@ func TestVarsToMap_SplitsOnFirstEquals(t *testing.T) {
 	}
 	if got["url"] != "http://h:1/x?y=z" {
 		t.Errorf("url = %q, want the whole value", got["url"])
-	}
-}
-
-func TestApplyVarOverrides_WinsOverVarFiles(t *testing.T) {
-	s := seedState(t,
-		mustVarT(t, "name", "string", cty.NilVal, false),
-		mustVarT(t, "replicas", "number", cty.NumberIntVal(1), true),
-	)
-	s.Values["name"] = cty.StringVal("from-file")
-
-	warns := applyVarOverrides(s, varsToMap([]string{"name=from-var", "replicas=5"}))
-
-	if len(warns) != 0 {
-		t.Errorf("unexpected warnings: %v", warns)
-	}
-	if v := s.Values["name"]; v.AsString() != "from-var" {
-		t.Errorf("name = %v, want --var to win over the var-file", v)
-	}
-	if v := s.Values["replicas"]; v.AsBigFloat().String() != "5" {
-		t.Errorf("replicas = %v, want 5", v)
-	}
-}
-
-// An undeclared --var name is reported, not silently dropped.
-func TestApplyVarOverrides_UnknownVariableWarns(t *testing.T) {
-	s := seedState(t, mustVarT(t, "name", "string", cty.NilVal, false))
-	warns := applyVarOverrides(s, varsToMap([]string{"nonexistent=1"}))
-	if len(warns) != 1 || !strings.Contains(warns[0], "unknown variable") {
-		t.Errorf("warnings = %v, want one about an unknown variable", warns)
-	}
-	if _, ok := s.Values["nonexistent"]; ok {
-		t.Error("unknown variable should not be written")
-	}
-}
-
-// A --var value that does not fit the declared type is reported, not dropped.
-func TestApplyVarOverrides_TypeMismatchWarns(t *testing.T) {
-	s := seedState(t, mustVarT(t, "replicas", "number", cty.NumberIntVal(1), true))
-	warns := applyVarOverrides(s, varsToMap([]string{"replicas=abc"}))
-	if len(warns) != 1 || !strings.Contains(warns[0], "does not fit type") {
-		t.Errorf("warnings = %v, want one about a type mismatch", warns)
-	}
-}
-
-// Warnings are ordered deterministically even though the input is a map.
-func TestApplyVarOverrides_WarningsSorted(t *testing.T) {
-	s := seedState(t, mustVarT(t, "name", "string", cty.NilVal, false))
-	warns := applyVarOverrides(s, varsToMap([]string{"zzz=1", "aaa=1", "mmm=1"}))
-	if len(warns) != 3 {
-		t.Fatalf("warnings = %v, want 3", warns)
-	}
-	for i := 1; i < len(warns); i++ {
-		if warns[i-1] > warns[i] {
-			t.Errorf("warnings not sorted: %v", warns)
-		}
-	}
-}
-
-// --- applyVarFiles ---
-
-func TestApplyVarFiles_LaterWinsAndMissingErrors(t *testing.T) {
-	dir := t.TempDir()
-	a := filepath.Join(dir, "a.tfvars")
-	b := filepath.Join(dir, "b.tfvars")
-	if err := os.WriteFile(a, []byte("name = \"from-a\"\nreplicas = 2\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(b, []byte("name = \"from-b\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	s := seedState(t,
-		mustVarT(t, "name", "string", cty.NilVal, false),
-		mustVarT(t, "replicas", "number", cty.NumberIntVal(1), true),
-	)
-	warns, err := applyVarFiles(s, []string{a, b}, false)
-	if err != nil {
-		t.Fatalf("applyVarFiles: %v", err)
-	}
-	if len(warns) != 0 {
-		t.Errorf("unexpected warnings: %v", warns)
-	}
-	if v := s.Values["name"]; v.AsString() != "from-b" {
-		t.Errorf("name = %v, want the later file to win", v)
-	}
-	if v := s.Values["replicas"]; v.AsBigFloat().String() != "2" {
-		t.Errorf("replicas = %v, want 2 from the first file", v)
-	}
-	if _, err := applyVarFiles(s, []string{filepath.Join(dir, "missing.tfvars")}, false); err == nil {
-		t.Error("expected an error for a missing --var-file")
-	}
-}
-
-// TestApplyVarFiles_warnsAndStrictFails pins the ADR-0031 binding behaviour:
-// an undeclared name and a type-mismatched value are skipped and reported; no
-// invalid value reaches the wrapper, and --strict turns the report into an
-// error so a rotted example fails CI instead of silently under-applying.
-func TestApplyVarFiles_warnsAndStrictFails(t *testing.T) {
-	dir := t.TempDir()
-	f := filepath.Join(dir, "bad.tfvars")
-	if err := os.WriteFile(f, []byte("bogus = 1\nreplicas = \"three\"\nname = \"ok\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	s := seedState(t,
-		mustVarT(t, "name", "string", cty.NilVal, false),
-		mustVarT(t, "replicas", "number", cty.NumberIntVal(1), true),
-	)
-	warns, err := applyVarFiles(s, []string{f}, false)
-	if err != nil {
-		t.Fatalf("non-strict must warn, not fail: %v", err)
-	}
-	if len(warns) != 2 {
-		t.Errorf("want 2 warnings (unknown name + type mismatch), got %v", warns)
-	}
-	if v := s.Values["name"]; v.AsString() != "ok" {
-		t.Errorf("valid value not applied: %v", v)
-	}
-	if _, ok := s.Values["replicas"]; ok {
-		t.Error("mismatched value must be skipped, not applied")
-	}
-	if _, err := applyVarFiles(s, []string{f}, true); err == nil {
-		t.Error("--strict should make binding problems fatal")
 	}
 }
 

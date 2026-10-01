@@ -299,7 +299,7 @@ func runModuleAdd(args []string) error {
 				cleanup()
 				return rerr
 			}
-			warns, aerr := applyVarFiles(res.State, resolved, opts.Strict)
+			warns, aerr := wrapper.ApplyVarFiles(res.State, resolved, opts.Strict)
 			if aerr != nil {
 				cleanup()
 				return aerr
@@ -309,7 +309,7 @@ func runModuleAdd(args []string) error {
 			}
 		}
 		if len(opts.Vars) > 0 {
-			for _, w := range applyVarOverrides(res.State, varsToMap(opts.Vars)) {
+			for _, w := range wrapper.ApplyVarOverrides(res.State, varsToMap(opts.Vars)) {
 				fmt.Fprintln(os.Stderr, "warning:", w)
 			}
 		}
@@ -414,7 +414,7 @@ func runModuleAdd(args []string) error {
 		if rerr != nil {
 			return rerr
 		}
-		warns, aerr := applyVarFiles(state, resolved, opts.Strict)
+		warns, aerr := wrapper.ApplyVarFiles(state, resolved, opts.Strict)
 		if aerr != nil {
 			return aerr
 		}
@@ -423,7 +423,7 @@ func runModuleAdd(args []string) error {
 		}
 	}
 	if len(opts.Vars) > 0 {
-		for _, w := range applyVarOverrides(state, varsToMap(opts.Vars)) {
+		for _, w := range wrapper.ApplyVarOverrides(state, varsToMap(opts.Vars)) {
 			fmt.Fprintln(os.Stderr, "warning:", w)
 		}
 	}
