@@ -293,36 +293,14 @@ Product modules ship **preset bundles** — plain `.tfvars` files committed unde
 `atelier import`, the same bundles that seed a fresh deployment also reconstruct
 its state, so a known-good shape is one line in a script.
 
-First, see what the module offers:
+See what the module offers:
 
 ```bash
 atelier module add https://github.com/canonical/observability-stack.git \
-  --module terraform/cos --list-var-files
+  --module terraform/cos-lite --list-var-files
 ```
 
-**COS — create a wrapper from presets:**
-
-```bash
-mkdir cos && cd cos
-atelier module add \
-  https://github.com/canonical/observability-stack.git \
-  --module terraform/cos \
-  --var-file single-unit,no-ingress,s3-seaweedfs
-```
-
-**COS — import an existing deployment into that shape:**
-
-```bash
-mkdir cos-import && cd cos-import
-atelier import juju \
-  --source https://github.com/canonical/observability-stack.git \
-  --module terraform/cos \
-  --var-file single-unit,no-ingress,s3-seaweedfs \
-  --var 'model={uuid="<MODEL_UUID>"}' \
-  --query-var model_uuid=<MODEL_UUID>
-```
-
-**COS Lite — create a wrapper from presets:**
+**Create a wrapper from presets:**
 
 ```bash
 mkdir cos-lite && cd cos-lite
@@ -332,7 +310,7 @@ atelier module add \
   --var-file no-ingress
 ```
 
-**COS Lite — import an existing deployment into that shape:**
+**Import an existing deployment into that shape:**
 
 ```bash
 mkdir cos-lite-import && cd cos-lite-import
@@ -382,21 +360,35 @@ Atelier persists terraform's diagnostics under the wrapper's
 
 ## Testing
 
-Unit tests run with `go test ./...` (the `build · vet · test` job in
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+The development loop is three commands:
 
-Integration tests live in [`tests/integration/`](tests/integration/). A
-wrapper-layer tier asserts the `atelier module add` surface (`--module`,
-`--ref`, `--var-file`, `--as`, listing/removal) without a Juju model, and
-`cloud`-marked tiers deploy real modules with Terraform:
-[`canonical/prometheus-k8s-operator`](https://github.com/canonical/prometheus-k8s-operator)
-as a deployment smoke test, and COS-Lite
-([`canonical/observability-stack`](https://github.com/canonical/observability-stack))
-as an import round-trip that deletes the Terraform state and proves
-`atelier import` rebuilds it. They run in the
-[`CI`](.github/workflows/ci.yml) workflow — after the `build · vet · test` job
-passes — against Juju + Canonical K8s prepared by Concierge. See
-[tests/integration/README.md](tests/integration/README.md) to run them locally.
+```bash
+# ...edit code...
+just install    # build and install the binary into $GOBIN
+just test       # run the unit suite with the race detector
+```
+
+Other useful recipes (`just --list` shows all):
+
+- `just check` — the full gate CI runs: format check, build, vet, and `just test`.
+- `just test-pkg ./internal/tui` — unit tests for one package.
+- `just build-bin` — build the dev binary at the repo root, which the
+  integration tiers use.
+- `just test-integration` — the fast integration tier; needs only Terraform and
+  `git`, no Juju model.
+
+The `cloud`-marked integration tiers need Juju + Canonical K8s (prepared by
+Concierge); see [tests/integration/README.md](tests/integration/README.md) to run
+them locally.
+
+- `just test-prometheus` — deploys
+  [`canonical/prometheus-k8s-operator`](https://github.com/canonical/prometheus-k8s-operator)
+  as a deployment smoke test.
+- `just test-import` — COS-Lite
+  ([`canonical/observability-stack`](https://github.com/canonical/observability-stack))
+  import round-trip: it deletes the Terraform state and proves `atelier import`
+  rebuilds it.
+- `just test-cloud` — both of the above.
 
 ## License
 
