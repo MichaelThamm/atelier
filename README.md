@@ -1,29 +1,35 @@
 # Atelier
 
-A provider-agnostic terminal UI for configuring Terraform modules.
+A terminal UI for deploying Terraform modules.
 
-It treats a module's variables as its API surface. The wrapper it generates
-captures only the values the deployer chose to set, so `main.tf` reads as a
-concise statement of intent rather than a wall of options. Defaults handle the
-rest, and plan diffs show exactly what changes between versions — making large
-modules approachable for first-time and experienced Terraform users alike.
+Point it at any git repo containing a Terraform module. Atelier asks you for the
+values the module needs, then writes a small `main.tf` you can run like any
+other Terraform configuration:
+
+```hcl
+module "cos_lite" {
+  source = "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main"
+  model  = { name = "cos-lite" }
+}
+```
+
+Only the values you chose appear — everything else uses the module's defaults.
+You get a browsable variable list, plan and apply without leaving the terminal,
+and presets for reusable configurations.
 
 ## Design intent
 
-- **Generic.** Works with any Terraform provider and any Terraform module
-  that declares variables, not just Canonical products.
-- **Wrapper-as-artifact.** The wrapper directory is the durable output. It is
-  version-controllable, shareable, runnable without Atelier installed, and
+- **Generic.** Works with any Terraform provider and any Terraform module that
+  declares variables, not just Canonical products.
+- **Wrapper-as-artifact.** The directory Atelier writes is the durable output.
+  It is version-controllable, shareable, runnable without Atelier installed, and
   CI-compatible. Atelier's internal state lives in a `.atelier/` subdirectory
   that is regenerable from the wrapper.
 - **Plan and apply in the TUI.** Atelier owns the configure → plan iteration
-  loop and supports `terraform apply` from the plan view (`A` key). The
-  wrapper remains independently runnable without Atelier installed.
-- **User-owned presets.** Reusable variable bundles are `.tfvars` files in an
-  `atelier.presets/` directory discovered by walking up from the wrapper
-  directory, so one directory can be shared across sibling wrappers. Product
-  repos can also commit presets under `<module>/presets/`. See
-  [Presets](#presets).
+  loop and supports `terraform apply` from the plan view (`A` key).
+- **Presets are plain Terraform.** Reusable value bundles are `.tfvars` files,
+  discovered from an `atelier.presets/` directory or committed by the module
+  under `<module>/presets/`. See [Presets](#presets).
 
 ## Requirements
 
@@ -74,27 +80,18 @@ Re-open an existing wrapper (run with no arguments in the wrapper dir):
 atelier
 ```
 
-`module add` writes into the current directory, so it checks the directory first
-and asks before scaffolding into one that already holds other files, sits inside
-another wrapper's own state (`.atelier/`, `.terraform/`), or looks like the root
-of a different project. **Start from a fresh, empty directory** (as above) and
-you will not be prompted. An ordinary directory below another wrapper is fine —
-several independent wrappers under one parent is how presets are shared — and
-just prints a note. Pass `--yes` to skip the prompt when deliberately targeting a
-non-empty directory; without a terminal the command fails rather than proceeding.
-
 > **Note:** run `atelier --help` for the full command list, including `atelier
 > module add|rm|list`, `atelier tidy`, and `atelier purge`.
 
 > **Note:** [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform)
-> is used in the demos below since it encapsulates many of the intricacies of
-> working with Terraform modules.
+> is used in the demos below: its module has many inputs, so it shows the
+> variable list well.
 
 <details>
 <summary>Demo: adding a module</summary>
 
 1. `atelier module add https://github.com/canonical/loki-operators.git`
-2. Inspect the module's API via its available variables
+2. Browse the module's variables
 
 ![Adding a module](docs/gifs/module-add.gif)
 
@@ -114,39 +111,30 @@ non-empty directory; without a terminal the command fails rather than proceeding
 
 ## Validate on save
 
-Every time you edit a variable, Atelier immediately saves the change to disk
-and debounces a background `terraform validate`. Errors appear inline in the
-status bar; press `L` to open the live logs view, whose Errors tab holds the
-full terraform diagnostics. Validation runs `terraform init` automatically if
-the workspace hasn't been initialised yet.
+Every edit is saved to disk immediately, and Atelier runs a background
+`terraform validate`. Errors appear inline in the status bar; press `L` for the
+live logs, whose Errors tab holds the full diagnostics. Validation runs
+`terraform init` automatically if the workspace isn't initialised yet.
 
 ## Keyboard shortcuts
 
-Atelier uses the terminal conventions you already know: `Tab` moves between
-the variable list and the editor, `↑`/`↓` (or `j`/`k`) move the selection, and
-`Enter` opens or advances. Value fields share one readline-style keymap
-(`Ctrl+A`/`Ctrl+E`, `Ctrl+W`, `Alt+B`/`Alt+F`, …), so editing feels like
-`bash`. Map editors follow a name-the-key-then-`Enter` model, and an empty key
-is never saved.
+`Tab` moves between the variable list and the editor, `↑`/`↓` (or `j`/`k`) move
+the selection, and `Enter` opens or advances. Value fields share a readline-style
+keymap (`Ctrl+A`/`Ctrl+E`, `Ctrl+W`, `Alt+B`/`Alt+F`, …), so editing feels like
+`bash`.
 
-Press `?` anywhere for the complete, always-current keymap. The help modal is
-context-aware — it lists the keys for the view you are in (editor, plan, logs,
-ref switch) and is the single source of truth for shortcuts. The demo GIFs in
-this README show each flow end to end.
-
-See [ADR-0020](docs/adr/0020-readline-style-text-editing.md),
-[ADR-0023](docs/adr/0023-map-row-editing-lifecycle.md), and
-[ADR-0025](docs/adr/0025-ref-selection-matcher.md) for the design rationale.
+Press `?` anywhere for the complete, context-aware keymap — it lists the keys for
+the view you are in and is the single source of truth for shortcuts. The demo
+GIFs below show each flow end to end.
 
 ## Presets
 
 A preset is a named `.tfvars` file: a bundle of variable values you apply in
-one action, then customise. Atelier discovers presets from two sources:
+one action, then customise. Atelier finds them in two places:
 
-- **Personal** bundles in an `atelier.presets/` directory at any ancestor of the
-  wrapper — including the wrapper directory itself — discovered by walking up
-  (nearest wins). A shared directory at a parent serves every wrapper beneath
-  it; a bundle beside the wrapper overrides a same-named one further up.
+- **Personal** bundles in an `atelier.presets/` directory, searched from the
+  wrapper directory upwards (nearest wins), so one directory can serve several
+  wrappers.
 - **Product** presets committed to the module repo, e.g.
   `terraform/cos/presets/single-unit.tfvars`.
 
@@ -231,15 +219,10 @@ re-clones the module, carries your values forward, runs
 `terraform init -upgrade`, and flags any orphaned or newly required
 variables.
 
-The ref field filters the remote's branches and tags as you type
-(case-insensitive substring match, prefix hits first), so a big repo's
-50-plus refs narrow to the few you mean. The field is the same
-readline-style cell as the value editors (see [ADR-0020](docs/adr/0020-readline-style-text-editing.md)),
-so caret motion and word-delete work; free text (an arbitrary SHA, an
-unlisted ref) is always accepted. See
-[ADR-0025](docs/adr/0025-ref-selection-matcher.md) for the design.
-
-Press `?` in the modal for its navigation keys.
+The ref field filters the remote's branches and tags as you type, so a big
+repo's 50-plus refs narrow to the few you mean. Free text (an arbitrary SHA, an
+unlisted ref) is always accepted. Press `?` in the modal for its navigation
+keys.
 
 <details>
 <summary>Demo: switch module ref</summary>
@@ -278,14 +261,9 @@ atelier tidy --write    # apply it (backs up main.tf first)
 It is **dry-run by default**. With `--write` it copies the current `main.tf`
 to `.atelier/backups/main.tf.<timestamp>.bak` before rewriting. Tidy reuses
 the same writer the TUI uses, so the change is apply-neutral: `terraform plan`
-is identical before and after (a value equal to the default and an unset value
-mean the same thing to Terraform). It refuses to run when it can't fetch the
-module schema (it won't guess defaults) or when `main.tf` has more than one
-module block, and it warns when the module ref isn't pinned to a commit
-(defaults can move under an unpinned branch). Arguments whose value is an
-expression (`var.x`, `module.y.z`) are never pruned.
-
-See [ADR-0021](docs/adr/0021-tidy-command.md) for the design.
+is identical before and after. Arguments whose value is an expression
+(`var.x`, `module.y.z`) are never pruned. See
+[ADR-0021](docs/adr/0021-tidy-command.md) for the design.
 
 ## Importing live infrastructure
 
@@ -315,36 +293,14 @@ Product modules ship **preset bundles** — plain `.tfvars` files committed unde
 `atelier import`, the same bundles that seed a fresh deployment also reconstruct
 its state, so a known-good shape is one line in a script.
 
-First, see what the module offers:
+See what the module offers:
 
 ```bash
 atelier module add https://github.com/canonical/observability-stack.git \
-  --module terraform/cos --list-var-files
+  --module terraform/cos-lite --list-var-files
 ```
 
-**COS — create a wrapper from presets:**
-
-```bash
-mkdir cos && cd cos
-atelier module add \
-  https://github.com/canonical/observability-stack.git \
-  --module terraform/cos \
-  --var-file single-unit,no-ingress,s3-seaweedfs
-```
-
-**COS — import an existing deployment into that shape:**
-
-```bash
-mkdir cos-import && cd cos-import
-atelier import juju \
-  --source https://github.com/canonical/observability-stack.git \
-  --module terraform/cos \
-  --var-file single-unit,no-ingress,s3-seaweedfs \
-  --var 'model={uuid="<MODEL_UUID>"}' \
-  --query-var model_uuid=<MODEL_UUID>
-```
-
-**COS Lite — create a wrapper from presets:**
+**Create a wrapper from presets:**
 
 ```bash
 mkdir cos-lite && cd cos-lite
@@ -354,7 +310,7 @@ atelier module add \
   --var-file no-ingress
 ```
 
-**COS Lite — import an existing deployment into that shape:**
+**Import an existing deployment into that shape:**
 
 ```bash
 mkdir cos-lite-import && cd cos-lite-import
@@ -375,11 +331,6 @@ The pieces that make this work:
   resources; `--var model` pins the module's own model input.
 - **`--list-var-files`** works on both `module add` and `import` (the latter
   needs `--source`, since the repo is only searched after a clone).
-
-Run `module add` and `import` from a **fresh, empty directory**: they write into
-the current directory and ask before scaffolding into one that already holds
-other files or sits inside another wrapper's own state (`.atelier/`,
-`.terraform/`).
 
 ## Troubleshooting
 
@@ -409,21 +360,35 @@ Atelier persists terraform's diagnostics under the wrapper's
 
 ## Testing
 
-Unit tests run with `go test ./...` (the `build · vet · test` job in
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+The development loop is three commands:
 
-Integration tests live in [`tests/integration/`](tests/integration/). A
-wrapper-layer tier asserts the `atelier module add` surface (`--module`,
-`--ref`, `--var-file`, `--as`, listing/removal) without a Juju model, and
-`cloud`-marked tiers deploy real modules with Terraform:
-[`canonical/prometheus-k8s-operator`](https://github.com/canonical/prometheus-k8s-operator)
-as a deployment smoke test, and COS-Lite
-([`canonical/observability-stack`](https://github.com/canonical/observability-stack))
-as an import round-trip that deletes the Terraform state and proves
-`atelier import` rebuilds it. They run in the
-[`CI`](.github/workflows/ci.yml) workflow — after the `build · vet · test` job
-passes — against Juju + Canonical K8s prepared by Concierge. See
-[tests/integration/README.md](tests/integration/README.md) to run them locally.
+```bash
+# ...edit code...
+just install    # build and install the binary into $GOBIN
+just test       # run the unit suite with the race detector
+```
+
+Other useful recipes (`just --list` shows all):
+
+- `just check` — the full gate CI runs: format check, build, vet, and `just test`.
+- `just test-pkg ./internal/tui` — unit tests for one package.
+- `just build-bin` — build the dev binary at the repo root, which the
+  integration tiers use.
+- `just test-integration` — the fast integration tier; needs only Terraform and
+  `git`, no Juju model.
+
+The `cloud`-marked integration tiers need Juju + Canonical K8s (prepared by
+Concierge); see [tests/integration/README.md](tests/integration/README.md) to run
+them locally.
+
+- `just test-prometheus` — deploys
+  [`canonical/prometheus-k8s-operator`](https://github.com/canonical/prometheus-k8s-operator)
+  as a deployment smoke test.
+- `just test-import` — COS-Lite
+  ([`canonical/observability-stack`](https://github.com/canonical/observability-stack))
+  import round-trip: it deletes the Terraform state and proves `atelier import`
+  rebuilds it.
+- `just test-cloud` — both of the above.
 
 ## License
 
