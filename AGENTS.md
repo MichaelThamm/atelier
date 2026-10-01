@@ -92,18 +92,67 @@ Design rules that recur in the ADRs and must stay true:
 - **Lean by default; a feature must earn its maintenance.** Do not add a
   feature for its own sake. A feature or fix is only worth its ongoing
   maintenance cost if it delivers clear, current value. Prefer the smaller
-  change — fewer added lines and fewer moving parts is better — and extend an
-  existing mechanism rather than adding a parallel one
-  ([ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md)).
+  change — fewer added lines and fewer moving parts is better, and
+  [**reuse before you build**](#reuse-before-you-build) is the first move, not
+  the last.
 
 Three subtrees carry their own `AGENTS.md` with a local file map, invariants,
 and test patterns: [`internal/wrapper/`](internal/wrapper/AGENTS.md),
 [`internal/tui/`](internal/tui/AGENTS.md), and
-[`internal/importer/`](internal/importer/AGENTS.md). Nested files must stay
-short and limited to durable structure and invariants — not a function
-inventory. Update one only when that package's responsibilities or invariants
-change; if you find yourself documenting a specific function, it belongs in a
-comment instead.
+[`internal/importer/`](internal/importer/AGENTS.md). Keep them short and
+limited to durable structure and invariants — not a function inventory; if you
+find yourself documenting a specific function, it belongs in a comment
+instead. **The canonical reuse inventory lives only in the root file above**;
+nested files name the invariants of their package, not their own copy of the
+inventory, so the two cannot drift.
+
+## Reuse before you build
+
+The recurring failure in this repository is not missing abstractions — it is
+new code that does not find the ones that already exist. Module-source parsing
+was copied into four packages; the `--var`/`--var-file` value logic sat in
+`package main` while `internal/wrapper` owned the state it operated on; a
+700-line `internal/convert` package was left with no caller. Every one of those
+was caught only by a manual audit. So, before writing a function that parses,
+converts, clones, or writes, find the one that already does it:
+
+| If you are about to… | Use |
+| --- | --- |
+| parse a module source (`git::`, `//subpath`, `?ref=`, local path) | `internal/modulesource` (`Decompose`, `Remote`, `ModulePath`, `Compose`, `IsLocal`, `IsGitSource`, `IsFullSHA`) |
+| apply `--var` / `--var-file` values, or convert a string to a variable's type | `wrapper.ApplyVarOverrides`, `wrapper.ApplyVarFiles`, `wrapper.ConvertStringToCty` |
+| clone + read a module block's schema and values, or re-read after a ref change | `bootstrap.BlockLoader.LoadModuleBlock`, `bootstrap.LoadRefState` |
+| write `main.tf` / any file atomically | `wrapper.WriteMain` (canonical); leaf packages that cannot import `wrapper` use their own and are allowlisted in `tools/codecheck` |
+| decide whether a variable is emitted | `wrapper.ShouldEmit` / `wrapper.SparseValue` |
+
+If you cannot name the existing function, search before writing a new one.
+
+The rule is procedural, not aspirational: **grep for the mechanism before you
+write it.** If the only copy lives in a package you cannot import from where
+you are, that is a signal to move it *down* to a shared layer — never a reason
+to copy it. Two implementations of one concern is the defect we most want to
+prevent, and it is the one prose alone has not prevented; `tools/codecheck`
+now fails `just check` on new duplicates of source parsing and atomic writes,
+and on any `internal/` package with no path from `cmd/`.
+
+## Layering
+
+Dependencies point downward only. The intended direction is:
+
+```
+leaves (gitops, session, state, tfexec, tftypes, tfvars, modulesource, candidate)
+   → domain (wrapper)
+   → orchestration (bootstrap)
+   → adapters (cmd/atelier, internal/tui, internal/importer, internal/tidy)
+```
+
+`cmd/atelier` and `internal/tui` are **adapters**: flag parsing, presentation,
+and wiring. They must not own value conversion, source parsing, clone
+orchestration, or filesystem write paths — those belong in the layer below. A
+helper that operates on `wrapper.State` belongs in `internal/wrapper` even if
+its only caller today is the CLI. When in doubt, move logic *down* into the
+shared layer rather than sideways between adapters. `go vet` cannot check this;
+the DAG above and review are the enforcement, so deviations need a reason in
+the PR.
 
 ## Reusable procedures (skills)
 
@@ -176,6 +225,16 @@ A change is done when all of the following hold:
 - Any new decision is captured as an ADR, with the index updated.
 - The change matches the scope boundaries above (no orchestration, no new
   configuration language, wrapper stays independently runnable).
+- `just code-check` passes (no dead internal packages, no new duplicate
+  source-parsing or atomic-write implementations).
+
+A **refactor** additionally satisfies: it names the duplication or layering
+problem it removes in the commit or PR; it does not add behavior; existing
+tests prove equivalence (moved logic moves its tests with it — do not leave a
+test behind asserting the moved code through its old caller); and when it
+changes a shared primitive it updates the reuse table above. Sequence shared
+extraction before caller thinning: extract pure primitives first, then reshape
+orchestration, then thin the adapters.
 
 ## Do not
 

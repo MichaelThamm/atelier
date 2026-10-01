@@ -50,6 +50,10 @@ test-pkg pkg:
 docs-check:
     go test ./tools/docscheck/...
 
+# Structural checks: dead internal packages, duplicated primitives.
+code-check:
+    go test -count=1 ./tools/codecheck/...
+
 # Build the dev binary
 build-bin:
     go build -o {{atelier_bin}} ./cmd/atelier
