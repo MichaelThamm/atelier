@@ -284,12 +284,17 @@ func TestJujuCard_everyShippedEntryIsAccountedFor(t *testing.T) {
 		writeJujuCard(&b, e)
 		card := b.String()
 		hasVariant := strings.Contains(card, "??? ")
-		statesOwnModel := strings.Contains(card, "No variant: this module always creates its own Juju model")
+		statesOwnModel := strings.Contains(card, "No variant: ")
 		if !hasVariant && !statesOwnModel {
 			t.Errorf("entry %q has neither a Juju variant nor an own-model note", e.Name)
 		}
 		if hasVariant && statesOwnModel {
 			t.Errorf("entry %q has both a variant and an own-model note", e.Name)
+		}
+		// A variant that pins nothing offers no model choice, so it would
+		// render as an empty block under a heading that promises one.
+		if hasVariant && !strings.Contains(card, "--var") {
+			t.Errorf("entry %q has a Juju variant that pins nothing", e.Name)
 		}
 	}
 }

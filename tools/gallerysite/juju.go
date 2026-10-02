@@ -63,9 +63,9 @@ var jujuModels = map[string][]string{
 	"trino":           {`model_name="$(juju show-model --format json | jq -r '.[]."short-name"')"`},
 }
 
-// The three model shapes above, by the variable each module calls them. The
-// variable name is part of the pin, so a module naming it `model` or
-// `model_name` spells its own.
+// The three model shapes, named for the variable that carries them. A pin is a
+// complete `--var` token, so a module calling its variable `model` or
+// `model_name` spells its own rather than reusing these.
 const (
 	modelUUIDPin   = `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`
 	modelNamePin   = `model="$(juju show-model --format json | jq -r '.[]."short-name"')"`
@@ -73,10 +73,10 @@ const (
 )
 
 // jujuOwnModel names the entries whose module creates its Juju model
-// unconditionally, with no input that targets an existing one. There is nothing
-// to pin, so the page states the behaviour instead of inventing a variant.
+// unconditionally, mapping each to why there is nothing to pin. The page states
+// the reason rather than inventing a variant.
 var jujuOwnModel = map[string]string{
-	"indico": "the product module declares no input that targets an existing one",
+	"indico": "its product module always creates a Juju model, and declares no input that targets an existing one",
 }
 
 // createsOwnModel reports whether the entry's module always creates its model.
@@ -206,24 +206,6 @@ func codeList(names []string) string {
 	return strings.Join(out, ", ")
 }
 
-// plural picks the verb agreeing with a count.
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
-}
-
-// ownModelReasons states why each own-model entry has no variant, keyed by name
-// so the sentence stays attributable when there is more than one.
-func ownModelReasons(names []string) string {
-	reasons := make([]string, 0, len(names))
-	for _, n := range names {
-		reasons = append(reasons, jujuOwnModel[n])
-	}
-	return strings.Join(reasons, "; ")
-}
-
 // renderJujuPage writes the Juju page: the provider-specific conventions stated
 // once at the top, then one card per entry carrying the gallery's own command
 // and the Juju variant collapsed beneath it.
@@ -285,10 +267,11 @@ func writeJujuBanner(b *strings.Builder, entries []gallery.Entry) {
 			"change, not a no-op.\n\n", codeList(chosen))
 	}
 	if len(own) > 0 {
-		fmt.Fprintf(b, "%s %s no variant: %s.\n\n",
-			codeList(own),
-			plural(len(own), "has", "have"),
-			ownModelReasons(own))
+		b.WriteString("These entries have no variant:\n\n")
+		for _, n := range own {
+			fmt.Fprintf(b, "-   `%s` — %s\n", n, jujuOwnModel[n])
+		}
+		b.WriteString("\n")
 	}
 
 	b.WriteString("The variants also fill two inputs from your environment:\n\n")
@@ -324,7 +307,7 @@ func writeJujuCard(b *strings.Builder, e gallery.Entry) {
 	fmt.Fprintf(b, "    ```bash\n    %s\n    ```\n\n", e.ApplyCommand())
 
 	if createsOwnModel(e) {
-		fmt.Fprintf(b, "    No variant: this module always creates its own Juju model, and %s.\n\n", jujuOwnModel[e.Name])
+		fmt.Fprintf(b, "    No variant: %s.\n\n", jujuOwnModel[e.Name])
 		return
 	}
 
@@ -333,6 +316,12 @@ func writeJujuCard(b *strings.Builder, e gallery.Entry) {
 
 // writeJujuVariant writes the collapsed Juju-specific command for a card.
 func writeJujuVariant(b *strings.Builder, e gallery.Entry) {
+	// An entry with no pin has no variant to offer. Reaching here without one
+	// would render an empty "Deploy into your current model" block.
+	if len(jujuModels[e.Name]) == 0 {
+		return
+	}
+
 	label := "Deploy into your current model"
 	if !pinIsRequired(e) {
 		label += " (instead of creating one)"

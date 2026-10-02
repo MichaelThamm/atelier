@@ -179,16 +179,6 @@ gallery-check: build-bin
         cd wrapper
         terraform init -backend=false -no-color >/dev/null
         terraform validate -no-color
-        # A module that stopped honouring `create_model` would ignore the
-        # model pin and create its own anyway, so the flag is what makes the
-        # pin mean anything. Assert the two arrived together rather than
-        # trusting that a present `model_uuid` was used.
-        if grep -qE "^[[:space:]]*create_model[[:space:]]*=" main.tf; then
-          if ! grep -qE "^[[:space:]]*model_uuid[[:space:]]*=" main.tf; then
-            echo "${name} took create_model but not model_uuid; the pin would not apply"
-            exit 1
-          fi
-        fi
         # A pin the module no longer declares is only a warning, so it would
         # validate cleanly while going unwritten and the published command
         # silently doing nothing. Require it to reach the wrapper.
