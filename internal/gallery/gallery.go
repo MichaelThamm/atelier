@@ -63,6 +63,15 @@ func (e Entry) ApplyCommand() string {
 	return strings.Join(e.ApplyArgs(), " ")
 }
 
+// ShortRef is the pinned ref shortened for display. The full ref stays in the
+// manifest and the module source; only the human-facing form is abbreviated.
+func (e Entry) ShortRef() string {
+	if len(e.Ref) > 12 {
+		return e.Ref[:12]
+	}
+	return e.Ref
+}
+
 // ScaffoldCommand renders the non-applying form CI runs: scaffold the entry by
 // name, failing on any preset binding problem. Required inputs the gallery
 // cannot supply are omitted, so the entry's static preset is still validated.

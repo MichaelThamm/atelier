@@ -45,6 +45,15 @@ func TestEntry_requiresAppendedToApply(t *testing.T) {
 	}
 }
 
+func TestEntry_shortRef(t *testing.T) {
+	if got, want := (Entry{Ref: "0123456789abcdef0123"}).ShortRef(), "0123456789ab"; got != want {
+		t.Errorf("ShortRef = %q, want %q", got, want)
+	}
+	if got, want := (Entry{Ref: "abc"}).ShortRef(), "abc"; got != want {
+		t.Errorf("ShortRef = %q, want %q", got, want)
+	}
+}
+
 func TestFind(t *testing.T) {
 	e, ok := Find("haproxy-product")
 	if !ok || e.Module == "" {

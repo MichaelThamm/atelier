@@ -9,6 +9,9 @@ atelier_bin := justfile_directory() + "/atelier"
 pytest := "uv run --project tests/integration --frozen pytest"
 pytest_flags := "-vv -ra --capture=no --exitfirst"
 
+# GitHub Pages site build (MkDocs Material), via uv like the integration tests.
+site := "uv run --project website --frozen"
+
 # Default: run the full local gate — format check, build, vet, race tests.
 default: check
 
@@ -53,6 +56,16 @@ docs-check:
 # Structural checks: no dead internal packages, no unreachable functions.
 code-check:
     go test -count=1 ./tools/codecheck/... ./tools/deadcodecheck/...
+
+# Build the GitHub Pages site into website/site/, generating the gallery page.
+site-build:
+    go run ./tools/gallerysite -o website/docs/gallery.md
+    {{site}} mkdocs build --strict -f website/mkdocs.yml
+
+# Serve the GitHub Pages site locally with live reload.
+site-serve:
+    go run ./tools/gallerysite -o website/docs/gallery.md
+    {{site}} mkdocs serve -f website/mkdocs.yml
 
 # Build the dev binary
 build-bin:

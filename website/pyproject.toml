@@ -1,0 +1,8 @@
+[project]
+name = "atelier-website"
+version = "0.0.0"
+description = "Atelier's GitHub Pages site: the landing page and generated module gallery."
+requires-python = ">=3.10"
+dependencies = [
+    "mkdocs-material==9.7.7",
+]

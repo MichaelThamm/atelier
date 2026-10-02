@@ -42,6 +42,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0033 | [Provider-specific matching lives behind the Provider interface](0033-provider-fallback-matching.md) | Accepted |
 | 0034 | [`atelier module apply` one-liner](0034-module-apply-one-liner.md)                            | Accepted |
 | 0035 | [Bundled module gallery with a scaffold-and-validate CI gate](0035-bundled-module-gallery.md) | Accepted |
+| 0037 | [Generated GitHub Pages gallery](0037-gallery-pages-site.md)                                             | Accepted |
 
 ## Conventions
 
