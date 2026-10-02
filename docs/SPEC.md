@@ -552,7 +552,7 @@ and a gallery entry *composes* zero or more presets as its default scenario
   module that gains a required input fails here rather than at apply time.
 - `just gallery-bump` resolves every entry's module with `git ls-remote` and rewrites only
   `ref`, patching the manifest source so a run's diff is exactly the SHA lines. The
-  `gallery-schedule` workflow runs it weekly (and on demand), validates the result with the
+  `gallery-schedule` workflow runs it fortnightly (and on demand), validates the result with the
   gallery check, and opens a pull request when a pin moved — it never edits presets or
   `requires`, so a drifted entry is corrected by hand in that PR
   ([ADR-0040](adr/0040-automated-gallery-refresh.md)).

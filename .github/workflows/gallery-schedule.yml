@@ -6,11 +6,13 @@ name: Gallery schedule
 
 on:
   schedule:
-    # Weekly, Monday 06:17 UTC. A cron cannot key off an Ubuntu release date, so
-    # this runs every cycle and opens a PR only when a pin actually moved; the
-    # drift shows up within a week of the release that caused it. Use
-    # `workflow_dispatch` to run it on demand, e.g. right after a release.
-    - cron: '17 6 * * 1'
+    # Fortnightly, 06:17 UTC on the 1st and 15th. Cron cannot express a 14-day
+    # period, so two days-of-month is the idiom; the gap is 14 days mid-month
+    # and 15–17 days across a month boundary. A cron also cannot key off an
+    # Ubuntu release date, so this runs every cycle and opens a PR only when a
+    # pin actually moved. Use `workflow_dispatch` to run it on demand, e.g.
+    # right after a release.
+    - cron: '17 6 1,15 * *'
   workflow_dispatch:
     inputs:
       track:

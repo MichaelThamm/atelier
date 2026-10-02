@@ -31,7 +31,7 @@ never reformatted. A no-op run is byte-identical and writes nothing. A module
 that cannot be reached fails the run and keeps its pin, so a flaky remote never
 produces a half-bumped manifest.
 
-**The workflow** runs weekly (and on `workflow_dispatch`). It bumps, validates
+**The workflow** runs fortnightly (and on `workflow_dispatch`). It bumps, validates
 with `gallery-lint` and `gallery-check`, and only then opens or refreshes a
 single PR on a bot-owned branch. If nothing moved, it exits quietly. If
 validation fails, the job fails and no PR is opened — `main` keeps the last
@@ -51,8 +51,9 @@ then walks through.
   no tags, and the relevant unit is usually a track branch rather than a
   release. `workflow_dispatch` covers a specific upstream event on demand.
 - **Cron keyed to the Ubuntu release date.** Rejected: a cron cannot key off a
-  release date, and pinning it to a guessed day is worse than a weekly cadence
-  that reports drift within a week.
+  release date, and pinning it to a guessed day is worse than a fixed cadence
+  that reports drift within a fortnight. Cron also cannot express a 14-day
+  period, so the schedule is the 1st and 15th of each month.
 - **Let the bump rewrite presets too.** Rejected: preset contents are a
   judgement about the product, not a mechanical derivation from a SHA.
 

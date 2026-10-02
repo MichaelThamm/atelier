@@ -9,7 +9,7 @@ description: >-
 
 # Bump a gallery entry
 
-`just gallery-bump` — and the `gallery-schedule` workflow that runs it weekly —
+`just gallery-bump` — and the `gallery-schedule` workflow that runs it fortnightly —
 already rewrites each entry's `ref` to its module's current tracked ref and opens
 a pull request when one moved
 ([ADR-0040](../../../docs/adr/0040-automated-gallery-refresh.md)). This skill
