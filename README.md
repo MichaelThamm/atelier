@@ -67,14 +67,14 @@ go install github.com/MichaelThamm/atelier/cmd/atelier@latest
 ## Quick start
 
 Start a new wrapper from any public git repo containing Terraform modules.
-`module add` bootstraps the wrapper on first use. This example uses COS Lite
-(`canonical/observability-stack`):
+`module add` bootstraps the wrapper on first use, creating a directory named
+after the module. This example uses COS Lite (`canonical/observability-stack`):
 
 ```bash
-mkdir cos-lite && cd cos-lite
 atelier module add \
   https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite < /dev/null
+cd cos-lite
 ```
 
 Redirecting stdin (`< /dev/null`) skips the TUI, so the command works unattended
@@ -97,14 +97,16 @@ The same flow works for any module — for example
 [`terraform-aws-modules/terraform-aws-vpc`](https://github.com/terraform-aws-modules/terraform-aws-vpc):
 
 ```bash
-mkdir my-vpc && cd my-vpc
 atelier module add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 ```
 
-`module add` takes no directory argument — create the directory and `cd` into
-it first. An empty directory (as `mkdir` makes) never prompts; a non-empty one
-is confirmed before anything is written, and `--yes` skips that prompt
-([ADR-0030](docs/adr/0030-target-directory-preflight.md)).
+`module add` creates a directory named after the module candidate (here
+`cos-lite`) unless `--dir`/`--as` names one, so there is no `mkdir`/`cd` to do
+first. If the current directory already holds a wrapper, it appends a module
+block instead; when it creates its own directory, a non-empty target is refused
+rather than scaffolded over
+([ADR-0030](docs/adr/0030-target-directory-preflight.md),
+[ADR-0034](docs/adr/0034-module-apply-one-liner.md)).
 
 ### Just apply it
 
@@ -194,10 +196,10 @@ unattended in scripts and CI. Comma-separate several bundles, or repeat the
 flag; later files win.
 
 ```bash
-mkdir cos && cd cos
 atelier module add https://github.com/canonical/observability-stack.git \
   --module terraform/cos \
   --var-file single-unit,no-ingress,s3-seaweedfs < /dev/null
+cd cos
 ```
 
 `--var` sets a single input directly and wins over any `--var-file`:
@@ -230,9 +232,9 @@ atelier module add https://github.com/canonical/observability-stack.git \
 ```
 
 Redirecting stdin (`< /dev/null`) makes these examples non-interactive, so they
-run unattended. A non-empty target directory is confirmed before anything is
-written; an empty one (as created by `mkdir`) is not, and `--yes` skips the
-prompt in scripts that target a directory already holding files
+run unattended. When `module add` creates its own directory there is no prompt;
+`--yes` is for the additive case, where the current directory already holds
+files but no wrapper and Atelier asks before appending a module block
 ([ADR-0030](docs/adr/0030-target-directory-preflight.md)). Without a terminal on
 stdin the preflight fails, naming `--yes`.
 
@@ -295,7 +297,6 @@ atelier module add https://github.com/canonical/observability-stack.git \
 **Create a wrapper from presets:**
 
 ```bash
-mkdir cos-lite && cd cos-lite
 atelier module add \
   https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite \

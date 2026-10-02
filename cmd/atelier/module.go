@@ -72,7 +72,7 @@ type moduleOpts struct {
 	As           string   // --as: explicit HCL block name
 	Ref          string   // --ref: git ref
 	ModulePath   string   // --module: candidate subdir
-	Dir          string   // --dir: target directory (module apply only)
+	Dir          string   // --dir: target directory (module add/apply)
 	VarFiles     []string // --var-file: seed values from a .tfvars file or repo-local name (repeatable)
 	Vars         []string // --var: KEY=VALUE overrides applied after all var-files (repeatable)
 	Yes          bool     // --yes/-y: skip the target-directory confirmation
