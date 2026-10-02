@@ -1,9 +1,5 @@
 # Single-unit deployment of every COS component.
 
-# Atelier-hosted copy of terraform/cos/presets/single-unit.tfvars in
-# canonical/observability-stack: generic enough that Atelier ships it rather
-# than relying on the product module to maintain it (ADR-0039).
-
 alertmanager     = { units = 1 }
 grafana          = { units = 1 }
 loki_coordinator = { units = 1 }
