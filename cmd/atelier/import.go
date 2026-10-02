@@ -183,7 +183,7 @@ func runImport(args []string) error {
 
 	// --list-var-files clones the module to a scratch directory, prints the
 	// bundles discoverable locally and in the repo, then exits. It mirrors
-	// `module add --list-var-files` (same helper), so the names shown are the
+	// `add --list-var-files` (same helper), so the names shown are the
 	// names a subsequent import can pass. Requires --source: without a clone
 	// there is no repo to search. It honours --dir so the local walk-up is the
 	// same one the import itself would see.
@@ -195,7 +195,7 @@ func runImport(args []string) error {
 	}
 
 	// When --source is given, import bootstraps a wrapper in dir, so it needs
-	// the same target-directory confirmation as `module add` — the failure mode
+	// the same target-directory confirmation as `add` — the failure mode
 	// is identical, and `--dir` makes it easier to hit by accident. Without
 	// --source the directory is expected to be an existing Terraform root and
 	// nothing is scaffolded, so there is nothing to warn about.
@@ -563,7 +563,7 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	}
 
 	// The clone, wrapper authoring and failure cleanup are the same fresh
-	// bootstrap `module add` runs (bootstrapFreshWrapper), so `import
+	// bootstrap `add` runs (bootstrapFreshWrapper), so `import
 	// --source` cannot drift from it.
 	res, _, err := bootstrapFreshWrapper(dir, dir, source, ref, modulePath)
 	if err != nil {

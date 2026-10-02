@@ -54,7 +54,7 @@ func TestRenderGallery_commands(t *testing.T) {
 	if err := renderGallery(&buf, entries, true); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := buf.String(), "atelier module add x --strict --yes\n"; got != want {
+	if got, want := buf.String(), "atelier add x --strict --yes\n"; got != want {
 		t.Errorf("renderGallery --commands = %q, want %q", got, want)
 	}
 }

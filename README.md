@@ -67,18 +67,18 @@ go install github.com/MichaelThamm/atelier/cmd/atelier@latest
 ## Quick start
 
 Start a new wrapper from any public git repo containing Terraform modules.
-`module add` bootstraps the wrapper on first use, creating a directory named
+`atelier add` bootstraps the wrapper on first use, creating a directory named
 after the module. This example uses COS Lite (`canonical/observability-stack`):
 
 ```bash
-atelier module add \
+atelier add \
   https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite < /dev/null
 cd cos-lite
 ```
 
 Redirecting stdin (`< /dev/null`) skips the TUI, so the command works unattended
-in scripts and CI. Without it, `module add` opens the TUI, where you review the
+in scripts and CI. Without it, `atelier add` opens the TUI, where you review the
 module's variables and fill in any it requires.
 
 What Atelier wrote is a normal Terraform project — Atelier is not needed to run
@@ -97,26 +97,28 @@ The same flow works for any module — for example
 [`terraform-aws-modules/terraform-aws-vpc`](https://github.com/terraform-aws-modules/terraform-aws-vpc):
 
 ```bash
-atelier module add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
+atelier add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 ```
 
-`module add` creates a directory named after the module candidate (here
+`atelier add` creates a directory named after the module candidate (here
 `cos-lite`) unless `--dir`/`--as` names one, so there is no `mkdir`/`cd` to do
 first. If the current directory already holds a wrapper, it appends a module
 block instead; when it creates its own directory, a non-empty target is refused
 rather than scaffolded over
 ([ADR-0030](docs/adr/0030-target-directory-preflight.md),
-[ADR-0034](docs/adr/0034-module-apply-one-liner.md)).
+[ADR-0034](docs/adr/0034-module-apply-one-liner.md)). Run `atelier wrappers` to
+list the wrappers sharing a parent directory (e.g. a `tf-testing/` scratch
+dir).
 
 ### Just apply it
 
-For the common "I only want this module running" case, `module apply` does the
+For the common "I only want this module running" case, `atelier apply` does the
 `mkdir && cd` and the `terraform init && terraform apply` for you: it creates a
 directory named after the module, writes the wrapper, initialises it, and runs
 `terraform apply`.
 
 ```bash
-atelier module apply \
+atelier apply \
   https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite --var model_uuid=<MODEL_UUID>
 ```
@@ -136,7 +138,7 @@ atelier
 ```
 
 > **Note:** run `atelier --help` for the full command list, including `atelier
-> module add|rm|list`, `atelier tidy`, and `atelier purge`.
+> add|rm|ls`, `atelier wrappers`, `atelier tidy`, and `atelier purge`.
 
 > **Note:** the demos below use
 > [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform):
@@ -145,7 +147,7 @@ atelier
 <details>
 <summary>Demo: adding a module</summary>
 
-1. `atelier module add https://github.com/canonical/loki-operators.git`
+1. `atelier add https://github.com/canonical/loki-operators.git`
 2. Browse the module's variables
 
 ![Adding a module](docs/gifs/module-add.gif)
@@ -179,9 +181,12 @@ Atelier reads only Terraform-native `.tfvars` files, and only when you name
 them. See [ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md).
 
 Atelier also bundles a gallery of quick starts for real modules. Run `atelier
-gallery list` to see each module, its pinned ref, its preset (if it needs one),
-and the command to deploy it. See
-[ADR-0035](docs/adr/0035-bundled-module-gallery.md).
+gallery list` to see each module, its pinned ref, the presets it composes (if
+any), and the command to deploy it. An entry also lists the inputs it leaves to
+you, so you see them before running. `atelier gallery lint` checks that every
+entry covers the required inputs its module declares. See
+[ADR-0035](docs/adr/0035-bundled-module-gallery.md) and
+[ADR-0039](docs/adr/0039-composed-gallery-presets.md).
 
 The TUI lists both sources with `F` (source-labelled `[local]`/`[repo]`, with
 the description taken from each file's leading comment); `Enter` applies the
@@ -190,13 +195,13 @@ selected one. Press `S` to save the current non-default configuration as a new
 
 ### Applying a preset from the CLI
 
-`atelier module add` accepts `--var-file`, which seeds a wrapper from one or
+`atelier add` accepts `--var-file`, which seeds a wrapper from one or
 more bundles. Redirecting stdin (`< /dev/null`) skips the TUI, so it runs
 unattended in scripts and CI. Comma-separate several bundles, or repeat the
 flag; later files win.
 
 ```bash
-atelier module add https://github.com/canonical/observability-stack.git \
+atelier add https://github.com/canonical/observability-stack.git \
   --module terraform/cos \
   --var-file single-unit,no-ingress,s3-seaweedfs < /dev/null
 cd cos
@@ -205,7 +210,7 @@ cd cos
 `--var` sets a single input directly and wins over any `--var-file`:
 
 ```bash
-atelier module add https://github.com/canonical/observability-stack.git \
+atelier add https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite \
   --var-file no-ingress \
   --var 'model={uuid="<MODEL_UUID>"}' < /dev/null
@@ -221,7 +226,7 @@ module repo's presets; a local path is also accepted. `--list-var-files` prints
 what is available:
 
 ```bash
-atelier module add https://github.com/canonical/observability-stack.git \
+atelier add https://github.com/canonical/observability-stack.git \
   --module terraform/cos --list-var-files
 ```
 
@@ -232,7 +237,7 @@ atelier module add https://github.com/canonical/observability-stack.git \
 ```
 
 Redirecting stdin (`< /dev/null`) makes these examples non-interactive, so they
-run unattended. When `module add` creates its own directory there is no prompt;
+run unattended. When `atelier add` creates its own directory there is no prompt;
 `--yes` is for the additive case, where the current directory already holds
 files but no wrapper and Atelier asks before appending a module block
 ([ADR-0030](docs/adr/0030-target-directory-preflight.md)). Without a terminal on
@@ -290,14 +295,14 @@ its state, so a known-good shape is one line in a script.
 See what the module offers:
 
 ```bash
-atelier module add https://github.com/canonical/observability-stack.git \
+atelier add https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite --list-var-files
 ```
 
 **Create a wrapper from presets:**
 
 ```bash
-atelier module add \
+atelier add \
   https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite \
   --var-file no-ingress < /dev/null
@@ -322,7 +327,7 @@ The pieces that make this work:
   is one flag with an HCL expression, e.g. `--var 'model={uuid="…"}'`.
 - **`--query-var model_uuid`** is required by the Juju provider's list
   resources; `--var model` pins the module's own model input.
-- **`--list-var-files`** works on both `module add` and `import` (the latter
+- **`--list-var-files`** works on both `atelier add` and `import` (the latter
   needs `--source`, since the repo is only searched after a clone).
 
 ## Comparing versions

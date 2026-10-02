@@ -127,7 +127,7 @@ func TestConfigureLogging_appendsAcrossSessions(t *testing.T) {
 	}
 }
 
-// TestApply_autoApprove pins both apply modes of the `atelier module apply`
+// TestApply_autoApprove pins both apply modes of the `atelier apply`
 // one-liner. Interactive (autoApprove=false) must let Terraform ask, so the
 // argv has no -auto-approve/-input=false; autoApprove=true must pass both, for
 // the non-interactive case. The stub binary records its argv, so this fails if

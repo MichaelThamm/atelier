@@ -9,19 +9,22 @@ func TestResolveCommand(t *testing.T) {
 		rest []string
 	}{
 		{nil, cmdOpen, nil},
-		{[]string{"module"}, cmdModuleOther, nil},
-		{[]string{"module", "add", "u"}, cmdModuleOther, []string{"add", "u"}},
-		{[]string{"module", "rm", "n"}, cmdModuleOther, []string{"rm", "n"}},
-		// The alias and the canonical spelling route to the same command with
-		// the same remaining arguments.
-		{[]string{"module", "apply", "u"}, cmdModuleApply, []string{"u"}},
-		{[]string{"apply", "u"}, cmdModuleApply, []string{"u"}},
-		{[]string{"apply"}, cmdModuleApply, nil},
+		{[]string{"add", "u"}, cmdAdd, []string{"u"}},
+		{[]string{"rm", "n"}, cmdRm, []string{"n"}},
+		{[]string{"ls"}, cmdLs, nil},
+		{[]string{"list"}, cmdLs, nil},
+		{[]string{"apply", "u"}, cmdApply, []string{"u"}},
+		{[]string{"apply"}, cmdApply, nil},
+		{[]string{"wrappers"}, cmdWrappers, nil},
+		{[]string{"wrappers", "tf-testing"}, cmdWrappers, []string{"tf-testing"}},
 		{[]string{"purge"}, cmdPurge, nil},
 		{[]string{"tidy", "--write"}, cmdTidy, []string{"--write"}},
 		{[]string{"import", "juju"}, cmdImport, []string{"juju"}},
 		{[]string{"presets", "lint", "--module", "m"}, cmdPresets, []string{"lint", "--module", "m"}},
 		{[]string{"gallery", "list"}, cmdGallery, []string{"list"}},
+		// The removed `module` namespace is not an alias; it falls through as an
+		// unknown command carrying its remaining args.
+		{[]string{"module", "add", "u"}, command("module"), []string{"add", "u"}},
 		{[]string{"nonsense"}, command("nonsense"), nil},
 	}
 	for _, c := range cases {

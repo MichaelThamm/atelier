@@ -170,7 +170,7 @@ variable "name" {
 }
 
 // TestPrepareModule_autoPicksSingleCandidate is the regression test for the
-// bug where `atelier module add` on an existing wrapper skipped candidate
+// bug where `atelier add` on an existing wrapper skipped candidate
 // discovery, so a repo whose Terraform lives under terraform/ was appended
 // with an empty sub-path (repo root) and thus showed no variables. With
 // discovery, the lone candidate is auto-picked.

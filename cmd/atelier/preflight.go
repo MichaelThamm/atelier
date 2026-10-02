@@ -21,7 +21,7 @@ var errNotInteractive = errors.New("cannot prompt for confirmation: stdin is not
 // confirm asks a yes/no question on the terminal and reports the answer.
 //
 // This is the single confirmation path for the whole CLI. Before it existed,
-// `purge` and `module rm` each had their own: different readers, different
+// `purge` and `rm` each had their own: different readers, different
 // streams, different accepted answers, and neither checked for a terminal — so
 // in CI both blocked on a closed stdin instead of failing with a usable message.
 //
@@ -111,7 +111,7 @@ var foreignProjectMarkers = []string{
 //
 // Every check is advisory and best-effort: a filesystem error is treated as
 // "nothing to report" rather than failing the command, because the checks exist
-// to add a prompt, not to add a new way for `module add` to refuse to run.
+// to add a prompt, not to add a new way for `add` to refuse to run.
 func inspectTarget(dir string) []concern {
 	var out []concern
 

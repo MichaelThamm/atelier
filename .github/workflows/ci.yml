@@ -89,7 +89,7 @@ jobs:
             echo "integration=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # Fast integration tier: `atelier module add` against a real module. No Juju model.
+  # Fast integration tier: `atelier add` against a real module. No Juju model.
   wrapper:
     name: Fast integration tests
     needs: [build-test, changes]
@@ -146,6 +146,9 @@ jobs:
       - name: Install just
         run: sudo snap install just --classic
 
+      - name: Lint the module gallery
+        run: just gallery-lint
+
       - name: Check the module gallery
         run: just gallery-check
 
@@ -197,7 +200,7 @@ jobs:
           timeout-minutes: 30
           limit-access-to-actor: true
 
-  # The import round-trip: module add, deploy, drop state, re-import.
+  # The import round-trip: add, deploy, drop state, re-import.
   import:
     name: Recover COS-Lite state with Atelier import
     needs: [build-test, changes]

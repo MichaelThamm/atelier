@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-0039](0039-composed-gallery-presets.md). The embedded
+manifest, the CLI-as-human-interface, and `requires`-is-metadata decisions
+stand; the single-`preset` model and coverage enforcement are replaced.
 
 ## Context
 

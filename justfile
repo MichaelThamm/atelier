@@ -87,7 +87,13 @@ test-prometheus: build-bin
 test-import: build-bin
     ATELIER_BIN={{atelier_bin}} {{pytest}} tests/integration/import -m cloud {{pytest_flags}}
 
-# Validate the bundled module gallery: run each entry's scaffold command and validate the wrapper (ADR-0035).
+# Lint the bundled module gallery: check that every entry covers the required inputs its pinned
+# module declares. This is the drift guard — `terraform validate` does not fail on a module call
+# that omits a required argument, so `gallery-check` alone cannot catch a module gaining one.
+gallery-lint: build-bin
+    "{{atelier_bin}}" gallery lint
+
+# Validate the bundled module gallery: run each entry's scaffold command and validate the wrapper (ADR-0039).
 gallery-check: build-bin
     #!/usr/bin/env bash
     set -euo pipefail
@@ -97,9 +103,9 @@ gallery-check: build-bin
     fail=0
     while IFS= read -r line; do
       [ -n "$line" ] || continue
-      # The scaffold command is `atelier module add <name> …`; the entry name is
-      # the third token after stripping the leading `atelier`.
-      name="$(awk '{print $3}' <<< "${line#atelier }")"
+      # The scaffold command is `atelier add <name> …`; the entry name is
+      # the second token after stripping the leading `atelier`.
+      name="$(awk '{print $2}' <<< "${line#atelier }")"
       scratch="$(mktemp -d)"
       if ! (
         cd "$scratch"
@@ -113,14 +119,17 @@ gallery-check: build-bin
         read -r -a add_args <<< "${line#atelier }"
         # Entries whose module declares deployment-specific inputs without a
         # default (a Juju model UUID, S3 credentials) cannot validate against
-        # the preset alone. Supply a placeholder for exactly those, read from
-        # the entry's own `requires` list; the preset stays free of fake values,
-        # and a real user supplies the real ones. `presets lint` already checked
-        # the preset's keys.
+        # the presets alone. Supply a value for exactly those, read from the
+        # entry's own `requires` list: a `name=value` entry carries a value that
+        # satisfies the variable's type and validation rules, and a bare name
+        # gets a placeholder (UUID-shaped for `*uuid*` names). The presets stay
+        # free of fake values, and a real user supplies the real ones.
+        # `presets lint` already checked the presets' keys.
         vars=()
         while IFS= read -r req; do
           [ -n "$req" ] || continue
           case "$req" in
+            *=*) vars+=(--var "$req") ;;
             *uuid*) vars+=(--var "$req=00000000-0000-0000-0000-000000000000") ;;
             *) vars+=(--var "$req=placeholder") ;;
           esac

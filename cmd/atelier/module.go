@@ -19,60 +19,13 @@ import (
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
-const moduleUsage = `Usage:
-  atelier module add <git-url> [--as NAME] [--ref REF] [--module SUBDIR]
-                                [--var-file PATH|NAME] [--var KEY=VALUE]
-                                [--list-var-files] [--strict] [--yes]
-                                               Add a module to the wrapper.
-                                               --var-file seeds values from a Terraform variable file: a local
-                                               path, a name in an ancestor atelier.presets/ directory (walk-up),
-                                               or a name committed to the module repo. Comma-separate or repeat
-                                               for several (e.g. --var-file cos-s3,cos-units); later files win.
-                                               --var sets a single module input (repeatable); --var wins over
-                                               --var-file.
-                                               --list-var-files prints the local and repo .tfvars bundles available.
-                                               --strict makes var-file binding warnings (unknown variables,
-                                               type mismatches) fatal instead of warnings.
-  atelier module rm <name> [--force]           Remove a module from the wrapper.
-  atelier module list                          List modules in the wrapper.
-  atelier module apply <git-url> [--module SUBDIR] [--ref REF] [--as NAME]
-                                [--dir PATH] [--var-file PATH|NAME]
-                                [--var KEY=VALUE] [--list-var-files] [--strict]
-                                               Scaffold a wrapper in a new directory (named after the
-                                               module candidate, or --as/--dir), then run
-                                               'terraform init' and 'terraform apply'. At a terminal
-                                               you confirm the plan at Terraform's prompt; with no
-                                               terminal it applies with -auto-approve.
-`
-
-// runModule dispatches the `atelier module` subcommand.
-func runModule(args []string) error {
-	if len(args) == 0 {
-		fmt.Print(moduleUsage)
-		return nil
-	}
-	switch args[0] {
-	case "add":
-		return runModuleAdd(args[1:])
-	case "apply":
-		return runModuleApply(args[1:])
-	case "rm", "remove":
-		return runModuleRm(args[1:])
-	case "list", "ls":
-		return runModuleList(args[1:])
-	default:
-		return fmt.Errorf("unknown module subcommand %q\n\n%s", args[0], moduleUsage)
-	}
-}
-
-// moduleOpts holds the flags shared by `atelier module add` and
-// `atelier module apply`.
+// moduleOpts holds the flags shared by `atelier add` and `atelier apply`.
 type moduleOpts struct {
 	Source       string   // positional git URL
 	As           string   // --as: explicit HCL block name
 	Ref          string   // --ref: git ref
 	ModulePath   string   // --module: candidate subdir
-	Dir          string   // --dir: target directory (module add/apply)
+	Dir          string   // --dir: target directory (add/apply)
 	VarFiles     []string // --var-file: seed values from a .tfvars file or repo-local name (repeatable)
 	Vars         []string // --var: KEY=VALUE overrides applied after all var-files (repeatable)
 	Yes          bool     // --yes/-y: skip the target-directory confirmation
@@ -214,7 +167,7 @@ func printVarFiles(files []bootstrap.VarFile) {
 
 // listVarFileBundles clones the module to a scratch directory, prints the
 // `.tfvars` bundles discoverable locally and in the repo, and returns. It is
-// the shared body of `--list-var-files` for `module add` and `import`: the
+// the shared body of `--list-var-files` for `add` and `import`: the
 // clone is removed before returning, so nothing is written and no preflight is
 // needed. Names are resolved against the same walk-up and repo locations the
 // command itself would see.
@@ -286,9 +239,9 @@ func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string
 	return nil
 }
 
-// runModuleAdd implements `atelier module add <url>`. It scaffolds a wrapper for
-// the module and opens the editor on it. `module add` is the TUI path: unlike
-// `module apply`, it does not run `terraform init`/`apply`, and it never picks a
+// runModuleAdd implements `atelier add <url>`. It scaffolds a wrapper for
+// the module and opens the editor on it. `add` is the TUI path: unlike
+// `apply`, it does not run `terraform init`/`apply`, and it never picks a
 // revision for you (the gallery name supplies one).
 func runModuleAdd(args []string) error {
 	opts, err := parseModuleArgs(args)
@@ -320,8 +273,8 @@ func runModuleAdd(args []string) error {
 	}
 
 	// An existing wrapper in CWD is the additive case: append a block to it and
-	// open the editor there. Otherwise `module add` creates a directory of its
-	// own, named after the candidate (or --dir/--as), exactly as `module apply`
+	// open the editor there. Otherwise `add` creates a directory of its
+	// own, named after the candidate (or --dir/--as), exactly as `apply`
 	// does — but stops before init/apply.
 	if mainTFExists(cwd) {
 		if opts.Dir != "" {
@@ -338,7 +291,7 @@ func addModuleToWrapper(dir string, opts moduleOpts) error {
 	ctx, cancel := interruptContext()
 	defer cancel()
 
-	// Confirm the target directory before writing anything into it. `module add`
+	// Confirm the target directory before writing anything into it. `add`
 	// has no path argument, so the only thing standing between a mistyped `cd`
 	// and a main.tf in the user's home directory is this check.
 	//
@@ -390,7 +343,7 @@ func addModuleToWrapper(dir string, opts moduleOpts) error {
 	//
 	// Without this, uniqueBlockName silently renamed the collision to
 	// `mimir_2` and appended a second block with an identical source, so
-	// running the same `module add` twice quietly declared two copies of the
+	// running the same `add` twice quietly declared two copies of the
 	// module. Terraform accepts that config and fails much later, at apply,
 	// with colliding resource names.
 	//
@@ -454,7 +407,7 @@ func addModuleToWrapper(dir string, opts moduleOpts) error {
 
 // addModuleInNewDir scaffolds a wrapper into a fresh directory — named after the
 // discovered candidate, or by --dir/--as — and opens the editor on it. It shares
-// target resolution and the staged write with `module apply`, but stops before
+// target resolution and the staged write with `apply`, but stops before
 // `terraform init`/`apply`: `add` is the TUI path.
 func addModuleInNewDir(cwd string, opts moduleOpts) error {
 	ctx, cancel := interruptContext()
@@ -476,8 +429,8 @@ func addModuleInNewDir(cwd string, opts moduleOpts) error {
 // module had multiple candidates (nothing written; the candidate list has been
 // printed).
 //
-// It is the shared body of the "create a new directory" path for `module add`
-// and `module apply`, which differ only in their tail (open the TUI vs. run
+// It is the shared body of the "create a new directory" path for `add`
+// and `apply`, which differ only in their tail (open the TUI vs. run
 // init/apply).
 func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (string, *wrapper.State, error) {
 	// Resolve an explicit target now so a collision is caught before the
@@ -577,7 +530,7 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 	return target, res.State, nil
 }
 
-// runModuleApply implements `atelier module apply <url>`: scaffold a wrapper in
+// runModuleApply implements `atelier apply <url>`: scaffold a wrapper in
 // a new directory, then run `terraform init` and `terraform apply` (ADR-0034).
 // It saves the user from `mkdir && cd && terraform init && terraform apply`.
 func runModuleApply(args []string) error {
@@ -588,13 +541,13 @@ func runModuleApply(args []string) error {
 	// The apply approval comes from Terraform's own prompt, so it only has a
 	// gate to show when stdin is a terminal. Detect that here: an
 	// auto-approved apply is used otherwise (see applyWrapper), so a pipe,
-	// CI, or `atelier module apply … < /dev/null` still runs unattended.
+	// CI, or `atelier apply … < /dev/null` still runs unattended.
 	// --yes is still rejected below: the flag means "don't prompt", and here
 	// the prompt is the confirmation, so it would be a second, confusing
 	// spelling of auto-approve.
 	interactive := isTerminal(os.Stdin)
 	if opts.Yes {
-		return fmt.Errorf("--yes is not valid for 'module apply': Terraform's apply prompt is the confirmation; apply runs without one when stdin is not a terminal")
+		return fmt.Errorf("--yes is not valid for 'atelier apply': Terraform's apply prompt is the confirmation; apply runs without one when stdin is not a terminal")
 	}
 
 	cwd, err := os.Getwd()
@@ -644,7 +597,7 @@ func openWrapper(dir string) error {
 }
 
 // checkApplyTarget refuses a target directory that already holds files.
-// `module apply` creates a fresh wrapper; a non-empty directory is almost
+// `apply` creates a fresh wrapper; a non-empty directory is almost
 // always a mistyped --dir or --as, so it is refused rather than scaffolded
 // over. An existing empty directory is allowed and reused.
 func checkApplyTarget(target string) error {
@@ -669,7 +622,7 @@ func checkApplyTarget(target string) error {
 }
 
 // unsetRequiredVars lists required module variables (declared without a
-// default) that have no value. `module apply` checks this before running
+// default) that have no value. `apply` checks this before running
 // Terraform, which would otherwise reject the run with a less direct message.
 func unsetRequiredVars(state *wrapper.State) []string {
 	var missing []string
@@ -722,19 +675,19 @@ func applyWrapper(dir string, autoApprove bool) error {
 
 // bootstrapFreshWrapper clones a remote module source and writes a wrapper
 // into dir, printing a spinner and any bootstrap warnings. The clone, authoring
-// and transactional cleanup are bootstrap.FreshWrapper, so `module add` and
+// and transactional cleanup are bootstrap.FreshWrapper, so `add` and
 // `import --source` cannot drift.
 //
 // It returns a result with a nil State when the module has multiple Terraform
 // candidates (nothing was written); the caller decides how to present the
-// candidate list — `module add` prints it and exits 0, `import --source`
+// candidate list — `add` prints it and exits 0, `import --source`
 // prints it and errors. The returned cleanup closure removes an .atelier/
 // this run created; callers invoke it on their own post-bootstrap failure
 // paths.
 //
 // sourceBaseDir resolves a relative local `source` path (`.`.`/…`); it defaults
 // to dir, which is right when the wrapper is written where the user invoked the
-// command. `module apply` stages the wrapper elsewhere and passes the
+// command. `apply` stages the wrapper elsewhere and passes the
 // invocation directory so a local source still resolves.
 func bootstrapFreshWrapper(sourceBaseDir, dir, source, ref, modulePath string) (*bootstrap.Result, func(), error) {
 	if _, err := tfexec.Locate(); err != nil {
@@ -772,7 +725,7 @@ func bootstrapFreshWrapper(sourceBaseDir, dir, source, ref, modulePath string) (
 	return fresh.Result, fresh.Release, nil
 }
 
-// runModuleRm implements `atelier module rm <name>`.
+// runModuleRm implements `atelier rm <name>`.
 func runModuleRm(args []string) error {
 	var force bool
 	var name string
@@ -780,16 +733,16 @@ func runModuleRm(args []string) error {
 		if a == "--force" || a == "-f" || a == "--yes" || a == "-y" {
 			force = true
 		} else if strings.HasPrefix(a, "-") {
-			return fmt.Errorf("unknown flag %q for module rm", a)
+			return fmt.Errorf("unknown flag %q for rm", a)
 		} else {
 			if name != "" {
-				return fmt.Errorf("module rm takes exactly one module name")
+				return fmt.Errorf("rm takes exactly one module name")
 			}
 			name = a
 		}
 	}
 	if name == "" {
-		return fmt.Errorf("module rm requires a module name. Use 'atelier module list' to see modules")
+		return fmt.Errorf("rm requires a module name. Use 'atelier ls' to see modules")
 	}
 
 	cwd, err := os.Getwd()
@@ -811,7 +764,7 @@ func runModuleRm(args []string) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("no module %q found in main.tf. Use 'atelier module list' to see modules", name)
+		return fmt.Errorf("no module %q found in main.tf. Use 'atelier ls' to see modules", name)
 	}
 
 	if !force {
@@ -846,17 +799,22 @@ func runModuleRm(args []string) error {
 	return nil
 }
 
-// runModuleList implements `atelier module list`.
+// runModuleList implements `atelier ls`.
 func runModuleList(args []string) error {
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") && a != "--help" && a != "-h" {
-			return fmt.Errorf("unknown flag %q for module list", a)
+			return fmt.Errorf("unknown flag %q for ls", a)
 		}
 	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
+	}
+
+	if !mainTFExists(cwd) {
+		fmt.Println("Not a wrapper directory (no main.tf). Run 'atelier wrappers' to find wrappers under here.")
+		return nil
 	}
 
 	blocks, err := wrapper.ReadModuleBlocks(cwd)
@@ -1025,8 +983,8 @@ with name collisions rather than here.
 
   configure the existing one:  atelier
   add a genuinely separate instance:
-                               atelier module add %s --as <name>
+                               atelier add %s --as <name>
   add it at a different revision:
-                               atelier module add %s --ref <ref>`,
+                               atelier add %s --ref <ref>`,
 		subject, source, sourceArg, sourceArg)
 }

@@ -3,11 +3,12 @@
 // Surface (SPEC §6):
 //
 //	atelier                                     open the wrapper in CWD
-//	atelier module add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR] [--dir PATH] [--yes]
+//	atelier add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR] [--dir PATH] [--yes]
 //	                                            add a module and open the editor (bootstraps if needed)
-//	atelier module rm <name> [--force]          remove a module from the wrapper
-//	atelier module list                         list modules in the wrapper
-//	atelier module apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH]
+//	atelier rm <name> [--force]                 remove a module from the wrapper
+//	atelier ls                                  list modules in the wrapper
+//	atelier wrappers [PATH]                     list wrappers directly under a directory
+//	atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH]
 //	                                            scaffold a wrapper in a new directory, then
 //	                                            init and apply it
 //	atelier tidy [PATH] [--write]               prune arguments left at their default
@@ -50,15 +51,14 @@ const usage = `Atelier — a terminal UI for configuring Terraform modules.
 
 Usage:
   atelier                                      Open the wrapper in the current directory.
-  atelier module add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR]
+  atelier add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR]
                                 [--dir PATH] [--var-file PATH|NAME] [--var KEY=VALUE]
                                 [--list-var-files] [--strict] [--yes]
                                                Add a module and open the editor on it. If the current
                                                directory is already a wrapper, appends a module block to
                                                it; otherwise creates a directory named after the module
                                                (or by --dir/--as) and scaffolds a wrapper there. Does not
-                                               run terraform init or apply — use 'atelier module apply' (or
-                                               'atelier apply') for that.
+                                               run terraform init or apply — use 'atelier apply' for that.
                                                Warns and asks before scaffolding into a directory that
                                                already holds other files; --yes skips the prompt.
                                                --var-file seeds values from a Terraform variable file: a local
@@ -70,9 +70,13 @@ Usage:
                                                --strict makes var-file binding warnings fatal.
                                                A gallery name (see 'atelier gallery list') may be given instead
                                                of a URL; it resolves to the module, ref, block, and preset.
-  atelier module rm <name> [--force]           Remove a module from the wrapper.
-  atelier module list                          List modules in the wrapper.
-  atelier module apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--as NAME]
+  atelier rm <name> [--force]                  Remove a module from the wrapper.
+  atelier ls                                   List modules in the wrapper.
+  atelier wrappers [PATH]                      List the wrappers directly under PATH (default: the
+                                               current directory): each child directory holding a
+                                               main.tf or .atelier/, with the modules it declares.
+                                               Read-only, one level only (ADR-0036).
+  atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--as NAME]
                                 [--dir PATH] [--var-file PATH|NAME]
                                 [--var KEY=VALUE] [--list-var-files]
                                                Scaffold a wrapper in a new directory, then run
@@ -81,7 +85,6 @@ Usage:
                                                --dir says otherwise. At a terminal you confirm the
                                                plan at Terraform's prompt; with no terminal it
                                                applies with -auto-approve.
-                                               'atelier apply <git-url|gallery-name>' is an alias.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).
@@ -116,7 +119,7 @@ Usage:
 
 The wrapper is the durable artifact: a normal Terraform project Atelier
 writes into the current directory. The TUI can run 'terraform plan' and, from
-the plan view, 'terraform apply'; 'atelier module apply' is a one-liner that
+the plan view, 'terraform apply'; 'atelier apply' is a one-liner that
 scaffolds a wrapper and then runs Terraform's own init and interactive apply.
 Either way the wrapper stays runnable on its own without Atelier installed.
 `
@@ -135,42 +138,40 @@ func main() {
 	}
 }
 
-// command is a canonical top-level subcommand. `atelier apply` and
-// `atelier module apply` both resolve to cmdModuleApply, so the alias is a
-// routing detail rather than a second implementation.
+// command is a canonical top-level command.
 type command string
 
 const (
-	cmdOpen        command = "open"
-	cmdModuleApply command = "module apply"
-	cmdModuleOther command = "module"
-	cmdPurge       command = "purge"
-	cmdTidy        command = "tidy"
-	cmdImport      command = "import"
-	cmdPresets     command = "presets"
-	cmdGallery     command = "gallery"
+	cmdOpen     command = "open"
+	cmdAdd      command = "add"
+	cmdRm       command = "rm"
+	cmdLs       command = "ls"
+	cmdApply    command = "apply"
+	cmdWrappers command = "wrappers"
+	cmdPurge    command = "purge"
+	cmdTidy     command = "tidy"
+	cmdImport   command = "import"
+	cmdPresets  command = "presets"
+	cmdGallery  command = "gallery"
 )
 
 // resolveCommand maps the first non-empty argument to its canonical command.
-// It is pure so the dispatch table — including the `apply` alias — is testable
-// without running anything.
+// It is pure so the dispatch table is testable without running anything.
 func resolveCommand(args []string) (command, []string) {
 	if len(args) == 0 {
 		return cmdOpen, nil
 	}
 	switch args[0] {
-	case "module":
-		if len(args) > 1 && args[1] == "apply" {
-			return cmdModuleApply, args[2:]
-		}
-		return cmdModuleOther, args[1:]
+	case "add":
+		return cmdAdd, args[1:]
+	case "rm", "remove":
+		return cmdRm, args[1:]
+	case "ls", "list":
+		return cmdLs, args[1:]
 	case "apply":
-		// Convenience alias for `module apply`, intentionally undocumented in
-		// usage and SPEC §6: a documented `atelier apply` would read as Atelier
-		// owning the apply lifecycle, which ADR-0002 and SPEC §6 deny. The
-		// operation is still "scaffold a module and hand Terraform the console"
-		// (ADR-0034).
-		return cmdModuleApply, args[1:]
+		return cmdApply, args[1:]
+	case "wrappers":
+		return cmdWrappers, args[1:]
 	case "purge":
 		return cmdPurge, args[1:]
 	case "tidy":
@@ -201,10 +202,16 @@ func run(args []string) error {
 	switch cmd {
 	case cmdOpen:
 		return runOpen()
-	case cmdModuleApply:
+	case cmdAdd:
+		return runModuleAdd(rest)
+	case cmdRm:
+		return runModuleRm(rest)
+	case cmdLs:
+		return runModuleList(rest)
+	case cmdApply:
 		return runModuleApply(rest)
-	case cmdModuleOther:
-		return runModule(rest)
+	case cmdWrappers:
+		return runWrappers(rest)
 	case cmdPurge:
 		return runPurge(rest)
 	case cmdTidy:
@@ -216,6 +223,9 @@ func run(args []string) error {
 	case cmdGallery:
 		return runGallery(rest)
 	default:
+		if cmd == "module" {
+			return fmt.Errorf("the 'module' namespace was removed; use 'atelier add', 'atelier rm', 'atelier ls', or 'atelier apply'\n\n%s", usage)
+		}
 		return fmt.Errorf("unknown command %q\n\n%s", string(cmd), usage)
 	}
 }
@@ -228,7 +238,7 @@ func runOpen() error {
 	}
 	mainPath := filepath.Join(cwd, wrapper.MainTF)
 	if _, err := os.Stat(mainPath); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("not a wrapper directory. Run 'atelier module add <url>' to bootstrap")
+		return fmt.Errorf("not a wrapper directory. Run 'atelier add <url>' to bootstrap")
 	} else if err != nil {
 		return err
 	}
@@ -254,7 +264,7 @@ func runOpen() error {
 func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 	state := res.State
 
-	// The TUI needs a terminal; in scripts and CI (e.g. `module add … < /dev/null`)
+	// The TUI needs a terminal; in scripts and CI (e.g. `add … < /dev/null`)
 	// skip it. The wrapper is already written, so the command can just exit.
 	if !isTerminal(os.Stdin) || !isTerminal(os.Stdout) {
 		fmt.Fprintln(os.Stderr, "non-interactive: wrapper is ready; run 'atelier' in a terminal to edit.")
@@ -634,7 +644,7 @@ func (s *prodRefSwitcher) ListRefs(ctx context.Context) ([]string, error) {
 //
 // This delegates to an isatty(3) check rather than testing os.ModeCharDevice,
 // which was the previous implementation and was wrong: /dev/null is a character
-// device, so `atelier module add < /dev/null` was treated as interactive and the
+// device, so `atelier add < /dev/null` was treated as interactive and the
 // confirmation prompt read an immediate EOF instead of failing with a message
 // telling the user to pass --yes.
 func isTerminal(f *os.File) bool {

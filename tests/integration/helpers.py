@@ -21,7 +21,7 @@ class TfDirManager:
     A static-fixture manager copies a pre-written ``.tf`` file into a scratch
     directory and plans there. Atelier's wrapper *is* the artifact, so this
     manager instead **latches onto the directory Atelier writes**: allocate it
-    with :meth:`new_wrapper_dir`, run ``atelier module add …`` in it, then call
+    with :meth:`new_wrapper_dir`, run ``atelier add …`` in it, then call
     :meth:`init` / :meth:`apply` to run Terraform in that same directory.
     """
 

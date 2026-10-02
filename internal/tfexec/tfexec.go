@@ -287,7 +287,7 @@ func (t *Terraform) Apply(ctx context.Context, planFile string, stdout io.Writer
 // stdin. Unlike the plan-file Apply (which routes through terraform-exec and so
 // always passes -auto-approve/-input=false), it deliberately omits both when
 // interactive: the user reviews and confirms the plan, which is the point of
-// `atelier module apply` (ADR-0034).
+// `atelier apply` (ADR-0034).
 //
 // When autoApprove is true it instead passes -auto-approve -input=false and
 // detaches stdin, for the non-interactive case (a pipe or `< /dev/null`) where

@@ -7,11 +7,20 @@
     "ref": "6a39d83883f92e0581f5c94144c6ddee2a16e140"
   },
   {
-    "name": "cos-lite",
-    "description": "COS Lite: the lightest Canonical Observability Stack — metrics, logs, dashboards, and alerts.",
-    "module": "https://github.com/canonical/observability-stack",
-    "subdir": "terraform/cos-lite",
-    "ref": "d1598ff3bdf9a25af69145fd557a913e2a13a314"
+    "name": "charmarr",
+    "description": "Charmarr: self-hosted media automation on Kubernetes — VPN, download clients, indexers, and media managers.",
+    "module": "https://github.com/charmarr/charmarr",
+    "subdir": "terraform/charmarr",
+    "ref": "e01391758b45e50a1b018154490bec1b99636434",
+    "requires": ["model", "vpn_provider", "cluster_cidrs", "storage_backend=storage-class"]
+  },
+  {
+    "name": "charmarr-plus",
+    "description": "Charmarr with the HD, UHD, and Anime variants of the Radarr and Sonarr managers.",
+    "module": "https://github.com/charmarr/charmarr",
+    "subdir": "terraform/charmarr-plus",
+    "ref": "e01391758b45e50a1b018154490bec1b99636434",
+    "requires": ["model", "vpn_provider", "cluster_cidrs", "storage_backend=storage-class"]
   },
   {
     "name": "cos",
@@ -19,7 +28,15 @@
     "module": "https://github.com/canonical/observability-stack",
     "subdir": "terraform/cos",
     "ref": "d1598ff3bdf9a25af69145fd557a913e2a13a314",
+    "presets": ["cos-single-unit", "cos-no-ingress"],
     "requires": ["s3_access_key", "s3_secret_key", "s3_endpoint"]
+  },
+  {
+    "name": "cos-lite",
+    "description": "COS Lite: the lightest Canonical Observability Stack — metrics, logs, dashboards, and alerts.",
+    "module": "https://github.com/canonical/observability-stack",
+    "subdir": "terraform/cos-lite",
+    "ref": "d1598ff3bdf9a25af69145fd557a913e2a13a314"
   },
   {
     "name": "haproxy-product",
@@ -28,7 +45,7 @@
     "subdir": "terraform/product",
     "ref": "a4b85299f23740e8b7570b05a0d7d4aabcd3c476",
     "block": "haproxy",
-    "preset": "haproxy-dev"
+    "requires": ["protected_hostnames_configuration=[]"]
   },
   {
     "name": "loki-operators",
