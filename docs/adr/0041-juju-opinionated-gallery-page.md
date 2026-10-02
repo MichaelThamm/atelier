@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-[ADR-0039](0039-gallery-pages-site.md) generates the site's Gallery page from
+[ADR-0037](0037-gallery-pages-site.md) generates the site's Gallery page from
 the bundled manifest, and that page is deliberately provider-agnostic: every
 input the entry leaves to the user renders as a placeholder, so
 `atelier apply charmarr` reads
