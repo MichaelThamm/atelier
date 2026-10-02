@@ -67,8 +67,8 @@ func render(w io.Writer, entries []gallery.Entry) error {
 }
 
 // writeCard writes one entry as a Material grid card: the description, the
-// module link and pinned ref, the preset and required inputs when present, and
-// the apply one-liner. The four-space indent keeps every line inside the list
+// module link and pinned ref, the composed presets and required inputs when
+// present, and the apply one-liner. The four-space indent keeps every line inside the list
 // item that forms the card.
 func writeCard(b *strings.Builder, e gallery.Entry) {
 	fmt.Fprintf(b, "-   __%s__\n\n", e.Name)
@@ -77,13 +77,17 @@ func writeCard(b *strings.Builder, e gallery.Entry) {
 
 	fmt.Fprintf(b, "    [:octicons-mark-github-16: %s](%s)\n\n", repoLabel(e.Module), e.Module)
 
-	meta := make([]string, 0, 4)
+	meta := make([]string, 0, 5)
 	if e.Subdir != "" {
 		meta = append(meta, "`"+e.Subdir+"`")
 	}
 	meta = append(meta, "pinned `"+e.ShortRef()+"`")
-	if e.Preset != "" {
-		meta = append(meta, "preset `"+e.Preset+"`")
+	if len(e.Presets) > 0 {
+		quoted := make([]string, len(e.Presets))
+		for i, p := range e.Presets {
+			quoted[i] = "`" + p + "`"
+		}
+		meta = append(meta, "presets "+strings.Join(quoted, ", "))
 	}
 	if e.Block != "" {
 		meta = append(meta, "block `"+e.Block+"`")

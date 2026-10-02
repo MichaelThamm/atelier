@@ -11,8 +11,8 @@ import (
 // resolveModuleSource expands a gallery entry name into the options it stands
 // for (ADR-0035). A git URL or a local path is used as-is; a bare name that is
 // neither resolves against the bundled gallery. Explicit flags win over the
-// entry, and the entry's preset is layered under any user --var-file so the
-// user's own bundle still wins.
+// entry, and the entry's presets are composed ahead of any user --var-file so
+// the user's own bundle still wins (ADR-0039).
 func resolveModuleSource(opts *moduleOpts) error {
 	if looksLikeSource(opts.Source) {
 		return nil
@@ -31,8 +31,8 @@ func resolveModuleSource(opts *moduleOpts) error {
 	if opts.As == "" {
 		opts.As = entry.Block
 	}
-	if entry.Preset != "" {
-		opts.VarFiles = append([]string{entry.Preset}, opts.VarFiles...)
+	if len(entry.Presets) > 0 {
+		opts.VarFiles = append(append([]string{}, entry.Presets...), opts.VarFiles...)
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,7 +29,7 @@ import (
 )
 
 // InitOptions captures the inputs to bootstrapping a wrapper (used by
-// `atelier module add <url>`).
+// `atelier add <url>`).
 type InitOptions struct {
 	WrapperDir  string // user's CWD
 	Source      string // git URL or local path (LocalSource && Source = path)
@@ -38,7 +39,7 @@ type InitOptions struct {
 	GitRunner   gitops.Runner
 
 	// SourceBaseDir resolves a relative LocalSource path against a directory
-	// other than WrapperDir. `module apply` stages the clone under a temp
+	// other than WrapperDir. `apply` stages the clone under a temp
 	// directory before the wrapper's final home is known, so it passes the
 	// invocation directory here; without it a `../module` path would resolve
 	// against the staging dir. Empty means WrapperDir.
@@ -202,6 +203,42 @@ func ResolveAndClone(ctx context.Context, opts InitOptions) (cloneDir, resolvedS
 	return cloneDir, resolvedSHA, nil
 }
 
+// LoadRequiredVars clones the module at source/ref and returns the names of the
+// variables it declares without a default — the inputs a caller must supply.
+// `atelier gallery lint` uses it to check that a gallery entry covers every
+// required input. subdir selects the module within the repository (empty means
+// the root). The clone is temporary and removed on return.
+func LoadRequiredVars(ctx context.Context, source, ref, subdir string) ([]string, error) {
+	tmp, err := os.MkdirTemp("", "atelier-lint-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+
+	cloneDir, _, err := ResolveAndClone(ctx, InitOptions{
+		WrapperDir:  tmp,
+		Source:      source,
+		Ref:         ref,
+		ModulePath:  subdir,
+		LocalSource: modulesource.IsLocal(source),
+	})
+	if err != nil {
+		return nil, err
+	}
+	vars, err := tfvars.LoadDir(filepath.Join(cloneDir, subdir))
+	if err != nil {
+		return nil, err
+	}
+	var required []string
+	for _, v := range vars {
+		if v.IsRequired() {
+			required = append(required, v.Name)
+		}
+	}
+	sort.Strings(required)
+	return required, nil
+}
+
 // PrepareState builds a wrapper.State from a clone directory, candidate
 // path, and required-provider information. This is the pure assembly step:
 // no git, no terraform. The caller has already cloned and (optionally) run
@@ -270,7 +307,7 @@ type ModulePrep struct {
 
 // PrepareModule clones opts.Source, discovers module candidates, resolves the
 // module sub-path, and assembles a wrapper.State. It is the shared front half
-// of both `atelier module add` flows — the fresh bootstrap (InitNew) and the
+// of both `atelier add` flows — the fresh bootstrap (InitNew) and the
 // additive append (cmd/atelier). Centralising it here ensures a module added
 // to an existing wrapper gets the same candidate discovery as the first one;
 // skipping it was why same-subdir modules (e.g. repos whose Terraform lives
@@ -528,7 +565,7 @@ type FreshResult struct {
 // is removed — but only when this run created it, so a retry inside an
 // established wrapper never destroys existing state.
 //
-// It is the one fresh-bootstrap entry point, shared by `module add` and
+// It is the one fresh-bootstrap entry point, shared by `add` and
 // `import --source`. The spinner and warning formatting stay in the CLI; this
 // is orchestration only. A result with a nil State means the repo had multiple
 // candidates and nothing was written (the caller presents them).
@@ -573,7 +610,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 			return nil, err
 		}
 		if pm == nil {
-			return nil, fmt.Errorf("not a wrapper directory: run 'atelier module add <url>' to bootstrap")
+			return nil, fmt.Errorf("not a wrapper directory: run 'atelier add <url>' to bootstrap")
 		}
 		srcURL, refStr := modulesource.Decompose(pm.Source)
 		prev = &session.Session{
@@ -822,7 +859,7 @@ func ModuleBlockName(modulePath, fallbackName string) string {
 	return out
 }
 
-// ModuleDirName returns the directory name `atelier module apply` creates for a
+// ModuleDirName returns the directory name `atelier apply` creates for a
 // module: the same informative basename ModuleBlockName uses, but with
 // separators left as authored so `cos-lite` stays `cos-lite` instead of the HCL
 // identifier `cos_lite`. Falls back to the repository basename for a generic

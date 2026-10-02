@@ -36,7 +36,7 @@ func TestIsTerminal(t *testing.T) {
 
 	// /dev/null is a character device, so the old ModeCharDevice check called it
 	// a terminal. That mattered once confirm() started gating on isTerminal:
-	// `atelier module add < /dev/null` was treated as interactive and read an
+	// `atelier add < /dev/null` was treated as interactive and read an
 	// instant EOF instead of failing with a message naming --yes.
 	if devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
 		defer devNull.Close()

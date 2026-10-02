@@ -127,7 +127,6 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     run_atelier(
         wrapper_dir,
         atelier_bin,
-        "module",
         "add",
         COS_REPO,
         "--module",

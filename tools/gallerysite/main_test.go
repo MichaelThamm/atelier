@@ -8,8 +8,8 @@ import (
 )
 
 // TestRender_cards pins the page shape: a Material grid with one card per
-// entry, carrying the module link, the pinned short ref, the preset, the
-// required inputs, and the derived apply command.
+// entry, carrying the module link, the pinned short ref, the composed presets,
+// the required inputs, and the derived apply command.
 func TestRender_cards(t *testing.T) {
 	entries := []gallery.Entry{
 		{
@@ -21,7 +21,7 @@ func TestRender_cards(t *testing.T) {
 			Name: "cos", Description: "The full stack.",
 			Module: "https://github.com/canonical/observability-stack",
 			Subdir: "terraform/cos", Ref: "d1598ff3bdf9a25af69145fd557a913e2a13a314",
-			Preset: "cos-dev", Block: "cos",
+			Presets: []string{"cos-single-unit", "cos-no-ingress"}, Block: "cos",
 			Requires: []string{"s3_access_key", "s3_secret_key"},
 		},
 	}
@@ -39,7 +39,7 @@ func TestRender_cards(t *testing.T) {
 		"`terraform/cos-lite` · pinned `d1598ff3bdf9`",
 		"atelier apply cos-lite",
 		"Needs `s3_access_key`, `s3_secret_key`.",
-		"preset `cos-dev` · block `cos`",
+		"presets `cos-single-unit`, `cos-no-ingress` · block `cos`",
 		"atelier apply cos --var s3_access_key=<s3_access_key> --var s3_secret_key=<s3_secret_key>",
 	} {
 		if !strings.Contains(got, want) {

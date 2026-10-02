@@ -32,7 +32,6 @@ def test_walk_up_preset_bundle_resolves_by_name(tmp_path, atelier_bin):
     run_atelier(
         wrapper,
         atelier_bin,
-        "module",
         "add",
         PROM_REPO,
         "--module",
@@ -53,7 +52,6 @@ def test_walk_up_preset_bundle_resolves_by_name(tmp_path, atelier_bin):
     listed = run_atelier(
         wrapper,
         atelier_bin,
-        "module",
         "add",
         PROM_REPO,
         "--module",

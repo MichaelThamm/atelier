@@ -8,7 +8,7 @@ import (
 )
 
 // TestLintTFVars walks a bundle against a module schema and asserts which
-// findings it reports. The nested cases are the point: `module add --var-file`
+// findings it reports. The nested cases are the point: `add --var-file`
 // already catches an undeclared top-level name, but a renamed object field
 // inside a preset would otherwise rot silently (ADR-0031).
 func TestLintTFVars(t *testing.T) {

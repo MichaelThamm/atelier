@@ -36,7 +36,7 @@ body:
         The exact steps, ideally starting from a fresh wrapper. Include the
         `atelier` command(s) you ran and the keys you pressed in the TUI.
       value: |
-        1. `atelier module add <git-url> [--module <subdir>] [--ref <ref>]`
+        1. `atelier add <git-url> [--module <subdir>] [--ref <ref>]`
         2. Open the TUI: `atelier`
         3. Select variable `…`, press `…`
         4. …

@@ -24,7 +24,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0015 | [Multi-module grouping in the left pane](0015-multi-module-grouping.md)                     | Accepted |
 | 0016 | [Scope boundaries — no orchestration overlap with Terragrunt](0016-scope-boundaries-no-orchestration.md) | Accepted |
 | 0017 | [Inter-module wiring in the TUI](0017-inter-module-wiring.md)                               | Accepted |
-| 0018 | [Additive `atelier module` command](0018-additive-module-command.md)                       | Accepted |
+| 0018 | [Additive `atelier module` command](0018-additive-module-command.md)                       | Superseded by ADR-0038 |
 | 0019 | [Unified module version display](0019-unified-module-version-display.md)                    | Proposed |
 | 0020 | [Readline-style text editing in variable editors](0020-readline-style-text-editing.md)      | Proposed |
 | 0021 | [`atelier tidy` — on-demand prune to sparse form](0021-tidy-command.md)                      | Proposed |
@@ -41,8 +41,11 @@ Format follows the Michael Nygard template, lightly extended.
 | 0032 | [Nested-wrapper preflight distinguishes deliberate nesting from stray `cd`](0032-nested-wrapper-preflight-scope.md) | Accepted |
 | 0033 | [Provider-specific matching lives behind the Provider interface](0033-provider-fallback-matching.md) | Accepted |
 | 0034 | [`atelier module apply` one-liner](0034-module-apply-one-liner.md)                            | Accepted |
-| 0035 | [Bundled module gallery with a scaffold-and-validate CI gate](0035-bundled-module-gallery.md) | Accepted |
-| 0037 | [Generated GitHub Pages gallery](0037-gallery-pages-site.md)                                             | Accepted |
+| 0035 | [Bundled module gallery with a scaffold-and-validate CI gate](0035-bundled-module-gallery.md) | Superseded by ADR-0039 |
+| 0036 | [Read-only wrapper discovery (`atelier wrappers`)](0036-wrapper-discovery.md)          | Accepted |
+| 0037 | [Generated GitHub Pages gallery](0037-gallery-pages-site.md)                             | Accepted |
+| 0038 | [Flat top-level CLI surface](0038-flat-cli-surface.md)                                  | Accepted |
+| 0039 | [Composed gallery presets and a required-input coverage lint](0039-composed-gallery-presets.md) | Accepted |
 
 ## Conventions
 

@@ -138,21 +138,27 @@ func GalleryVarFiles() []VarFile {
 		return nil
 	}
 	var out []VarFile
+	seen := map[string]bool{}
 	for _, e := range entries {
-		if e.Preset == "" {
-			continue
+		// An entry composes all of its presets, and several entries may name
+		// the same bundle, so emit each one once.
+		for _, name := range e.Presets {
+			if seen[name] {
+				continue
+			}
+			p, ok := gallery.PresetPath(name)
+			if !ok {
+				continue
+			}
+			seen[name] = true
+			out = append(out, VarFile{
+				Name:        name,
+				Path:        p,
+				Source:      "gallery",
+				Display:     "bundled with atelier",
+				Description: bundleDescription(p),
+			})
 		}
-		p, ok := gallery.PresetPath(e.Preset)
-		if !ok {
-			continue
-		}
-		out = append(out, VarFile{
-			Name:        e.Preset,
-			Path:        p,
-			Source:      "gallery",
-			Display:     "bundled with atelier",
-			Description: bundleDescription(p),
-		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -164,7 +170,7 @@ func GalleryVarFiles() []VarFile {
 // query: it never leaves a `.atelier/clone/` (or any other artifact) behind, and
 // never disturbs a wrapper the directory may already hold.
 //
-// Both `module add` and `import` use this, so their listings cannot drift. The
+// Both `add` and `import` use this, so their listings cannot drift. The
 // local walk-up starts at wrapperDir (the caller's target), not at the scratch
 // clone location, so the listing matches what an actual run would resolve.
 func ListVarFiles(ctx context.Context, opts InitOptions) ([]VarFile, error) {

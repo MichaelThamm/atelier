@@ -1,5 +1,5 @@
 // Package gallery is Atelier's curated set of quick starts for real Terraform
-// modules: the module address, a pinned revision, an optional preset, and the
+// modules: the module address, a pinned revision, optional presets, and the
 // one-liner that uses them. The data is embedded so `--var-file` can resolve a
 // gallery preset and `atelier gallery list` can render it with no network and no
 // checkout.
@@ -27,8 +27,8 @@ var manifestJSON []byte
 //go:embed presets
 var presetsFS embed.FS
 
-// Entry is one gallery quick start. Preset is optional: a module that deploys
-// with its defaults needs no preset.
+// Entry is one gallery quick start. Presets is optional: a module that deploys
+// with its defaults needs none.
 type Entry struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -38,24 +38,44 @@ type Entry struct {
 	// Block is the explicit HCL block name (`--as`), for a module whose
 	// candidate directory gives a poor derived name (e.g. `product`).
 	Block string `json:"block,omitempty"`
-	// Preset is the `.tfvars` bundle name in presets/, without the suffix.
-	Preset string `json:"preset,omitempty"`
-	// Requires lists inputs the preset cannot supply — deployment-specific
-	// values such as a Juju model UUID or S3 credentials. They are not settable
-	// statically, so the rendered command appends a `--var` placeholder for
-	// each and the scaffold command omits them (CI cannot supply them either).
+	// Presets are `.tfvars` bundle names in presets/, without the suffix. They
+	// are composed: an entry applies all of them, in order (later wins), as its
+	// curated default scenario. A module that deploys with its defaults needs
+	// none.
+	Presets []string `json:"presets,omitempty"`
+	// Requires lists inputs the entry leaves to the user — deployment-specific
+	// values such as a Juju model UUID or S3 credentials. An entry is either a
+	// bare name (rendered as `--var name=<name>`) or `name=value`, which both
+	// renders a working default and gives the gallery check a value that
+	// satisfies the variable's type and validation rules.
 	Requires []string `json:"requires,omitempty"`
 }
 
 // ApplyArgs is the user-facing command, as argv tokens, to apply this entry:
-// `atelier apply <name>`, with `--var <name>=<name>` for each input the entry
-// cannot supply. Returned as tokens so callers can render or join it.
+// `atelier apply <name>`, with a `--var` for each input the entry leaves to the
+// user. Returned as tokens so callers can render or join it.
 func (e Entry) ApplyArgs() []string {
 	args := []string{"atelier", "apply", e.Name}
 	for _, r := range e.Requires {
-		args = append(args, "--var", r+"=<"+r+">")
+		name, value, hasValue := strings.Cut(r, "=")
+		if hasValue {
+			args = append(args, "--var", name+"="+value)
+			continue
+		}
+		args = append(args, "--var", name+"=<"+name+">")
 	}
 	return args
+}
+
+// RequiresNames returns the variable names in Requires, stripping any `=value`
+// default.
+func (e Entry) RequiresNames() []string {
+	out := make([]string, 0, len(e.Requires))
+	for _, r := range e.Requires {
+		name, _, _ := strings.Cut(r, "=")
+		out = append(out, name)
+	}
+	return out
 }
 
 // ApplyCommand renders the user-facing command as a single line.
@@ -76,7 +96,7 @@ func (e Entry) ShortRef() string {
 // name, failing on any preset binding problem. Required inputs the gallery
 // cannot supply are omitted, so the entry's static preset is still validated.
 func (e Entry) ScaffoldCommand() string {
-	return "atelier module add " + e.Name + " --strict --yes"
+	return "atelier add " + e.Name + " --strict --yes"
 }
 
 // Find returns the entry with this name.
@@ -121,13 +141,14 @@ func validate(entries []Entry) error {
 			return fmt.Errorf("gallery manifest: %q has no module", e.Name)
 		case e.Ref == "":
 			return fmt.Errorf("gallery manifest: %q has no ref", e.Name)
-		case e.Preset != "" && !HasPreset(e.Preset):
-			return fmt.Errorf("gallery manifest: %q names preset %q, which is not embedded", e.Name, e.Preset)
+		}
+		for _, p := range e.Presets {
+			if !HasPreset(p) {
+				return fmt.Errorf("gallery manifest: %q names preset %q, which is not embedded", e.Name, p)
+			}
+			referenced[p] = true
 		}
 		seen[e.Name] = true
-		if e.Preset != "" {
-			referenced[e.Preset] = true
-		}
 	}
 	// An embedded preset no entry references would never be exercised by
 	// `gallery-check`, so it could rot unnoticed.
@@ -202,30 +223,28 @@ func materialize() (string, error) {
 	h := sha256.New()
 	h.Write(manifestJSON)
 	for _, e := range entries {
-		if e.Preset == "" {
-			continue
+		for _, p := range e.Presets {
+			data, ok := Lookup(p)
+			if !ok {
+				return "", fmt.Errorf("gallery: preset %q listed but not embedded", p)
+			}
+			h.Write(data)
 		}
-		data, ok := Lookup(e.Preset)
-		if !ok {
-			return "", fmt.Errorf("gallery: preset %q listed but not embedded", e.Preset)
-		}
-		h.Write(data)
 	}
 	dir := filepath.Join(base, "atelier", "gallery", hex.EncodeToString(h.Sum(nil))[:16])
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	for _, e := range entries {
-		if e.Preset == "" {
-			continue
-		}
-		path := filepath.Join(dir, e.Preset+".tfvars")
-		if _, err := os.Stat(path); err == nil {
-			continue
-		}
-		data, _ := Lookup(e.Preset)
-		if err := os.WriteFile(path, data, 0o644); err != nil {
-			return "", err
+		for _, p := range e.Presets {
+			path := filepath.Join(dir, p+".tfvars")
+			if _, err := os.Stat(path); err == nil {
+				continue
+			}
+			data, _ := Lookup(p)
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				return "", err
+			}
 		}
 	}
 	return dir, nil
