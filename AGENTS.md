@@ -203,6 +203,18 @@ matches its description.
   there. `just check` runs `tools/docscheck`, which fails on a missing or
   inconsistent index row, an unresolved `ADR-NNNN` reference, or a broken
   relative Markdown link. Run `just docs-check` for a focused pass.
+- **Public-facing output:** what a *user* reads is not the same document as what
+  a *contributor* reads. The generated wrapper `README.md`, the CLI usage/help
+  text, error messages, and the generated site (`website/docs/`) describe the
+  product and must not reference Atelier's development artefacts — no `ADR-NNNN`,
+  no `docs/SPEC.md` or `docs/ROADMAP.md`, no `internal/…` package paths, and no
+  design rationale. Those belong in the commit, the PR, or the ADR they justify.
+  Write that surface for someone who has never read the repo: state what the
+  thing does, not why it is built that way, and drop hedging and restatement — a
+  public page citing an ADR is a bug report waiting to happen. The repository
+  `README.md` is the one exception: its Documentation table may link `docs/`,
+  because that file is itself contributor-facing. The
+  `TestPublicFacing*_hasNoInternalReferences` tests enforce the mechanical half.
 - **Pull requests:** fill in `.github/pull_request_template.md`; it mirrors the
   definition of done below.
 - **Language:** American English in new code, comments, commit messages, and

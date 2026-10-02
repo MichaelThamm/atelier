@@ -37,14 +37,25 @@ Start from a bundled gallery entry by name. Atelier expands it to the module,
 its pinned revision, and any preset the entry names:
 
 ```bash
+atelier gallery list          # every entry, with the command that deploys it
 atelier apply cos-lite
+```
+
+`atelier apply` deploys: it writes the wrapper, runs `terraform init`, and hands
+the plan to Terraform's own prompt. To configure the values first — and review
+them in Atelier's TUI — use `atelier add`:
+
+```bash
+atelier add cos-lite
 ```
 
 Every entry on the [gallery page](https://michaelthamm.github.io/atelier/gallery/)
 has its own one-liner. The [Juju page](https://michaelthamm.github.io/atelier/juju/)
 has the same entries, plus a variant under each that deploys into whichever model
-you have switched to. What Atelier writes is an ordinary Terraform project, so it
-runs without Atelier installed:
+you have switched to.
+
+Either way, what Atelier writes is an ordinary Terraform project, so it runs
+without Atelier installed:
 
 ```bash
 terraform init && terraform apply

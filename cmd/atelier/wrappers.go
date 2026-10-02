@@ -16,8 +16,8 @@ const wrappersUsage = `Usage:
                                                List the wrappers directly under PATH (default: the
                                                current directory): each child directory holding a
                                                main.tf or .atelier/, with the modules it declares.
-                                               Read-only; no wrapper is opened or changed. One level
-                                               only, by design (ADR-0036).
+                                               Read-only and one level deep; no wrapper is opened
+                                               or changed.
 `
 
 // runWrappers implements `atelier wrappers [PATH]`. It is a read-only view of
