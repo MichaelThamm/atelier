@@ -161,10 +161,13 @@ gallery-check: build-bin
         while read -r pin_name pin_var; do
           [ -n "${pin_name:-}" ] || continue
           [ "$pin_name" = "$name" ] || continue
-          # An object-valued pin (cos, cos-lite) has to arrive as `{uuid="…"}`
-          # or the module rejects it and the pin is never exercised.
+          # A pin's value has to fit the variable it sets. An object-valued
+          # model pin (cos, cos-lite) has to arrive as `{uuid="…"}` or the
+          # module rejects it and the pin is never exercised; a flag pin
+          # (kubeflow's create_model) is a bool and takes no UUID.
           case "$pin_var" in
             model) vars+=(--var "model={uuid=\"00000000-0000-0000-0000-000000000000\"}") ;;
+            create_model) vars+=(--var "create_model=false") ;;
             *) vars+=(--var "$pin_var=00000000-0000-0000-0000-000000000000") ;;
           esac
         done <<< "$pins"
@@ -176,6 +179,16 @@ gallery-check: build-bin
         cd wrapper
         terraform init -backend=false -no-color >/dev/null
         terraform validate -no-color
+        # A module that stopped honouring `create_model` would ignore the
+        # model pin and create its own anyway, so the flag is what makes the
+        # pin mean anything. Assert the two arrived together rather than
+        # trusting that a present `model_uuid` was used.
+        if grep -qE "^[[:space:]]*create_model[[:space:]]*=" main.tf; then
+          if ! grep -qE "^[[:space:]]*model_uuid[[:space:]]*=" main.tf; then
+            echo "${name} took create_model but not model_uuid; the pin would not apply"
+            exit 1
+          fi
+        fi
         # A pin the module no longer declares is only a warning, so it would
         # validate cleanly while going unwritten and the published command
         # silently doing nothing. Require it to reach the wrapper.
