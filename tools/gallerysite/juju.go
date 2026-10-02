@@ -1,9 +1,15 @@
 package main
 
-// Juju-opinionated rendering of the gallery. The manifest, `internal/gallery`,
-// and the CLI stay provider-agnostic; this file is the one place that knows
-// Juju's idioms, so the site can offer commands that deploy into the model the
-// reader is already switched to. See ADR-0041.
+// Juju-opinionated rendering for the site's Juju page. The manifest,
+// `internal/gallery`, and the CLI stay provider-agnostic; this file is the one
+// place that knows Juju's idioms. See ADR-0041.
+//
+// A card's command is `ApplyCommand`, byte-identical to what `atelier gallery
+// list` prints and to the gallery page, so the page never shows a command the
+// CLI cannot produce. What Juju adds is offered as a collapsed variant under
+// each card rather than as the card's own command: pinning a model overrides a
+// module's default behaviour on some entries, and that should be a choice the
+// reader makes, not the default they are handed.
 
 import (
 	"fmt"
@@ -14,9 +20,9 @@ import (
 	"github.com/MichaelThamm/atelier/internal/gallery"
 )
 
-// jujuModels maps an entry to the `--var` argument pinning the deployment to the
-// reader's current model. Juju has no single convention for naming a model, and
-// which one a module uses is not derivable from the manifest:
+// jujuModels maps an entry to the `--var` argument that targets the reader's
+// current model. Juju has no single convention for naming a model, and which one
+// a module uses is not derivable from the manifest:
 //
 //   - `model_uuid` takes a UUID string (Loki, Mimir, Tempo, Charmed Spark,
 //     HAProxy).
@@ -25,8 +31,8 @@ import (
 //     quotes are escaped and the shell still expands the substitution.
 //   - `model` takes a model name (Charmarr).
 //
-// Each value is a complete shell-quoted token, so a card pastes as-is. Both
-// forms need `jq` on PATH.
+// Each value is a complete shell-quoted token, so it pastes as-is. All forms
+// need `jq` on PATH.
 var jujuModels = map[string]string{
 	"charmarr":        `model="$(juju show-model --format json | jq -r '.[]."short-name"')"`,
 	"charmarr-plus":   `model="$(juju show-model --format json | jq -r '.[]."short-name"')"`,
@@ -39,35 +45,49 @@ var jujuModels = map[string]string{
 	"tempo-operators": `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`,
 }
 
-// jujuValues gives a required input a value the reader's environment already
-// holds, so the command has no placeholder to fill in. A name absent here keeps
-// whatever the entry's own manifest declares.
+// jujuValues fills a placeholder with a value the reader's environment already
+// holds. A name absent here keeps whatever the manifest declares.
+//
+// The channel is `dev/edge` because loki, mimir and tempo validate that the
+// track is `dev/`; these modules reject `latest/stable`. The LGTM charms
+// publish no stable track yet.
 var jujuValues = map[string]string{
-	"channel":       "latest/stable",
+	"channel":       "dev/edge",
 	"s3_access_key": `"$AWS_ACCESS_KEY_ID"`,
 	"s3_secret_key": `"$AWS_SECRET_ACCESS_KEY"`,
 	"s3_endpoint":   `"$AWS_ENDPOINT_URL"`,
 }
 
-// jujuNotes flag an entry whose behaviour changes once the model is pinned, so
-// pinning it never reads as a no-op it is not.
-var jujuNotes = map[string]string{
-	"charmed-spark": "Pinning the model makes this module deploy into your current model instead of creating one.",
+// modelPin returns the entry's model pin and the variable carrying it.
+func modelPin(e gallery.Entry) (varName, value string, ok bool) {
+	v, ok := jujuModels[e.Name]
+	if !ok {
+		return "", "", false
+	}
+	name, _, _ := strings.Cut(v, "=")
+	return name, v, true
 }
 
-// jujuArgs builds the apply command for an entry with Juju idioms applied: the
-// model is always pinned to the current one, and each remaining placeholder
-// becomes a value the environment supplies. Inputs with neither keep the
-// manifest's own default or, failing that, their placeholder.
+// pinIsRequired reports whether the module already demands a model, leaving the
+// reader no choice. When false, pinning overrides what the module would have
+// done on its own — which is why it is offered rather than imposed.
+func pinIsRequired(e gallery.Entry) bool {
+	name, _, ok := modelPin(e)
+	return ok && slices.Contains(e.RequiresNames(), name)
+}
+
+// jujuArgs builds the variant command for an entry: the model is pinned to the
+// current one, and each remaining placeholder becomes a value the environment
+// supplies. An input with neither keeps the manifest's own default, or failing
+// that its placeholder.
 func jujuArgs(e gallery.Entry) []string {
-	model, hasModel := jujuModels[e.Name]
-	modelName, _, _ := strings.Cut(model, "=")
+	modelName, model, _ := modelPin(e)
 
 	args := []string{"atelier", "apply", e.Name}
 	for _, r := range e.Requires {
 		name, value, hasValue := strings.Cut(r, "=")
 		switch {
-		case hasModel && name == modelName:
+		case name == modelName && model != "":
 			args = append(args, "--var", model)
 		case !hasValue && jujuValues[name] != "":
 			args = append(args, "--var", name+"="+jujuValues[name])
@@ -77,22 +97,20 @@ func jujuArgs(e gallery.Entry) []string {
 			args = append(args, "--var", name+"="+value)
 		}
 	}
-	// Pin the model even when the manifest does not list it: a module may take
-	// it as an optional input, and the point of this page is the current model.
-	if hasModel && !slices.Contains(e.RequiresNames(), modelName) {
+	// Add the pin where the manifest does not already carry the variable.
+	if model != "" && !slices.Contains(e.RequiresNames(), modelName) {
 		args = append(args, "--var", model)
 	}
 	return args
 }
 
 // jujuCommand renders jujuArgs as a multi-line command, one `--var` per
-// continuation line, so a long card stays readable and copyable. Every line is
-// prefixed with indent, which keeps a card's command inside the list item the
-// four-space card indent establishes.
+// continuation line. Every line carries indent, which keeps a card's content
+// inside the list item the four-space card indent establishes.
 func jujuCommand(e gallery.Entry, indent string) string {
 	args := jujuArgs(e)
 	var b strings.Builder
-	b.WriteString(indent + args[0] + " " + args[1] + " " + args[2])
+	b.WriteString(indent + strings.Join(args[:3], " "))
 	for i := 3; i+1 < len(args); i += 2 {
 		b.WriteString(" \\\n" + indent + "  --var " + args[i+1])
 	}
@@ -104,36 +122,49 @@ func jujuCommand(e gallery.Entry, indent string) string {
 // covers: `atelier gallery lint` already checks the manifest's own inputs
 // against the module, so only a pin invented here can rot silently.
 func jujuOptionalVars(e gallery.Entry) []string {
-	model, ok := jujuModels[e.Name]
-	if !ok {
-		return nil
-	}
-	name, _, _ := strings.Cut(model, "=")
-	if slices.Contains(e.RequiresNames(), name) {
+	name, _, ok := modelPin(e)
+	if !ok || slices.Contains(e.RequiresNames(), name) {
 		return nil
 	}
 	return []string{name}
 }
 
-// renderJujuPage writes the Juju page: the prerequisites, the convention the
-// commands follow, and one Material grid card per entry.
+// jujuPlaceholders lists the inputs the variant command still leaves to the
+// reader, so it never implies it runs unattended when it does not.
+func jujuPlaceholders(e gallery.Entry) []string {
+	var out []string
+	for _, arg := range jujuArgs(e)[3:] {
+		if name, value, _ := strings.Cut(arg, "="); strings.HasPrefix(value, "<") {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// codeList renders names as a backticked, comma-separated list.
+func codeList(names []string) string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = "`" + n + "`"
+	}
+	return strings.Join(out, ", ")
+}
+
+// renderJujuPage writes the Juju page: the provider-specific conventions stated
+// once at the top, then one card per entry carrying the gallery's own command
+// and the Juju variant collapsed beneath it.
 func renderJujuPage(w io.Writer, entries []gallery.Entry) error {
 	var b strings.Builder
 	b.WriteString("# Juju modules\n\n")
-	b.WriteString("Every module below deploys with the [Juju provider](https://registry.terraform.io/providers/juju/juju/latest), " +
-		"so unlike the [gallery](gallery.md) — which stays provider-agnostic and leaves a " +
-		"placeholder for every value you must supply — the commands here are ready to run. " +
-		"Each one deploys into the model you are already switched to.\n\n")
+	b.WriteString("Every module in the [gallery](gallery.md) deploys with the " +
+		"[Juju provider](https://registry.terraform.io/providers/juju/juju/latest). " +
+		"The cards below are the gallery's own commands, identical to what " +
+		"`atelier gallery list` prints and to the gallery page. What Juju adds — " +
+		"resolving the model, S3 credentials, and a charm channel from your " +
+		"environment — is a variant under each card, collapsed so the two are " +
+		"never confused.\n\n")
 
-	b.WriteString("## Before you start\n\n")
-	b.WriteString("You need `juju` and `jq` on your `PATH`, a controller you can reach, and a current model:\n\n")
-	b.WriteString("```bash\njuju switch <your-model>   # the model to deploy into\n```\n\n")
-
-	b.WriteString("## What the commands assume\n\n")
-	b.WriteString("- **The model is your current one.** The model UUID is read at run time, so the same command works for every model you switch to.\n")
-	b.WriteString("- **S3 credentials come from the environment.** Set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_ENDPOINT_URL` for any S3-compatible store (Ceph, MinIO, OpenStack).\n")
-	b.WriteString("- **Charms deploy from `latest/stable`.** Change `--var channel` to `latest/edge` or a pinned track like `2/stable` to move off it.\n")
-	b.WriteString("- **Anything else is left to you.** A placeholder like `--var vpn_provider=<vpn_provider>` marks an input with no safe default; Atelier opens the editor on it.\n\n")
+	writeJujuBanner(&b, entries)
 
 	b.WriteString("<div class=\"grid cards\" markdown>\n\n")
 	for _, e := range entries {
@@ -145,7 +176,48 @@ func renderJujuPage(w io.Writer, entries []gallery.Entry) error {
 	return err
 }
 
-// writeJujuCard writes one entry as a card carrying its model pin and command.
+// writeJujuBanner states the Juju conventions once, so a card need not repeat
+// them. It says plainly which entries have no choice about the model and which
+// are choosing it for the reader.
+func writeJujuBanner(b *strings.Builder, entries []gallery.Entry) {
+	var required, chosen []string
+	for _, e := range entries {
+		if _, _, ok := modelPin(e); !ok {
+			continue
+		}
+		if pinIsRequired(e) {
+			required = append(required, e.Name)
+		} else {
+			chosen = append(chosen, e.Name)
+		}
+	}
+
+	b.WriteString("## Deploying into your current model\n\n")
+	b.WriteString("You need `juju` and `jq` on your `PATH`, and a model to deploy into:\n\n")
+	b.WriteString("```bash\njuju switch <your-model>\n```\n\n")
+	b.WriteString("A Juju module names its model in one of three ways, so the variant under each " +
+		"card is shaped for that module: a UUID in `model_uuid`, an object whose `uuid` selects " +
+		"an existing model, or a model *name*. The value is read at run time, so one command " +
+		"works for whichever model you have switched to.\n\n")
+
+	if len(required) > 0 {
+		fmt.Fprintf(b, "For %s the module demands a model, so the variant only fills in which one.\n\n",
+			codeList(required))
+	}
+	if len(chosen) > 0 {
+		fmt.Fprintf(b, "For %s the module would otherwise create its own model. The variant overrides "+
+			"that — useful when you want the workload in a model you already have, but it is a "+
+			"change, not a no-op.\n\n", codeList(chosen))
+	}
+
+	b.WriteString("The variants also fill two inputs from your environment:\n\n")
+	b.WriteString("- **S3 credentials** — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_ENDPOINT_URL`, for any S3-compatible store (Ceph, MinIO, OpenStack).\n")
+	b.WriteString("- **The charm channel** — `dev/edge`. Loki, Mimir and Tempo validate that the track is `dev/` and reject `latest/stable`; the LGTM charms publish no stable track yet.\n\n")
+	b.WriteString("Anything left as `<angle-brackets>` has no safe default and is yours to fill in.\n\n")
+}
+
+// writeJujuCard writes one entry: the gallery's own command, then the Juju
+// variant in a collapsed block.
 func writeJujuCard(b *strings.Builder, e gallery.Entry) {
 	fmt.Fprintf(b, "-   __%s__\n\n", e.Name)
 	b.WriteString("    ---\n\n")
@@ -167,34 +239,32 @@ func writeJujuCard(b *strings.Builder, e gallery.Entry) {
 	}
 	fmt.Fprintf(b, "    %s\n\n", strings.Join(meta, " · "))
 
-	if note, ok := jujuNotes[e.Name]; ok {
-		fmt.Fprintf(b, "    !!! note\n        %s\n\n", note)
+	// The card's own command is the manifest's derivation, unaltered.
+	fmt.Fprintf(b, "    ```bash\n    %s\n    ```\n\n", e.ApplyCommand())
+
+	writeJujuVariant(b, e)
+}
+
+// writeJujuVariant writes the collapsed Juju-specific command for a card.
+func writeJujuVariant(b *strings.Builder, e gallery.Entry) {
+	if _, _, ok := modelPin(e); !ok {
+		return
 	}
 
+	label := "Deploy into your current model"
+	if !pinIsRequired(e) {
+		label += " (instead of creating one)"
+	}
+	// An admonition rather than raw <details>: raw HTML inside a card's list
+	// item is wrapped in a <p>, which closes the element early and leaks the
+	// body onto the page.
+	fmt.Fprintf(b, "    ??? \"%s\"\n\n", label)
+
+	if !pinIsRequired(e) {
+		b.WriteString("        This overrides the module's own default; it is not a no-op.\n\n")
+	}
 	if placeholders := jujuPlaceholders(e); len(placeholders) > 0 {
-		fmt.Fprintf(b, "    You supply %s.\n\n", codeList(placeholders))
+		fmt.Fprintf(b, "        You still supply %s.\n\n", codeList(placeholders))
 	}
-
-	fmt.Fprintf(b, "    ```bash\n%s\n    ```\n\n", jujuCommand(e, "    "))
-}
-
-// jujuPlaceholders lists the inputs the command still leaves to the reader, so
-// a card never implies it runs unattended when it does not.
-func jujuPlaceholders(e gallery.Entry) []string {
-	var out []string
-	for _, arg := range jujuArgs(e)[3:] {
-		if name, value, _ := strings.Cut(arg, "="); strings.HasPrefix(value, "<") {
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
-// codeList renders names as a backticked, comma-separated list.
-func codeList(names []string) string {
-	out := make([]string, len(names))
-	for i, n := range names {
-		out[i] = "`" + n + "`"
-	}
-	return strings.Join(out, ", ")
+	fmt.Fprintf(b, "        ```bash\n%s\n        ```\n\n", jujuCommand(e, "        "))
 }

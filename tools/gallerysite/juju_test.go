@@ -28,7 +28,7 @@ func TestJujuArgs_modelShapePerEntry(t *testing.T) {
 			e:    gallery.Entry{Name: "loki-operators", Requires: []string{"model_uuid", "channel"}},
 			want: []string{"atelier", "apply", "loki-operators",
 				"--var", uuidVar,
-				"--var", "channel=latest/stable"},
+				"--var", "channel=dev/edge"},
 		},
 		{
 			// The manifest says nothing about the model; the pin is added.
@@ -160,13 +160,65 @@ func TestJujuCommand_indentsEveryLine(t *testing.T) {
 	}
 }
 
-func TestRenderJujuPage(t *testing.T) {
+// A card must show the manifest's own command, so the site never displays a
+// command `atelier gallery list` would not print.
+func TestJujuCard_showsTheGalleryCommand(t *testing.T) {
+	var b strings.Builder
+	e := gallery.Entry{
+		Name:        "charmarr",
+		Description: "Charmarr.",
+		Module:      "https://github.com/charmarr/charmarr",
+		Ref:         "e01391758b45e50a1b018154490bec1b99636434",
+		Requires:    []string{"model", "vpn_provider"},
+	}
+	writeJujuCard(&b, e)
+	got := b.String()
+
+	if want := "atelier apply charmarr --var model=<model> --var vpn_provider=<vpn_provider>"; !strings.Contains(got, want) {
+		t.Errorf("card must carry the gallery's own command %q\n\n%s", want, got)
+	}
+	// The Juju variant is present but collapsed and labelled as such. An
+	// admonition renders as <details>; raw <details> inside a card's list item
+	// is wrapped in a <p>, which closes the element early.
+	if !strings.Contains(got, "??? \"Deploy into your current model\"") {
+		t.Errorf("the variant must be a collapsed, labelled block\n\n%s", got)
+	}
+	if strings.Contains(got, "<details>") {
+		t.Errorf("raw <details> leaks onto the page; use an admonition\n\n%s", got)
+	}
+}
+
+// Pinning a model that the module would have created is a change in behaviour,
+// so the card says so rather than presenting it as equivalent.
+func TestJujuCard_flagsAChangeInBehaviour(t *testing.T) {
+	var b strings.Builder
+	writeJujuCard(&b, gallery.Entry{Name: "cos-lite", Module: "https://x/y", Ref: "abc"})
+	got := b.String()
+	if !strings.Contains(got, "instead of creating one") {
+		t.Errorf("cos-lite's pin overrides its default; the card must say so\n\n%s", got)
+	}
+	if !strings.Contains(got, "not a no-op") {
+		t.Errorf("the override must be stated inside the collapsed block\n\n%s", got)
+	}
+
+	b.Reset()
+	writeJujuCard(&b, gallery.Entry{Name: "loki-operators", Module: "https://x/y", Ref: "abc",
+		Requires: []string{"model_uuid"}})
+	got = b.String()
+	// A required model leaves no choice, so the variant must not claim to change
+	// anything, and must not offer to create one.
+	if strings.Contains(got, "not a no-op") || strings.Contains(got, "instead of creating one") {
+		t.Errorf("a required model is not a behaviour change; the card overstates it\n\n%s", got)
+	}
+}
+
+// The banner states the Juju conventions once, and is explicit about which
+// entries have no choice about the model.
+func TestRenderJujuPage_bannerStatesConventionsOnce(t *testing.T) {
 	var b strings.Builder
 	entries := []gallery.Entry{
-		{Name: "cos-lite", Description: "COS Lite.", Module: "https://github.com/canonical/observability-stack",
-			Subdir: "terraform/cos-lite", Ref: "d1598ff3bdf9a25af69145fd557a913e2a13a314"},
-		{Name: "charmed-spark", Description: "Charmed Spark.", Module: "https://github.com/canonical/spark-k8s-bundle",
-			Ref: "6a39d83883f92e0581f5c94144c6ddee2a16e140"},
+		{Name: "loki-operators", Module: "https://x/y", Ref: "abc", Requires: []string{"model_uuid"}},
+		{Name: "cos-lite", Module: "https://x/y", Ref: "abc"},
 	}
 	if err := renderJujuPage(&b, entries); err != nil {
 		t.Fatal(err)
@@ -175,14 +227,13 @@ func TestRenderJujuPage(t *testing.T) {
 
 	for _, want := range []string{
 		"# Juju modules",
-		`<div class="grid cards" markdown>`,
-		// The page states its prerequisites, since the commands need both tools.
+		"## Deploying into your current model",
 		"You need `juju` and `jq` on your `PATH`",
-		"-   __cos-lite__",
-		"atelier apply cos-lite",
-		// A behaviour change is called out rather than left to surprise.
-		"!!! note",
-		"instead of creating one",
+		"For `loki-operators` the module demands a model",
+		"For `cos-lite` the module would otherwise create its own model",
+		"`AWS_ENDPOINT_URL`",
+		"dev/edge",
+		`<div class="grid cards" markdown>`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered page missing %q\n\n%s", want, got)
@@ -191,5 +242,19 @@ func TestRenderJujuPage(t *testing.T) {
 	// The agnostic page is linked, not duplicated: the two pages coexist.
 	if !strings.Contains(got, "(gallery.md)") {
 		t.Error("the Juju page should link the provider-agnostic gallery")
+	}
+}
+
+// Every shipped entry gets a variant, or the page is inconsistent about which
+// cards can deploy into an existing model.
+func TestJujuCard_everyShippedEntryHasAVariant(t *testing.T) {
+	entries, err := gallery.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if _, _, ok := modelPin(e); !ok {
+			t.Errorf("entry %q has no Juju model variant", e.Name)
+		}
 	}
 }
