@@ -75,7 +75,7 @@ Usage:
   atelier wrappers [PATH]                      List the wrappers directly under PATH (default: the
                                                current directory): each child directory holding a
                                                main.tf or .atelier/, with the modules it declares.
-                                               Read-only, one level only (ADR-0036).
+                                               Read-only and one level only.
   atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--as NAME]
                                 [--dir PATH] [--var-file PATH|NAME]
                                 [--var KEY=VALUE] [--list-var-files]

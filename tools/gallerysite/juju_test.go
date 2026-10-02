@@ -29,7 +29,7 @@ func TestJujuArgs_modelShapePerEntry(t *testing.T) {
 			e:    gallery.Entry{Name: "loki-operators", Requires: []string{"model_uuid", "channel"}},
 			want: []string{"atelier", "apply", "loki-operators",
 				"--var", uuidVar,
-				"--var", "channel=dev/edge"},
+				"--var", "channel=<channel>"},
 		},
 		{
 			// The manifest says nothing about the model; the pin is added.
@@ -55,9 +55,9 @@ func TestJujuArgs_modelShapePerEntry(t *testing.T) {
 			name: "s3 credentials come from the environment",
 			e:    gallery.Entry{Name: "cos", Requires: []string{"s3_access_key", "s3_secret_key", "s3_endpoint"}},
 			want: []string{"atelier", "apply", "cos",
-				"--var", `s3_access_key="$AWS_ACCESS_KEY_ID"`,
-				"--var", `s3_secret_key="$AWS_SECRET_ACCESS_KEY"`,
-				"--var", `s3_endpoint="$AWS_ENDPOINT_URL"`,
+				"--var", `s3_access_key="$S3_ACCESS_KEY"`,
+				"--var", `s3_secret_key="$S3_SECRET_KEY"`,
+				"--var", `s3_endpoint="$S3_ENDPOINT"`,
 				"--var", modelObj},
 		},
 		{
@@ -255,10 +255,9 @@ func TestRenderJujuPage_bannerStatesConventionsOnce(t *testing.T) {
 		"# Juju modules",
 		"## Deploying into your current model",
 		"You need `juju` and `jq` on your `PATH`",
-		"For `loki-operators` the module demands a model",
-		"For `cos-lite` the module would otherwise create its own model",
-		"`AWS_ENDPOINT_URL`",
-		"dev/edge",
+		"On 1 of these the module demands a model",
+		"On 1 the module would otherwise create its own model",
+		"`S3_ENDPOINT`",
 		`<div class="grid cards" markdown>`,
 	} {
 		if !strings.Contains(got, want) {

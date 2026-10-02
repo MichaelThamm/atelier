@@ -88,14 +88,15 @@ func createsOwnModel(e gallery.Entry) bool {
 // jujuValues fills a placeholder with a value the reader's environment already
 // holds. A name absent here keeps whatever the manifest declares.
 //
-// The channel is `dev/edge` because loki, mimir and tempo validate that the
-// track is `dev/`; these modules reject `latest/stable`. The LGTM charms
-// publish no stable track yet.
+// The names are deliberately S3_* rather than the AWS_* names the AWS SDK
+// happens to use: nothing here is AWS-specific, and these modules talk to any
+// S3-compatible store. A charm channel is equally module-specific — a track is
+// valid or not per module — so it keeps its placeholder rather than being
+// guessed at.
 var jujuValues = map[string]string{
-	"channel":       "dev/edge",
-	"s3_access_key": `"$AWS_ACCESS_KEY_ID"`,
-	"s3_secret_key": `"$AWS_SECRET_ACCESS_KEY"`,
-	"s3_endpoint":   `"$AWS_ENDPOINT_URL"`,
+	"s3_access_key": `"$S3_ACCESS_KEY"`,
+	"s3_secret_key": `"$S3_SECRET_KEY"`,
+	"s3_endpoint":   `"$S3_ENDPOINT"`,
 }
 
 // pinVar returns the variable a pin token sets.
@@ -212,13 +213,11 @@ func codeList(names []string) string {
 func renderJujuPage(w io.Writer, entries []gallery.Entry) error {
 	var b strings.Builder
 	b.WriteString("# Juju modules\n\n")
-	b.WriteString("Every module in the [gallery](gallery.md) deploys with the " +
-		"[Juju provider](https://registry.terraform.io/providers/juju/juju/latest). " +
-		"The cards below are the gallery's own commands, identical to what " +
-		"`atelier gallery list` prints and to the gallery page. What Juju adds — " +
-		"resolving the model, S3 credentials, and a charm channel from your " +
-		"environment — is a variant under each card, collapsed so the two are " +
-		"never confused.\n\n")
+	b.WriteString("Gallery entries that deploy with the " +
+		"[Juju provider](https://registry.terraform.io/providers/juju/juju/latest) " +
+		"take their model and S3 credentials from your environment. Each card shows " +
+		"the command from the [gallery](gallery.md); the collapsed variant below it " +
+		"resolves the model you have switched to.\n\n")
 
 	writeJujuBanner(&b, entries)
 
@@ -252,19 +251,20 @@ func writeJujuBanner(b *strings.Builder, entries []gallery.Entry) {
 	b.WriteString("## Deploying into your current model\n\n")
 	b.WriteString("You need `juju` and `jq` on your `PATH`, and a model to deploy into:\n\n")
 	b.WriteString("```bash\njuju switch <your-model>\n```\n\n")
-	b.WriteString("A Juju module names its model in one of three ways, so the variant under each " +
-		"card is shaped for that module: a UUID in `model_uuid`, an object whose `uuid` selects " +
-		"an existing model, or a model *name*. The value is read at run time, so one command " +
-		"works for whichever model you have switched to.\n\n")
+	b.WriteString("Juju modules name their model in one of three ways — a UUID in `model_uuid`, " +
+		"an object whose `uuid` selects a model, or a model *name* — so the variant " +
+		"under each card is shaped for that module.\n\n")
 
+	// Counts, not name lists: as the gallery grows these two groups reach
+	// fifteen and seven entries, and a card already states its own case in the
+	// variant's label. Naming them here was redundant and stopped being readable.
 	if len(required) > 0 {
-		fmt.Fprintf(b, "For %s the module demands a model, so the variant only fills in which one.\n\n",
-			codeList(required))
+		fmt.Fprintf(b, "On %d of these the module demands a model, so the variant only fills in "+
+			"which one.\n\n", len(required))
 	}
 	if len(chosen) > 0 {
-		fmt.Fprintf(b, "For %s the module would otherwise create its own model. The variant overrides "+
-			"that — useful when you want the workload in a model you already have, but it is a "+
-			"change, not a no-op.\n\n", codeList(chosen))
+		fmt.Fprintf(b, "On %d the module would otherwise create its own model. The variant "+
+			"overrides that — a change, not a no-op.\n\n", len(chosen))
 	}
 	if len(own) > 0 {
 		b.WriteString("These entries have no variant:\n\n")
@@ -274,10 +274,8 @@ func writeJujuBanner(b *strings.Builder, entries []gallery.Entry) {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("The variants also fill two inputs from your environment:\n\n")
-	b.WriteString("- **S3 credentials** — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_ENDPOINT_URL`, for any S3-compatible store (Ceph, MinIO, OpenStack).\n")
-	b.WriteString("- **The charm channel** — `dev/edge`. Loki, Mimir and Tempo validate that the track is `dev/` and reject `latest/stable`; the LGTM charms publish no stable track yet.\n\n")
-	b.WriteString("Anything left as `<angle-brackets>` has no safe default and is yours to fill in.\n\n")
+	b.WriteString("Variants also read `S3_ACCESS_KEY`, `S3_SECRET_KEY`, and `S3_ENDPOINT` from " +
+		"your environment. Anything left as `<angle-brackets>` is yours to fill in.\n\n")
 }
 
 // writeJujuCard writes one entry: the gallery's own command, then the Juju
