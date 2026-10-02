@@ -16,6 +16,8 @@ import (
 
 func main() {
 	out := flag.String("o", "", "write the page to this file instead of stdout")
+	page := flag.String("page", "gallery", "which page to render: gallery or juju")
+	optionalVars := flag.String("optional-vars", "", "print the Juju model pin each entry passes beyond its manifest requires, one `name var` per line")
 	flag.Parse()
 
 	entries, err := gallery.List()
@@ -23,8 +25,22 @@ func main() {
 		fatal(err)
 	}
 
+	if *optionalVars != "" {
+		printOptionalVars(entries)
+		return
+	}
+
+	renderPage := render
+	switch *page {
+	case "gallery":
+	case "juju":
+		renderPage = renderJujuPage
+	default:
+		fatal(fmt.Errorf("unknown page %q; want gallery or juju", *page))
+	}
+
 	if *out == "" {
-		if err := render(os.Stdout, entries); err != nil {
+		if err := renderPage(os.Stdout, entries); err != nil {
 			fatal(err)
 		}
 		return
@@ -33,12 +49,22 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	if err := render(f, entries); err != nil {
+	if err := renderPage(f, entries); err != nil {
 		f.Close()
 		fatal(err)
 	}
 	if err := f.Close(); err != nil {
 		fatal(err)
+	}
+}
+
+// printOptionalVars reports the model pins the Juju page invents, for
+// `just gallery-check` to assert against each module.
+func printOptionalVars(entries []gallery.Entry) {
+	for _, e := range entries {
+		for _, v := range jujuOptionalVars(e) {
+			fmt.Println(e.Name + " " + v)
+		}
 	}
 }
 
