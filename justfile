@@ -161,10 +161,13 @@ gallery-check: build-bin
         while read -r pin_name pin_var; do
           [ -n "${pin_name:-}" ] || continue
           [ "$pin_name" = "$name" ] || continue
-          # An object-valued pin (cos, cos-lite) has to arrive as `{uuid="…"}`
-          # or the module rejects it and the pin is never exercised.
+          # A pin's value has to fit the variable it sets. An object-valued
+          # model pin (cos, cos-lite) has to arrive as `{uuid="…"}` or the
+          # module rejects it and the pin is never exercised; a flag pin
+          # (kubeflow's create_model) is a bool and takes no UUID.
           case "$pin_var" in
             model) vars+=(--var "model={uuid=\"00000000-0000-0000-0000-000000000000\"}") ;;
+            create_model) vars+=(--var "create_model=false") ;;
             *) vars+=(--var "$pin_var=00000000-0000-0000-0000-000000000000") ;;
           esac
         done <<< "$pins"

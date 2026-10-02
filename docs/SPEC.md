@@ -568,7 +568,11 @@ and a gallery entry *composes* zero or more presets as its default scenario
   because it is an opinion: Juju has no single convention for naming a model
   (`model_uuid` takes a UUID, `model` an object whose `uuid` selects an existing
   model, or a model name), and on some modules pinning it overrides what the
-  module would otherwise do.
+  module would otherwise do. An entry may need more than one pin to make the
+  model pin apply — Charmed Kubeflow reads `model_uuid` only when
+  `create_model` is false — and a module that always creates its own model, with
+  no input that targets an existing one, gets a card that says so instead of a
+  variant ([ADR-0042](adr/0042-juju-page-pins-and-own-model.md)).
 - A gallery entry's **name** may be given to `atelier add` / `atelier
   apply` in place of a URL. It expands to the entry's module, ref, block, and
   composed presets; an explicit `--ref`, `--module`, `--as`, or `--var-file` still

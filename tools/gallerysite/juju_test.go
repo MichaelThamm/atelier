@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -87,16 +88,41 @@ func TestJujuArgs_modelShapePerEntry(t *testing.T) {
 	}
 }
 
-// Every shipped entry must be pin-able: a page whose commands are the point
-// cannot carry an entry that silently deploys somewhere else.
+// Every shipped entry must be either pin-able or declared own-model: a page
+// whose commands are the point cannot carry an entry that silently deploys
+// somewhere else, nor one that quietly has no variant.
 func TestJujuModels_coverEveryShippedEntry(t *testing.T) {
 	entries, err := gallery.List()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if _, ok := jujuModels[e.Name]; !ok {
-			t.Errorf("entry %q has no Juju model pin", e.Name)
+		_, pinned := jujuModels[e.Name]
+		if !pinned && !createsOwnModel(e) {
+			t.Errorf("entry %q has no Juju model pin and is not declared own-model", e.Name)
+		}
+	}
+}
+
+// An entry in both sets would be ambiguous: the page would offer a variant for a
+// module that cannot honour one.
+func TestJujuModels_disjointFromOwnModel(t *testing.T) {
+	entries, err := gallery.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if _, both := jujuModels[e.Name]; both && createsOwnModel(e) {
+			t.Errorf("entry %q is both pinned and declared own-model", e.Name)
+		}
+	}
+}
+
+// Every own-model entry must say why, since the card shows the reason.
+func TestJujuOwnModel_statesAReason(t *testing.T) {
+	for name, reason := range jujuOwnModel {
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("own-model entry %q has no reason", name)
 		}
 	}
 }
@@ -245,16 +271,70 @@ func TestRenderJujuPage_bannerStatesConventionsOnce(t *testing.T) {
 	}
 }
 
-// Every shipped entry gets a variant, or the page is inconsistent about which
-// cards can deploy into an existing model.
-func TestJujuCard_everyShippedEntryHasAVariant(t *testing.T) {
+// Every shipped entry either gets a variant or states that its module always
+// creates its own model, so the page is never silent about which cards can
+// deploy into an existing model.
+func TestJujuCard_everyShippedEntryIsAccountedFor(t *testing.T) {
 	entries, err := gallery.List()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if _, _, ok := modelPin(e); !ok {
-			t.Errorf("entry %q has no Juju model variant", e.Name)
+		var b strings.Builder
+		writeJujuCard(&b, e)
+		card := b.String()
+		hasVariant := strings.Contains(card, "??? ")
+		statesOwnModel := strings.Contains(card, "No variant: ")
+		if !hasVariant && !statesOwnModel {
+			t.Errorf("entry %q has neither a Juju variant nor an own-model note", e.Name)
 		}
+		if hasVariant && statesOwnModel {
+			t.Errorf("entry %q has both a variant and an own-model note", e.Name)
+		}
+		// A variant that pins nothing offers no model choice, so it would
+		// render as an empty block under a heading that promises one.
+		if hasVariant && !strings.Contains(card, "--var") {
+			t.Errorf("entry %q has a Juju variant that pins nothing", e.Name)
+		}
+	}
+}
+
+// A model the module would create anyway is not a pin: the variant must also
+// carry the flag that stops it, or it deploys into a model the reader did not
+// ask for.
+func TestJujuArgs_carriesTheFlagThatStopsModelCreation(t *testing.T) {
+	cases := []struct {
+		entry string
+		want  []string
+	}{
+		{"kubeflow", []string{`create_model=false`, uuidVar}},
+		{"kubeflow-iam", []string{
+			`create_model=false`,
+			uuidVar,
+			`iam_core_model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`,
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.entry, func(t *testing.T) {
+			args := jujuArgs(gallery.Entry{Name: c.entry})
+			if !slices.ContainsFunc(args, func(a string) bool { return a == `create_model=false` }) {
+				t.Errorf("jujuArgs(%q) = %q, missing the pin that stops model creation", c.entry, args)
+			}
+			for _, want := range c.want[1:] {
+				if !slices.Contains(args, want) {
+					t.Errorf("jujuArgs(%q) = %q, missing the pin %q", c.entry, args, want)
+				}
+			}
+		})
+	}
+}
+
+// A flag pin is not a model, but it is still a pin the gate must cover: it is
+// what makes the model pin take effect, so it has to reach the wrapper.
+func TestJujuOptionalVars_includesNonModelPins(t *testing.T) {
+	got := jujuOptionalVars(gallery.Entry{Name: "kubeflow"})
+	want := []string{"create_model", "model_uuid"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("jujuOptionalVars(kubeflow) = %q, want %q", got, want)
 	}
 }

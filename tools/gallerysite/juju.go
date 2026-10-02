@@ -20,29 +20,69 @@ import (
 	"github.com/MichaelThamm/atelier/internal/gallery"
 )
 
-// jujuModels maps an entry to the `--var` argument that targets the reader's
+// jujuModels maps an entry to the `--var` arguments that target the reader's
 // current model. Juju has no single convention for naming a model, and which one
 // a module uses is not derivable from the manifest:
 //
 //   - `model_uuid` takes a UUID string (Loki, Mimir, Tempo, Charmed Spark,
-//     HAProxy).
+//     HAProxy, NetBox, Superset, and most of the product modules).
 //   - `model` takes an object whose `uuid` selects an existing model (COS,
 //     COS Lite). The value must reach Terraform as `{uuid="…"}`, so the inner
 //     quotes are escaped and the shell still expands the substitution.
-//   - `model` takes a model name (Charmarr).
+//   - `model` takes a UUID string (Authentik, GitHub runner).
+//   - `model` takes a model name (Charmarr), as does `model_name` (Trino).
+//
+// An entry carries more than one pin where the model cannot be targeted without
+// also changing how the module behaves: Kubeflow only reads `model_uuid` when
+// `create_model` is false, so pinning one and not the other deploys into a
+// model the module made anyway.
 //
 // Each value is a complete shell-quoted token, so it pastes as-is. All forms
 // need `jq` on PATH.
-var jujuModels = map[string]string{
-	"charmarr":        `model="$(juju show-model --format json | jq -r '.[]."short-name"')"`,
-	"charmarr-plus":   `model="$(juju show-model --format json | jq -r '.[]."short-name"')"`,
-	"charmed-spark":   `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`,
-	"cos":             `model={uuid=\"$(juju show-model --format json | jq -r '.[]."model-uuid"')\"}`,
-	"cos-lite":        `model={uuid=\"$(juju show-model --format json | jq -r '.[]."model-uuid"')\"}`,
-	"haproxy-product": `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`,
-	"loki-operators":  `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`,
-	"mimir-operators": `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`,
-	"tempo-operators": `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`,
+var jujuModels = map[string][]string{
+	"airbyte":         {modelUUIDPin},
+	"authentik":       {`model="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`},
+	"bingo":           {modelUUIDPin},
+	"charmarr":        {modelNamePin},
+	"charmarr-plus":   {modelNamePin},
+	"charmed-spark":   {modelUUIDPin},
+	"cos":             {modelObjectPin},
+	"cos-lite":        {modelObjectPin},
+	"datahub":         {`k8s_model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`},
+	"github-runner":   {`model="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`},
+	"haproxy-product": {modelUUIDPin},
+	"hrms":            {modelUUIDPin},
+	"kubeflow":        {`create_model=false`, modelUUIDPin},
+	"kubeflow-iam":    {`create_model=false`, modelUUIDPin, `iam_core_model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`},
+	"loki-operators":  {modelUUIDPin},
+	"mimir-operators": {modelUUIDPin},
+	"netbox":          {modelUUIDPin},
+	"saml-integrator": {modelUUIDPin},
+	"superset":        {modelUUIDPin},
+	"tempo-operators": {modelUUIDPin},
+	"trino":           {`model_name="$(juju show-model --format json | jq -r '.[]."short-name"')"`},
+}
+
+// The three model shapes, named for the variable that carries them. A pin is a
+// complete `--var` token, so a module calling its variable `model` or
+// `model_name` spells its own rather than reusing these.
+const (
+	modelUUIDPin   = `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`
+	modelNamePin   = `model="$(juju show-model --format json | jq -r '.[]."short-name"')"`
+	modelObjectPin = `model={uuid=\"$(juju show-model --format json | jq -r '.[]."model-uuid"')\"}`
+)
+
+// jujuOwnModel names the entries whose module creates its Juju model
+// unconditionally, mapping each to why there is nothing to pin. The page states
+// the reason rather than inventing a variant.
+var jujuOwnModel = map[string]string{
+	"indico": "its product module always creates a Juju model, and declares no input that targets an existing one",
+}
+
+// createsOwnModel reports whether the entry's module always creates its model.
+func createsOwnModel(e gallery.Entry) bool {
+	_, ok := jujuOwnModel[e.Name]
+	return ok
 }
 
 // jujuValues fills a placeholder with a value the reader's environment already
@@ -58,22 +98,32 @@ var jujuValues = map[string]string{
 	"s3_endpoint":   `"$AWS_ENDPOINT_URL"`,
 }
 
-// modelPin returns the entry's model pin and the variable carrying it.
-func modelPin(e gallery.Entry) (varName, value string, ok bool) {
-	v, ok := jujuModels[e.Name]
-	if !ok {
-		return "", "", false
+// pinVar returns the variable a pin token sets.
+func pinVar(pin string) string {
+	name, _, _ := strings.Cut(pin, "=")
+	return name
+}
+
+// pinFor returns the pin setting the named variable, if the entry has one.
+func pinFor(e gallery.Entry, name string) (string, bool) {
+	for _, p := range jujuModels[e.Name] {
+		if pinVar(p) == name {
+			return p, true
+		}
 	}
-	name, _, _ := strings.Cut(v, "=")
-	return name, v, true
+	return "", false
 }
 
 // pinIsRequired reports whether the module already demands a model, leaving the
 // reader no choice. When false, pinning overrides what the module would have
 // done on its own — which is why it is offered rather than imposed.
 func pinIsRequired(e gallery.Entry) bool {
-	name, _, ok := modelPin(e)
-	return ok && slices.Contains(e.RequiresNames(), name)
+	for _, r := range e.RequiresNames() {
+		if _, ok := pinFor(e, r); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // jujuArgs builds the variant command for an entry: the model is pinned to the
@@ -81,14 +131,16 @@ func pinIsRequired(e gallery.Entry) bool {
 // supplies. An input with neither keeps the manifest's own default, or failing
 // that its placeholder.
 func jujuArgs(e gallery.Entry) []string {
-	modelName, model, _ := modelPin(e)
+	pins := jujuModels[e.Name]
 
 	args := []string{"atelier", "apply", e.Name}
 	for _, r := range e.Requires {
 		name, value, hasValue := strings.Cut(r, "=")
+		if pin, ok := pinFor(e, name); ok {
+			args = append(args, "--var", pin)
+			continue
+		}
 		switch {
-		case name == modelName && model != "":
-			args = append(args, "--var", model)
 		case !hasValue && jujuValues[name] != "":
 			args = append(args, "--var", name+"="+jujuValues[name])
 		case !hasValue:
@@ -97,9 +149,11 @@ func jujuArgs(e gallery.Entry) []string {
 			args = append(args, "--var", name+"="+value)
 		}
 	}
-	// Add the pin where the manifest does not already carry the variable.
-	if model != "" && !slices.Contains(e.RequiresNames(), modelName) {
-		args = append(args, "--var", model)
+	// Add the pins the manifest does not already carry.
+	for _, p := range pins {
+		if !slices.Contains(e.RequiresNames(), pinVar(p)) {
+			args = append(args, "--var", p)
+		}
 	}
 	return args
 }
@@ -122,11 +176,13 @@ func jujuCommand(e gallery.Entry, indent string) string {
 // covers: `atelier gallery lint` already checks the manifest's own inputs
 // against the module, so only a pin invented here can rot silently.
 func jujuOptionalVars(e gallery.Entry) []string {
-	name, _, ok := modelPin(e)
-	if !ok || slices.Contains(e.RequiresNames(), name) {
-		return nil
+	var out []string
+	for _, p := range jujuModels[e.Name] {
+		if n := pinVar(p); !slices.Contains(e.RequiresNames(), n) {
+			out = append(out, n)
+		}
 	}
-	return []string{name}
+	return out
 }
 
 // jujuPlaceholders lists the inputs the variant command still leaves to the
@@ -180,9 +236,10 @@ func renderJujuPage(w io.Writer, entries []gallery.Entry) error {
 // them. It says plainly which entries have no choice about the model and which
 // are choosing it for the reader.
 func writeJujuBanner(b *strings.Builder, entries []gallery.Entry) {
-	var required, chosen []string
+	var required, chosen, own []string
 	for _, e := range entries {
-		if _, _, ok := modelPin(e); !ok {
+		if createsOwnModel(e) {
+			own = append(own, e.Name)
 			continue
 		}
 		if pinIsRequired(e) {
@@ -208,6 +265,13 @@ func writeJujuBanner(b *strings.Builder, entries []gallery.Entry) {
 		fmt.Fprintf(b, "For %s the module would otherwise create its own model. The variant overrides "+
 			"that — useful when you want the workload in a model you already have, but it is a "+
 			"change, not a no-op.\n\n", codeList(chosen))
+	}
+	if len(own) > 0 {
+		b.WriteString("These entries have no variant:\n\n")
+		for _, n := range own {
+			fmt.Fprintf(b, "-   `%s` — %s\n", n, jujuOwnModel[n])
+		}
+		b.WriteString("\n")
 	}
 
 	b.WriteString("The variants also fill two inputs from your environment:\n\n")
@@ -242,12 +306,19 @@ func writeJujuCard(b *strings.Builder, e gallery.Entry) {
 	// The card's own command is the manifest's derivation, unaltered.
 	fmt.Fprintf(b, "    ```bash\n    %s\n    ```\n\n", e.ApplyCommand())
 
+	if createsOwnModel(e) {
+		fmt.Fprintf(b, "    No variant: %s.\n\n", jujuOwnModel[e.Name])
+		return
+	}
+
 	writeJujuVariant(b, e)
 }
 
 // writeJujuVariant writes the collapsed Juju-specific command for a card.
 func writeJujuVariant(b *strings.Builder, e gallery.Entry) {
-	if _, _, ok := modelPin(e); !ok {
+	// An entry with no pin has no variant to offer. Reaching here without one
+	// would render an empty "Deploy into your current model" block.
+	if len(jujuModels[e.Name]) == 0 {
 		return
 	}
 
