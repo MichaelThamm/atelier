@@ -53,7 +53,7 @@
     "module": "https://github.com/canonical/loki-operators",
     "subdir": "terraform",
     "ref": "918cd150255446faf65b26d0ee1d3a894045df94",
-    "requires": ["channel", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
+    "requires": ["channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
   },
   {
     "name": "mimir-operators",
@@ -61,7 +61,7 @@
     "module": "https://github.com/canonical/mimir-operators",
     "subdir": "terraform",
     "ref": "be8a7017f51d036ad7fef1bb78b1af59a9d61877",
-    "requires": ["channel", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
+    "requires": ["channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
   },
   {
     "name": "tempo-operators",
@@ -69,6 +69,6 @@
     "module": "https://github.com/canonical/tempo-operators",
     "subdir": "terraform",
     "ref": "b69711084f6b754d4b3eb783a687c596bc134293",
-    "requires": ["channel", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
+    "requires": ["channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
   }
 ]
