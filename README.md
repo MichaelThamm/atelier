@@ -132,7 +132,7 @@ ref, plan, and apply target to whichever one you are on, so a multi-module
 wrapper is edited as one document. Modules are ordinary Terraform blocks, so
 wire one module's output into another's input the way you would by hand —
 `greeting = module.cos_lite.greeting`. See
-[ADR-0042](docs/adr/0042-dir-names-the-wrapper.md).
+[ADR-0044](docs/adr/0044-dir-names-the-wrapper.md).
 
 ### Just apply it
 

@@ -369,7 +369,7 @@ func wrapperDirWithMainTF(t *testing.T, path string) string {
 }
 
 // TestExistingWrapperTarget covers the rule that makes composition reachable
-// again (ADR-0042): a target holding a main.tf is the additive case for both
+// again (ADR-0044): a target holding a main.tf is the additive case for both
 // `add` and `apply`, named by --dir or implied by the CWD.
 func TestExistingWrapperTarget(t *testing.T) {
 	base := t.TempDir()

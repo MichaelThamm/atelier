@@ -363,7 +363,7 @@ adding modules:
   — and scaffolds a fresh wrapper there, so `atelier add` no longer requires a
   hand-made `mkdir && cd`. `--dir` names *which* wrapper to compose into, so a
   multi-module deployment is built one `add` per module without entering the
-  wrapper between steps ([ADR-0042](adr/0042-dir-names-the-wrapper.md)).
+  wrapper between steps ([ADR-0044](adr/0044-dir-names-the-wrapper.md)).
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
 - Accepts a gallery entry name (§6.8) in place of a URL: the name expands to the
@@ -440,7 +440,7 @@ directory (`--dir`/`--as`, or the candidate-derived name), a non-empty target is
 refused rather than scaffolded over (§6.9).
 
 `atelier add` and `atelier apply` inspect the same target — `--dir` when given,
-else the CWD ([ADR-0042](adr/0042-dir-names-the-wrapper.md)). `atelier add`
+else the CWD ([ADR-0044](adr/0044-dir-names-the-wrapper.md)). `atelier add`
 asks; `atelier apply` prints without asking, because it rejects `--yes` and
 Terraform's plan prompt is its confirmation (§6.9).
 
@@ -630,7 +630,7 @@ atelier apply https://github.com/canonical/observability-stack.git \
 The target — `--dir`, else the current directory — decides the shape of the
 run. **A target that already holds a `main.tf` composes**: the module block is
 appended to that wrapper and `terraform init`/`apply` run in that root, exactly
-as `add` does ([ADR-0042](adr/0042-dir-names-the-wrapper.md)). So
+as `add` does ([ADR-0044](adr/0044-dir-names-the-wrapper.md)). So
 
 ```
 atelier apply cos-lite                       # new wrapper in ./cos-lite/

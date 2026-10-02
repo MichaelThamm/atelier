@@ -12,7 +12,7 @@ They use tiny local module fixtures rather than upstream repos: composition is a
 property of the CLI's target resolution, not of any module's contents, and a
 local source keeps the test hermetic and in the fast tier.
 
-See ADR-0042.
+See ADR-0044.
 """
 
 import re
@@ -60,7 +60,7 @@ def test_add_composes_a_second_module_by_dir(tmp_path, atelier_bin):
     assert module_blocks(main_tf) == ["cos_lite"], main_tf
 
     # WHEN a second module is added from outside the wrapper, naming it with
-    # --dir. This is the composition path ADR-0042 restored: --dir names the
+    # --dir. This is the composition path ADR-0044 restored: --dir names the
     # wrapper to compose into, and used to be rejected outright.
     second = write_module(tmp_path / "src" / "charmed-spark", "charmed_spark", "channel")
     add(atelier_bin, tmp_path, second, "--dir", "wrapper")
@@ -149,7 +149,7 @@ def test_apply_composes_and_deploys_the_whole_root(tmp_path, atelier_bin):
     )
 
     # THEN the block landed in the existing wrapper rather than a new directory
-    # beside it. Before ADR-0042, apply refused a non-empty target outright, so
+    # beside it. Before ADR-0044, apply refused a non-empty target outright, so
     # composing into a wrapper was impossible.
     main_tf = (tmp_path / "wrapper" / "main.tf").read_text()
     assert module_blocks(main_tf) == ["cos_lite", "charmed_spark"], main_tf
@@ -176,7 +176,7 @@ def test_apply_inside_a_wrapper_deploys_it_rather_than_nesting(tmp_path, atelier
     run_atelier(wrapper, atelier_bin, "apply", second, check=False, capture=True)
 
     # THEN the module joined that wrapper, and no second root was created
-    # inside it. Before ADR-0042 apply scaffolded a candidate-named directory
+    # inside it. Before ADR-0044 apply scaffolded a candidate-named directory
     # under the CWD, quietly nesting a root in a root.
     main_tf = (wrapper / "main.tf").read_text()
     assert module_blocks(main_tf) == ["cos_lite", "charmed_spark"], main_tf
@@ -195,7 +195,7 @@ def test_compose_resolves_a_relative_local_source_against_the_invocation_dir(tmp
     add(atelier_bin, tmp_path, "./src/charmed-spark", "--dir", "stack/cos-lite")
 
     # THEN it resolved against the invocation directory, not the wrapper. Before
-    # ADR-0042 the additive path passed no base directory, so a --dir outside
+    # ADR-0044 the additive path passed no base directory, so a --dir outside
     # the CWD made it look for the module under the wrapper and fail.
     main_tf = (tmp_path / "stack" / "cos-lite" / "main.tf").read_text()
     assert module_blocks(main_tf) == ["cos_lite", "charmed_spark"], main_tf

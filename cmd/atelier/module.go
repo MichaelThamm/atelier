@@ -274,7 +274,7 @@ func runModuleAdd(args []string) error {
 
 	// A target that already holds a wrapper is the additive case: append a
 	// block to it and open the editor there. --dir is resolved as well as the
-	// CWD, so a wrapper can be composed from outside it (ADR-0042). Otherwise
+	// CWD, so a wrapper can be composed from outside it (ADR-0044). Otherwise
 	// `add` creates a directory of its own, named after the candidate (or
 	// --dir/--as), exactly as `apply` does — but stops before init/apply.
 	if target := existingWrapperTarget(cwd, opts.Dir); target != "" {
@@ -290,7 +290,7 @@ func runModuleAdd(args []string) error {
 // mainTFExists, not isWrapperDir: a hand-authored Terraform root is something
 // `add` already appends to rather than scaffolding over, so it composes the
 // same way. A --dir naming no wrapper at all is left to the scaffold path,
-// which refuses a non-empty target (ADR-0042).
+// which refuses a non-empty target (ADR-0044).
 func existingWrapperTarget(cwd, dir string) string {
 	if dir != "" {
 		if !filepath.IsAbs(dir) {
@@ -319,7 +319,7 @@ func addModuleToWrapper(cwd, dir string, opts moduleOpts) error {
 // appendModuleBlock appends a module block for opts to the existing wrapper in
 // dir and returns the state it wrote. `add` then opens the editor on it and
 // `apply` then deploys that root, so both compose through one implementation
-// (ADR-0042).
+// (ADR-0044).
 //
 // cwd is the invocation directory, which a relative local `source` resolves
 // against. It differs from dir whenever `--dir` named the wrapper, and without
@@ -610,7 +610,7 @@ func runModuleApply(args []string) error {
 
 	// A target that already holds a wrapper composes: append the module block
 	// and deploy that root, so `--dir` composes and running `apply` inside a
-	// wrapper deploys it rather than nesting a second root inside it (ADR-0042).
+	// wrapper deploys it rather than nesting a second root inside it (ADR-0044).
 	if target := existingWrapperTarget(cwd, opts.Dir); target != "" {
 		// prompt=false: --yes is rejected above, so there is no escape hatch
 		// from a preflight question here — Terraform's plan prompt is the gate.

@@ -1,4 +1,4 @@
-# ADR-0042: `--dir` names the wrapper; an existing wrapper is always the additive case
+# ADR-0044: `--dir` names the wrapper; an existing wrapper is always the additive case
 
 ## Status
 
