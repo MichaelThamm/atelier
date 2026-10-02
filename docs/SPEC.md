@@ -556,6 +556,19 @@ and a gallery entry *composes* zero or more presets as its default scenario
   gallery check, and opens a pull request when a pin moved — it never edits presets or
   `requires`, so a drifted entry is corrected by hand in that PR
   ([ADR-0040](adr/0040-automated-gallery-refresh.md)).
+- The GitHub Pages site publishes a second generated page, `/juju/`, beside the
+  provider-agnostic `/gallery/`. It is built by the same tool
+  ([ADR-0037](adr/0037-gallery-pages-site.md)) and holds the gallery's Juju
+  knowledge in `tools/gallerysite`, not in `internal/gallery` or the manifest,
+  so the binary and the CLI stay provider-agnostic
+  ([ADR-0041](adr/0041-juju-opinionated-gallery-page.md)). A card renders the
+  same command as the gallery page, and the Juju-specific variant — deploying
+  into the reader's current model, plus S3 credentials and a charm channel from
+  the environment — as a collapsed block beneath it. The variant is collapsed
+  because it is an opinion: Juju has no single convention for naming a model
+  (`model_uuid` takes a UUID, `model` an object whose `uuid` selects an existing
+  model, or a model name), and on some modules pinning it overrides what the
+  module would otherwise do.
 - A gallery entry's **name** may be given to `atelier add` / `atelier
   apply` in place of a URL. It expands to the entry's module, ref, block, and
   composed presets; an explicit `--ref`, `--module`, `--as`, or `--var-file` still
