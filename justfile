@@ -130,15 +130,24 @@ gallery-check: build-bin
         # the presets alone. Supply a value for exactly those, read from the
         # entry's own `requires` list: a `name=value` entry carries a value that
         # satisfies the variable's type and validation rules, and a bare name
-        # gets a placeholder (UUID-shaped for `*uuid*` names). The presets stay
-        # free of fake values, and a real user supplies the real ones.
-        # `presets lint` already checked the presets' keys.
+        # gets a placeholder. The presets stay free of fake values, and a real
+        # user supplies the real ones. `presets lint` already checked the
+        # presets' keys.
+        #
+        # A placeholder has to satisfy the module's own validation, which is
+        # stricter than its type: a channel must read `<track>/<risk>`, and a
+        # UUID must look like one. Terraform reports the rule, so shape the
+        # value per name rather than guessing one string fits everything.
         vars=()
         while IFS= read -r req; do
           [ -n "$req" ] || continue
           case "$req" in
             *=*) vars+=(--var "$req") ;;
             *uuid*) vars+=(--var "$req=00000000-0000-0000-0000-000000000000") ;;
+            # loki, mimir and tempo validate that a channel's track is `dev/`,
+            # so a plausible-looking `latest/stable` is rejected outright.
+            *channel*) vars+=(--var "$req=dev/edge") ;;
+            *cidrs*) vars+=(--var "$req=10.152.183.0/24") ;;
             *) vars+=(--var "$req=placeholder") ;;
           esac
         done < <("$atelier" gallery requires "$name")
