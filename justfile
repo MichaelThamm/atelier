@@ -87,6 +87,12 @@ test-prometheus: build-bin
 test-import: build-bin
     ATELIER_BIN={{atelier_bin}} {{pytest}} tests/integration/import -m cloud {{pytest_flags}}
 
+# Resolve each gallery entry's module and report the ref bumps (ADR-0040). Dry run by
+# default; the gallery-schedule workflow calls this on a cron and turns a non-empty
+# result into a pull request.
+gallery-bump *ARGS:
+    go run ./tools/gallerybump {{ARGS}}
+
 # Lint the bundled module gallery: check that every entry covers the required inputs its pinned
 # module declares. This is the drift guard — `terraform validate` does not fail on a module call
 # that omits a required argument, so `gallery-check` alone cannot catch a module gaining one.

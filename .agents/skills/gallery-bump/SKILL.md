@@ -9,6 +9,14 @@ description: >-
 
 # Bump a gallery entry
 
+`just gallery-bump` — and the `gallery-schedule` workflow that runs it weekly —
+already rewrites each entry's `ref` to its module's current tracked ref and opens
+a pull request when one moved
+([ADR-0040](../../../docs/adr/0040-automated-gallery-refresh.md)). This skill
+covers what the bump deliberately does not do: correcting the entry when the new
+pin invalidated it. Run it on that pull request, or by hand after a check
+failure.
+
 Each entry pins a module to a full commit SHA in `internal/gallery/gallery.json`
 ([ADR-0035](../../../docs/adr/0035-bundled-module-gallery.md)), composes zero or
 more presets from `internal/gallery/presets/`, and lists the inputs it leaves to

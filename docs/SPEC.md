@@ -550,6 +550,12 @@ and a gallery entry *composes* zero or more presets as its default scenario
   one of the entry's presets or `requires`. It reports inputs nobody supplies and
   `requires` the module no longer declares, and exits non-zero on either, so a
   module that gains a required input fails here rather than at apply time.
+- `just gallery-bump` resolves every entry's module with `git ls-remote` and rewrites only
+  `ref`, patching the manifest source so a run's diff is exactly the SHA lines. The
+  `gallery-schedule` workflow runs it weekly (and on demand), validates the result with the
+  gallery check, and opens a pull request when a pin moved — it never edits presets or
+  `requires`, so a drifted entry is corrected by hand in that PR
+  ([ADR-0040](adr/0040-automated-gallery-refresh.md)).
 - A gallery entry's **name** may be given to `atelier add` / `atelier
   apply` in place of a URL. It expands to the entry's module, ref, block, and
   composed presets; an explicit `--ref`, `--module`, `--as`, or `--var-file` still
