@@ -127,22 +127,41 @@ def test_composed_modules_are_wired_by_reference(tmp_path, atelier_bin):
     tf.validate()
 
 
-def test_apply_composes_into_an_existing_wrapper(tmp_path, atelier_bin):
+def test_apply_composes_and_deploys_the_whole_root(tmp_path, atelier_bin):
     # GIVEN a wrapper holding one module
     first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
-    add(atelier_bin, tmp_path, first, "--dir", "wrapper")
+    add(atelier_bin, tmp_path, first, "--dir", "wrapper", "--var", "model_uuid=uuid-1")
 
-    # WHEN a second module is composed with `apply --dir`. Its required variable
-    # has no value, so apply writes the block and stops before Terraform — which
-    # is enough to observe which target it resolved.
+    # WHEN a second module is composed and deployed with `apply --dir`. The
+    # fixtures use only the builtin terraform provider, so this runs for real
+    # without downloading anything.
     second = write_module(tmp_path / "src" / "charmed-spark", "charmed_spark", "channel")
-    run_atelier(tmp_path, atelier_bin, "apply", second, "--dir", "wrapper", check=False, capture=True)
+    done = run_atelier(
+        tmp_path,
+        atelier_bin,
+        "apply",
+        second,
+        "--dir",
+        "wrapper",
+        "--var",
+        "channel=8.0/stable",
+        capture=True,
+    )
 
     # THEN the block landed in the existing wrapper rather than a new directory
     # beside it. Before ADR-0042, apply refused a non-empty target outright, so
     # composing into a wrapper was impossible.
     main_tf = (tmp_path / "wrapper" / "main.tf").read_text()
     assert module_blocks(main_tf) == ["cos_lite", "charmed_spark"], main_tf
+    assert not (tmp_path / "wrapper" / "charmed-spark").exists(), "apply nested a root"
+
+    # AND the apply succeeded, producing state for both modules in one root
+    assert done.returncode == 0, done.stderr
+    tf = TfDirManager(tmp_path)
+    tf.latch(tmp_path / "wrapper")
+    state = tf.state_list()
+    assert "module.cos_lite.terraform_data.cos_lite" in state, state
+    assert "module.charmed_spark.terraform_data.charmed_spark" in state, state
 
 
 def test_apply_inside_a_wrapper_deploys_it_rather_than_nesting(tmp_path, atelier_bin):

@@ -10,7 +10,7 @@ Accepted — amends [ADR-0034](0034-module-apply-one-liner.md) and
 `atelier add` used to write into the current directory, so a multi-module
 wrapper was built by running `add` twice. It now creates a directory of its own,
 which removed the `mkdir && cd` but hardened `--dir` into a **create-only**
-flag. Three consequences:
+flag. Two consequences:
 
 1. `atelier add <m> --dir <wrapper>` and `atelier apply <m> --dir <wrapper>`
    both refuse a target that already holds a wrapper (`--dir is only valid when
@@ -19,7 +19,6 @@ flag. Three consequences:
 2. `atelier apply <m>` run *inside* a wrapper silently scaffolded a second root
    **inside** it, because `apply` had no additive case at all and derived a
    candidate-named directory under the CWD.
-3. `atelier add <a> <b>` is rejected: the parser takes one positional.
 
 So composition survived only as `cd <wrapper> && atelier add <m>`. Multi-module
 composition within a single root is in scope (ADR-0016 §5, ADR-0015), and SPEC
@@ -36,10 +35,14 @@ context-switches across module blocks.
 and `apply`, whether the target came from `--dir` or from the CWD.** `--dir`
 names *which* wrapper; only a target with no `main.tf` is a scaffold target.
 
-- `addModuleToWrapper` is renamed `appendModuleBlock(dir, opts, prompt)`. It
-  returns the state it wrote and no longer opens the TUI itself, so `add`
-  (append, then open the editor) and `apply` (append, then `init`/`apply` that
-  root) share one implementation.
+- The append body moves out of `addModuleToWrapper` into
+  `appendModuleBlock(cwd, dir, opts, prompt)`, which returns the state it wrote
+  instead of opening the TUI. `add` (append, then open the editor) and `apply`
+  (append, then `init`/`apply` that root) therefore share one implementation.
+- `cwd` is the invocation directory, passed as `SourceBaseDir`. The additive
+  path never had one, which was invisible while the target was always the CWD;
+  it becomes wrong the moment `--dir` points elsewhere, since a relative local
+  `source` would then resolve under the wrapper.
 - The predicate is `mainTFExists`, not `isWrapperDir`: a hand-authored
   Terraform root is something Atelier already appends to rather than
   scaffolding over, so it composes the same way.
@@ -49,6 +52,9 @@ names *which* wrapper; only a target with no `main.tf` is a scaffold target.
 - `--dir` pointing at a wrapper while the CWD holds a different one is no
   longer an error; the named target wins. An explicit `--dir`/`--as` that does
   *not* name a wrapper still scaffolds there.
+- `--dir` names its directory literally. `atelier apply <m> --dir stack/` puts
+  the wrapper in `stack/`; the candidate-derived name applies only when neither
+  `--dir` nor `--as` is given.
 
 ### Preflight in `apply`'s additive path
 
@@ -107,8 +113,8 @@ there is no lock file, so `-upgrade` changes nothing.
   remains the confirmation.
 - `--dir` is no longer rejected when the CWD is a wrapper. Scripts that relied
   on that error should name the wrapper they meant.
-- SPEC §6.2, §6.4 and §6.9 are updated. The integration tier gains a
-  multi-module composition test, which its absence is why this regressed.
+- SPEC §6.2, §6.4 and §6.9 are updated. The integration tier gains eight
+  multi-module composition tests, which its absence is why this regressed.
 - `atelier apply` now runs `terraform init -upgrade`. This makes the lock file
   move when a composed module widens the root's provider constraints, which is
   a user-visible (and intended) change to `.terraform.lock.hcl`.

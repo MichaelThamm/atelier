@@ -423,7 +423,7 @@ re-introspection on next open.
 | Non-empty, hand-authored `.tf` files | `atelier add <url>` | Preflight warning + confirmation (§6.5); then append, preserving existing blocks.  |
 | Has existing wrapper (`main.tf` + `.atelier/`) | `atelier add <url>` | Append module block to existing `main.tf`. No prompt.                  |
 | `--dir` names a directory holding `main.tf` | `atelier add <url> --dir PATH` | Append to that wrapper's `main.tf` (§6.5 preflight as above).          |
-| `--dir` names a non-empty directory with no `main.tf` | `atelier add <url> --dir PATH` | Refused; nothing written (§6.9).                          |
+| `--dir` names a non-empty directory with no `main.tf` | `atelier add <url> --dir PATH` | Refused; nothing written.                          |
 | Wrapper already has this module at this ref | `atelier add <url>` | Error naming the existing block; nothing written (§6.7).                |
 | Any (has `.atelier/` or `.clone/`)  | `atelier purge`    | Prompt, then remove `.atelier/` and `.clone/`. Wrapper files untouched.                    |
 | Any (neither exists)               | `atelier purge`    | Print "nothing to purge".                                                                  |
@@ -633,13 +633,17 @@ appended to that wrapper and `terraform init`/`apply` run in that root, exactly
 as `add` does ([ADR-0042](adr/0042-dir-names-the-wrapper.md)). So
 
 ```
-atelier apply cos-lite --dir stack/            # new wrapper in stack/
-atelier apply charmed-spark --dir stack/cos-lite # composes, then deploys both
+atelier apply cos-lite                       # new wrapper in ./cos-lite/
+atelier apply charmed-spark --dir cos-lite   # composes, then deploys both
 ```
 
 deploy both modules from one state, and running `atelier apply <url>` with a
 wrapper as the CWD deploys that wrapper rather than nesting a second root inside
 it. Only a `main.tf` opts in; any other non-empty target is refused, as below.
+
+Note that `--dir` names the directory *literally*: `atelier apply cos-lite --dir
+stack/` puts the wrapper in `stack/`, not in `stack/cos-lite/`, and the
+candidate-derived name applies only when no `--dir`/`--as` is given.
 
 Sequence, for a target with no `main.tf`:
 
