@@ -122,7 +122,9 @@ gallery-check: build-bin
         # line on whitespace without globbing or evaluating shell syntax.
         mkdir -p atelier.presets
         cp "$presets"/*.tfvars atelier.presets/
-        read -r -a add_args <<< "${line#atelier }"
+        # `add` scaffolds a directory of its own — named after the entry, or its
+        # block — so pin the target to keep the paths below fixed.
+        read -r -a add_args <<< "${line#atelier } --dir wrapper"
         # Entries whose module declares deployment-specific inputs without a
         # default (a Juju model UUID, S3 credentials) cannot validate against
         # the presets alone. Supply a value for exactly those, read from the
@@ -142,6 +144,10 @@ gallery-check: build-bin
         done < <("$atelier" gallery requires "$name")
         echo "==> atelier ${add_args[*]} ${vars[*]}"
         "$atelier" "${add_args[@]}" "${vars[@]}" < /dev/null
+        # Validate the wrapper `add` wrote. Validating the scratch directory
+        # instead reports success on an empty configuration, so a broken entry
+        # passes unnoticed.
+        cd wrapper
         terraform init -backend=false -no-color >/dev/null
         terraform validate -no-color
       ); then
