@@ -21,4 +21,5 @@ __pycache__/
 
 # GitHub Pages site: the generated gallery page and the MkDocs build output.
 website/docs/gallery.md
+website/docs/juju.md
 website/site/

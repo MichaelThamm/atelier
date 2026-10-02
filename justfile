@@ -60,11 +60,13 @@ code-check:
 # Build the GitHub Pages site into website/site/, generating the gallery page.
 site-build:
     go run ./tools/gallerysite -o website/docs/gallery.md
+    go run ./tools/gallerysite -page juju -o website/docs/juju.md
     {{site}} mkdocs build --strict -f website/mkdocs.yml
 
 # Serve the GitHub Pages site locally with live reload.
 site-serve:
     go run ./tools/gallerysite -o website/docs/gallery.md
+    go run ./tools/gallerysite -page juju -o website/docs/juju.md
     {{site}} mkdocs serve -f website/mkdocs.yml
 
 # Build the dev binary
@@ -106,6 +108,11 @@ gallery-check: build-bin
     atelier="{{atelier_bin}}"
     presets="{{justfile_directory()}}/internal/gallery/presets"
     scan="$("$atelier" gallery list --commands)"
+    # The Juju page pins an entry's model even where the manifest requires none
+    # (ADR-0041). `gallery lint` checks the manifest's own inputs, so it cannot
+    # see such a pin go stale; scaffold it and require it to land. Resolved here
+    # because the loop runs from a scratch directory with no go.mod.
+    pins="$(go run ./tools/gallerysite -optional-vars pins)"
     fail=0
     while IFS= read -r line; do
       [ -n "$line" ] || continue
@@ -122,28 +129,64 @@ gallery-check: build-bin
         # line on whitespace without globbing or evaluating shell syntax.
         mkdir -p atelier.presets
         cp "$presets"/*.tfvars atelier.presets/
-        read -r -a add_args <<< "${line#atelier }"
+        # `add` scaffolds a directory of its own — named after the entry, or its
+        # block — so pin the target to keep the paths below fixed.
+        read -r -a add_args <<< "${line#atelier } --dir wrapper"
         # Entries whose module declares deployment-specific inputs without a
         # default (a Juju model UUID, S3 credentials) cannot validate against
         # the presets alone. Supply a value for exactly those, read from the
         # entry's own `requires` list: a `name=value` entry carries a value that
         # satisfies the variable's type and validation rules, and a bare name
-        # gets a placeholder (UUID-shaped for `*uuid*` names). The presets stay
-        # free of fake values, and a real user supplies the real ones.
-        # `presets lint` already checked the presets' keys.
+        # gets a placeholder. The presets stay free of fake values, and a real
+        # user supplies the real ones. `presets lint` already checked the
+        # presets' keys.
+        #
+        # A placeholder has to satisfy the module's own validation, which is
+        # stricter than its type: a channel must read `<track>/<risk>`, and a
+        # UUID must look like one. Terraform reports the rule, so shape the
+        # value per name rather than guessing one string fits everything.
         vars=()
         while IFS= read -r req; do
           [ -n "$req" ] || continue
           case "$req" in
             *=*) vars+=(--var "$req") ;;
             *uuid*) vars+=(--var "$req=00000000-0000-0000-0000-000000000000") ;;
+            # loki, mimir and tempo validate that a channel's track is `dev/`,
+            # so a plausible-looking `latest/stable` is rejected outright.
+            *channel*) vars+=(--var "$req=dev/edge") ;;
+            *cidrs*) vars+=(--var "$req=10.152.183.0/24") ;;
             *) vars+=(--var "$req=placeholder") ;;
           esac
         done < <("$atelier" gallery requires "$name")
+        while read -r pin_name pin_var; do
+          [ -n "${pin_name:-}" ] || continue
+          [ "$pin_name" = "$name" ] || continue
+          # An object-valued pin (cos, cos-lite) has to arrive as `{uuid="…"}`
+          # or the module rejects it and the pin is never exercised.
+          case "$pin_var" in
+            model) vars+=(--var "model={uuid=\"00000000-0000-0000-0000-000000000000\"}") ;;
+            *) vars+=(--var "$pin_var=00000000-0000-0000-0000-000000000000") ;;
+          esac
+        done <<< "$pins"
         echo "==> atelier ${add_args[*]} ${vars[*]}"
         "$atelier" "${add_args[@]}" "${vars[@]}" < /dev/null
+        # Validate the wrapper `add` wrote. Validating the scratch directory
+        # instead reports success on an empty configuration, so a broken entry
+        # passes unnoticed.
+        cd wrapper
         terraform init -backend=false -no-color >/dev/null
         terraform validate -no-color
+        # A pin the module no longer declares is only a warning, so it would
+        # validate cleanly while going unwritten and the published command
+        # silently doing nothing. Require it to reach the wrapper.
+        while read -r pin_name pin_var; do
+          [ -n "${pin_name:-}" ] || continue
+          [ "$pin_name" = "$name" ] || continue
+          if ! grep -qE "^[[:space:]]*${pin_var}[[:space:]]*=" main.tf; then
+            echo "Juju page pins ${pin_var} for ${name}, but the module did not accept it"
+            exit 1
+          fi
+        done <<< "$pins"
       ); then
         fail=1
       fi

@@ -38,6 +38,7 @@ theme:
 nav:
   - Home: index.md
   - Gallery: gallery.md
+  - Juju: juju.md
 
 markdown_extensions:
   - attr_list

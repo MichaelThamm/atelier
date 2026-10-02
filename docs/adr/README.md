@@ -47,6 +47,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0038 | [Flat top-level CLI surface](0038-flat-cli-surface.md)                                  | Accepted |
 | 0039 | [Composed gallery presets and a required-input coverage lint](0039-composed-gallery-presets.md) | Accepted |
 | 0040 | [Automated gallery refresh on a schedule](0040-automated-gallery-refresh.md)                 | Accepted |
+| 0041 | [An opinionated Juju page on the generated site](0041-juju-opinionated-gallery-page.md)    | Accepted |
 
 ## Conventions
 
