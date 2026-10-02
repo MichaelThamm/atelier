@@ -1,0 +1,14 @@
+/* The apply one-liner in a gallery card can be long; shrink the code and let it
+   scroll rather than stretch the card. */
+.md-typeset .grid.cards pre {
+  margin-top: 0.6rem;
+}
+
+.md-typeset .grid.cards pre code {
+  font-size: 0.7rem;
+}
+
+/* Keep card descriptions a comfortable measure. */
+.md-typeset .grid.cards > ul > li {
+  font-size: 0.75rem;
+}

@@ -18,3 +18,7 @@ tf-testing/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# GitHub Pages site: the generated gallery page and the MkDocs build output.
+website/docs/gallery.md
+website/site/

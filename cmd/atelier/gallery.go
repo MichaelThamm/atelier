@@ -86,11 +86,7 @@ func moduleRef(e gallery.Entry) string {
 	if e.Subdir != "" {
 		ref += "//" + e.Subdir
 	}
-	short := e.Ref
-	if len(short) > 12 {
-		short = short[:12]
-	}
-	return fmt.Sprintf("%s  @%s", ref, short)
+	return fmt.Sprintf("%s  @%s", ref, e.ShortRef())
 }
 
 // writeCommand writes the `atelier apply <name>` command, wrapping each `--var`

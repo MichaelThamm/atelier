@@ -76,8 +76,8 @@ jobs:
           #                 resolves it).
           #   integration — run the Juju tiers: any change that is neither docs
           #                 nor gallery-only.
-          docs='^(docs/|LICENSE$|.*\.(md|gif|png|svg|jpe?g)$)'
-          gallery='^(docs/|internal/gallery/|LICENSE$|.*\.(md|gif|png|svg|jpe?g)$)'
+          docs='^(docs/|website/|LICENSE$|.*\.(md|gif|png|svg|jpe?g)$)'
+          gallery='^(docs/|website/|internal/gallery/|LICENSE$|.*\.(md|gif|png|svg|jpe?g)$)'
           if [[ -n "$changed" ]] && grep -qvE "$docs" <<<"$changed"; then
             echo "gallery=true" >> "$GITHUB_OUTPUT"
           else

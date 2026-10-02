@@ -421,6 +421,7 @@ wrapper lives:
 
 | Document | Description |
 | --- | --- |
+| [Project website](https://michaelthamm.github.io/atelier/) | Landing page and the generated module gallery |
 | [docs/SPEC.md](docs/SPEC.md) | Specification: surface, contracts, behaviours |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What Atelier does today and what's not yet implemented |
 | [docs/how-to/](docs/how-to/) | Step-by-step guides |
