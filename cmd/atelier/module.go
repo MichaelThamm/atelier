@@ -272,28 +272,70 @@ func runModuleAdd(args []string) error {
 		return err
 	}
 
-	// An existing wrapper in CWD is the additive case: append a block to it and
-	// open the editor there. Otherwise `add` creates a directory of its
-	// own, named after the candidate (or --dir/--as), exactly as `apply`
-	// does — but stops before init/apply.
-	if mainTFExists(cwd) {
-		if opts.Dir != "" {
-			return fmt.Errorf("--dir is only valid when creating a new wrapper; %s already holds one", cwd)
-		}
-		return addModuleToWrapper(cwd, opts)
+	// A target that already holds a wrapper is the additive case: append a
+	// block to it and open the editor there. --dir is resolved as well as the
+	// CWD, so a wrapper can be composed from outside it (ADR-0042). Otherwise
+	// `add` creates a directory of its own, named after the candidate (or
+	// --dir/--as), exactly as `apply` does — but stops before init/apply.
+	if target := existingWrapperTarget(cwd, opts.Dir); target != "" {
+		return addModuleToWrapper(cwd, target, opts)
 	}
 	return addModuleInNewDir(cwd, opts)
 }
 
+// existingWrapperTarget returns the wrapper this command should append to: the
+// --dir target when it holds a main.tf, otherwise the CWD when it does. "" means
+// there is none, and the command should scaffold a new wrapper.
+//
+// mainTFExists, not isWrapperDir: a hand-authored Terraform root is something
+// `add` already appends to rather than scaffolding over, so it composes the
+// same way. A --dir naming no wrapper at all is left to the scaffold path,
+// which refuses a non-empty target (ADR-0042).
+func existingWrapperTarget(cwd, dir string) string {
+	if dir != "" {
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(cwd, dir)
+		}
+		if dir = filepath.Clean(dir); mainTFExists(dir) {
+			return dir
+		}
+		return ""
+	}
+	if mainTFExists(cwd) {
+		return cwd
+	}
+	return ""
+}
+
 // addModuleToWrapper appends a module block to an existing wrapper in dir and
 // opens the editor on it.
-func addModuleToWrapper(dir string, opts moduleOpts) error {
+func addModuleToWrapper(cwd, dir string, opts moduleOpts) error {
+	if _, err := appendModuleBlock(cwd, dir, opts, opts.Yes); err != nil {
+		return err
+	}
+	return openWrapper(dir)
+}
+
+// appendModuleBlock appends a module block for opts to the existing wrapper in
+// dir and returns the state it wrote. `add` then opens the editor on it and
+// `apply` then deploys that root, so both compose through one implementation
+// (ADR-0042).
+//
+// cwd is the invocation directory, which a relative local `source` resolves
+// against. It differs from dir whenever `--dir` named the wrapper, and without
+// it `atelier add ../module --dir elsewhere` would look for the module under
+// the wrapper.
+//
+// prompt answers the target-directory preflight. `add` asks, with --yes as its
+// escape hatch; `apply` does not, because Terraform's plan prompt is that
+// command's confirmation and it rejects --yes (ADR-0034).
+func appendModuleBlock(cwd, dir string, opts moduleOpts, prompt bool) (*wrapper.State, error) {
 	ctx, cancel := interruptContext()
 	defer cancel()
 
-	// Confirm the target directory before writing anything into it. `add`
-	// has no path argument, so the only thing standing between a mistyped `cd`
-	// and a main.tf in the user's home directory is this check.
+	// Confirm the target directory before writing anything into it. A target
+	// with no path of its own is the CWD, so this is the only thing standing
+	// between a mistyped `cd` and a main.tf in the user's home directory.
 	//
 	// This runs BEFORE the SIGINT handler below is installed, deliberately.
 	// signal.NotifyContext converts Ctrl-C into a context cancellation instead
@@ -304,12 +346,12 @@ func addModuleToWrapper(dir string, opts moduleOpts) error {
 	// default SIGINT behaviour — exit immediately — is exactly what the user is
 	// asking for.
 	if !isWrapperDir(dir) {
-		ok, err := confirmTargetDir(dir, "Add a module block to main.tf in", opts.Yes)
+		ok, err := confirmTargetDir(dir, "Add a module block to main.tf in", prompt)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !ok {
-			return nil
+			return nil, nil
 		}
 	}
 
@@ -320,20 +362,21 @@ func addModuleToWrapper(dir string, opts moduleOpts) error {
 	// module whose Terraform lives in a subdirectory (e.g. `terraform/`) is
 	// appended with the correct `//<subdir>` source and shows its variables.
 	prep, err := bootstrap.PrepareModule(ctx, bootstrap.InitOptions{
-		WrapperDir:  dir,
-		Source:      opts.Source,
-		LocalSource: modulesource.IsLocal(opts.Source),
-		Ref:         opts.Ref,
-		ModulePath:  opts.ModulePath,
+		WrapperDir:    dir,
+		Source:        opts.Source,
+		LocalSource:   modulesource.IsLocal(opts.Source),
+		SourceBaseDir: cwd,
+		Ref:           opts.Ref,
+		ModulePath:    opts.ModulePath,
 	})
 	stop()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if prep.State == nil {
 		// Multiple candidates — user needs --module. Nothing was written.
 		printCandidates(os.Stdout, prep.Candidates)
-		return nil
+		return nil, nil
 	}
 	state := prep.State
 
@@ -365,7 +408,7 @@ func addModuleToWrapper(dir string, opts moduleOpts) error {
 	}
 
 	if len(sameModule) > 0 && !namedDistinctly {
-		return duplicateModuleError(sameModule, state.Source, opts.Source)
+		return nil, duplicateModuleError(sameModule, state.Source, opts.Source)
 	}
 	if len(sameModule) > 0 {
 		fmt.Fprintf(os.Stderr,
@@ -392,17 +435,17 @@ func addModuleToWrapper(dir string, opts moduleOpts) error {
 	// Apply --var-file values to the module being added, before writing it,
 	// then --var overrides on top.
 	if err := applyVarFlags(state, dir, prep.CloneDir, prep.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Write the new module block to main.tf.
 	if err := state.Write(); err != nil {
-		return err
+		return nil, err
 	}
 
 	fmt.Fprintf(os.Stderr, "Added module %q from %s\n", blockName, opts.Source)
 
-	return openWrapper(dir)
+	return state, nil
 }
 
 // addModuleInNewDir scaffolds a wrapper into a fresh directory — named after the
@@ -531,8 +574,9 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 }
 
 // runModuleApply implements `atelier apply <url>`: scaffold a wrapper in
-// a new directory, then run `terraform init` and `terraform apply` (ADR-0034).
-// It saves the user from `mkdir && cd && terraform init && terraform apply`.
+// a new directory — or compose into the wrapper the target already names — then
+// run `terraform init` and `terraform apply` (ADR-0034). It saves the user from
+// `mkdir && cd && terraform init && terraform apply`.
 func runModuleApply(args []string) error {
 	opts, err := parseModuleArgs(args)
 	if err != nil {
@@ -564,6 +608,23 @@ func runModuleApply(args []string) error {
 		return err
 	}
 
+	// A target that already holds a wrapper composes: append the module block
+	// and deploy that root, so `--dir` composes and running `apply` inside a
+	// wrapper deploys it rather than nesting a second root inside it (ADR-0042).
+	if target := existingWrapperTarget(cwd, opts.Dir); target != "" {
+		// prompt=false: --yes is rejected above, so there is no escape hatch
+		// from a preflight question here — Terraform's plan prompt is the gate.
+		state, err := appendModuleBlock(cwd, target, opts, false)
+		if err != nil || state == nil {
+			return err
+		}
+		if err := requireNoUnsetRequiredVars(state, target,
+			"set them in that directory (with 'atelier', or by editing main.tf) and apply again"); err != nil {
+			return err
+		}
+		return applyWrapper(target, !interactive)
+	}
+
 	ctx, cancel := interruptContext()
 	defer cancel()
 	target, state, err := scaffoldIntoTarget(ctx, cwd, opts)
@@ -574,15 +635,26 @@ func runModuleApply(args []string) error {
 		return nil // multiple candidates; already reported
 	}
 
-	// Required variables with no value would make Terraform reject the apply.
-	// The wrapper is already in place, so point at the flag that fixes it.
-	if missing := unsetRequiredVars(state); len(missing) > 0 {
-		return fmt.Errorf("module requires a value for %s; pass --var NAME=VALUE (or --var-file) and re-run.\nWrapper written to %s",
-			strings.Join(missing, ", "), target)
+	if err := requireNoUnsetRequiredVars(state, target,
+		"pass --var NAME=VALUE (or --var-file) and re-run"); err != nil {
+		return err
 	}
 
 	fmt.Fprintf(os.Stderr, "Wrapper written to %s\n", target)
 	return applyWrapper(target, !interactive)
+}
+
+// requireNoUnsetRequiredVars reports the variables `apply` cannot deploy
+// without. The block is already in the target's main.tf at this point, so
+// howToFix says how to fill them — the two paths differ, because re-running a
+// composed `add` would be refused as a duplicate of the block just written.
+func requireNoUnsetRequiredVars(state *wrapper.State, target, howToFix string) error {
+	missing := unsetRequiredVars(state)
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("module requires a value for %s; %s\nWrapper written to %s",
+		strings.Join(missing, ", "), howToFix, target)
 }
 
 // openWrapper loads the wrapper in dir and launches the TUI on it.
@@ -638,10 +710,17 @@ func unsetRequiredVars(state *wrapper.State) []string {
 	return missing
 }
 
-// applyWrapper runs `terraform init` then `terraform apply` in dir. When there
-// is a terminal, apply is Terraform's interactive prompt (autoApprove=false);
-// otherwise it is auto-approved (autoApprove=true) so a pipe or CI run does not
-// hang on a question nobody can answer. See ADR-0034.
+// applyWrapper runs `terraform init -upgrade` then `terraform apply` in dir.
+// When there is a terminal, apply is Terraform's interactive prompt
+// (autoApprove=false); otherwise it is auto-approved (autoApprove=true) so a
+// pipe or CI run does not hang on a question nobody can answer. See ADR-0034.
+//
+// -upgrade is required, not incidental. Composing a module into an already
+// initialised root widens the root's provider constraints, and a plain init
+// then refuses the lock file's selection — "must use terraform init -upgrade to
+// allow selection of new versions" — which is the difference between a composed
+// wrapper deploying and not. It is the same condition the TUI's ResetInit marks
+// after a ref switch rewrites a module source.
 func applyWrapper(dir string, autoApprove bool) error {
 	ctx, cancel := interruptContext()
 	defer cancel()

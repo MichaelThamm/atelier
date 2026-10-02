@@ -48,8 +48,9 @@ Format follows the Michael Nygard template, lightly extended.
 | 0039 | [Composed gallery presets and a required-input coverage lint](0039-composed-gallery-presets.md) | Accepted |
 | 0040 | [Automated gallery refresh on a schedule](0040-automated-gallery-refresh.md)                 | Accepted |
 | 0041 | [An opinionated Juju page on the generated site](0041-juju-opinionated-gallery-page.md)    | Superseded by ADR-0043 |
-| 0043 | [The Juju page reads the environment, but guesses nothing](0043-juju-page-guesses-nothing.md) | Accepted |
 | 0042 | [Multiple Juju pins, and modules that own their model](0042-juju-page-pins-and-own-model.md) | Accepted |
+| 0043 | [The Juju page reads the environment, but guesses nothing](0043-juju-page-guesses-nothing.md) | Accepted |
+| 0044 | [`--dir` names the wrapper; an existing wrapper is always the additive case](0044-dir-names-the-wrapper.md) | Accepted |
 
 ## Conventions
 

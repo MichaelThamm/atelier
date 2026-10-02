@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/zclconf/go-cty/cty"
@@ -349,5 +350,89 @@ func TestCheckApplyTarget(t *testing.T) {
 	}
 	if err := checkApplyTarget(file); err == nil {
 		t.Error("expected an error when the target is a file")
+	}
+}
+
+// --- existingWrapperTarget: which wrapper a command composes into ---
+
+// wrapperDirWithMainTF creates a directory holding a main.tf — a wrapper as far
+// as the additive case is concerned.
+func wrapperDirWithMainTF(t *testing.T, path string) string {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "main.tf"), []byte("# wrapper\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestExistingWrapperTarget covers the rule that makes composition reachable
+// again (ADR-0042): a target holding a main.tf is the additive case for both
+// `add` and `apply`, named by --dir or implied by the CWD.
+func TestExistingWrapperTarget(t *testing.T) {
+	base := t.TempDir()
+	wrapper := wrapperDirWithMainTF(t, filepath.Join(base, "cos-lite"))
+	sibling := wrapperDirWithMainTF(t, filepath.Join(base, "other"))
+	plain := filepath.Join(base, "plain")
+	if err := os.Mkdir(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		cwd  string
+		dir  string
+		want string
+	}{
+		{"cwd is a wrapper", wrapper, "", wrapper},
+		{"dir names a wrapper", plain, wrapper, wrapper},
+		{"dir relative to cwd", base, "cos-lite", wrapper},
+		{"dir wins over a wrapper cwd", wrapper, sibling, sibling},
+		{"dir trailing separator", plain, wrapper + string(filepath.Separator), wrapper},
+		{"cwd holds no main.tf", plain, "", ""},
+		{"dir holds no main.tf", wrapper, plain, ""},
+		{"dir does not exist", plain, filepath.Join(base, "absent"), ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := existingWrapperTarget(c.cwd, c.dir); got != c.want {
+				t.Errorf("existingWrapperTarget(%q, %q) = %q, want %q", c.cwd, c.dir, got, c.want)
+			}
+		})
+	}
+}
+
+// TestRequireNoUnsetRequiredVars checks the gate that stops `apply` before
+// Terraform would reject the run, in both the scaffold and compose paths.
+func TestRequireNoUnsetRequiredVars(t *testing.T) {
+	state := &wrapper.State{
+		Vars: []tfvars.Variable{
+			{Name: "model_uuid"},
+			{Name: "units", HasDefault: true, Default: cty.NumberIntVal(1)},
+		},
+		Values: map[string]cty.Value{},
+	}
+	err := requireNoUnsetRequiredVars(state, "/tmp/w", "fix it")
+	if err == nil {
+		t.Fatal("expected an error naming the unset required variable")
+	}
+	if !strings.Contains(err.Error(), "model_uuid") {
+		t.Errorf("error should name the missing variable; got %v", err)
+	}
+	if !strings.Contains(err.Error(), "fix it") {
+		t.Errorf("error should carry the caller's recovery hint; got %v", err)
+	}
+	if !strings.Contains(err.Error(), "/tmp/w") {
+		t.Errorf("error should name the target; got %v", err)
+	}
+	if strings.Contains(err.Error(), "units") {
+		t.Errorf("a variable with a default is not required; got %v", err)
+	}
+
+	state.Values["model_uuid"] = cty.StringVal("0000")
+	if err := requireNoUnsetRequiredVars(state, "/tmp/w", "fix it"); err != nil {
+		t.Errorf("all required variables set: %v", err)
 	}
 }
