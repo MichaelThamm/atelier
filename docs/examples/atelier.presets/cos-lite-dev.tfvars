@@ -7,7 +7,7 @@
 # up.
 #
 # Apply one by name from the CLI:
-#   atelier module add <git-url> --var-file cos-lite-dev --yes
+#   atelier add <git-url> --var-file cos-lite-dev --yes
 # or pick it in the TUI with `F`. Save the current configuration as a new bundle
 # with `S`, which writes atelier.presets/<name>.tfvars in the wrapper directory.
 

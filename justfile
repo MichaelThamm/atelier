@@ -87,7 +87,13 @@ test-prometheus: build-bin
 test-import: build-bin
     ATELIER_BIN={{atelier_bin}} {{pytest}} tests/integration/import -m cloud {{pytest_flags}}
 
-# Validate the bundled module gallery: run each entry's scaffold command and validate the wrapper (ADR-0035).
+# Lint the bundled module gallery: check that every entry covers the required inputs its pinned
+# module declares. This is the drift guard — `terraform validate` does not fail on a module call
+# that omits a required argument, so `gallery-check` alone cannot catch a module gaining one.
+gallery-lint: build-bin
+    "{{atelier_bin}}" gallery lint
+
+# Validate the bundled module gallery: run each entry's scaffold command and validate the wrapper (ADR-0039).
 gallery-check: build-bin
     #!/usr/bin/env bash
     set -euo pipefail
