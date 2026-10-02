@@ -159,7 +159,11 @@ func writeJujuCard(b *strings.Builder, e gallery.Entry) {
 	}
 	meta = append(meta, "pinned `"+e.ShortRef()+"`")
 	if len(e.Presets) > 0 {
-		meta = append(meta, "presets `"+strings.Join(e.Presets, "`, `")+"`")
+		quoted := make([]string, len(e.Presets))
+		for i, p := range e.Presets {
+			quoted[i] = "`" + p + "`"
+		}
+		meta = append(meta, "presets "+strings.Join(quoted, ", "))
 	}
 	fmt.Fprintf(b, "    %s\n\n", strings.Join(meta, " · "))
 
