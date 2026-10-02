@@ -108,6 +108,11 @@ gallery-check: build-bin
     atelier="{{atelier_bin}}"
     presets="{{justfile_directory()}}/internal/gallery/presets"
     scan="$("$atelier" gallery list --commands)"
+    # The Juju page pins an entry's model even where the manifest requires none
+    # (ADR-0041). `gallery lint` checks the manifest's own inputs, so it cannot
+    # see such a pin go stale; scaffold it and require it to land. Resolved here
+    # because the loop runs from a scratch directory with no go.mod.
+    pins="$(go run ./tools/gallerysite -optional-vars pins)"
     fail=0
     while IFS= read -r line; do
       [ -n "$line" ] || continue
@@ -153,6 +158,16 @@ gallery-check: build-bin
             *) vars+=(--var "$req=placeholder") ;;
           esac
         done < <("$atelier" gallery requires "$name")
+        while read -r pin_name pin_var; do
+          [ -n "${pin_name:-}" ] || continue
+          [ "$pin_name" = "$name" ] || continue
+          # An object-valued pin (cos, cos-lite) has to arrive as `{uuid="…"}`
+          # or the module rejects it and the pin is never exercised.
+          case "$pin_var" in
+            model) vars+=(--var "model={uuid=\"00000000-0000-0000-0000-000000000000\"}") ;;
+            *) vars+=(--var "$pin_var=00000000-0000-0000-0000-000000000000") ;;
+          esac
+        done <<< "$pins"
         echo "==> atelier ${add_args[*]} ${vars[*]}"
         "$atelier" "${add_args[@]}" "${vars[@]}" < /dev/null
         # Validate the wrapper `add` wrote. Validating the scratch directory
@@ -161,6 +176,17 @@ gallery-check: build-bin
         cd wrapper
         terraform init -backend=false -no-color >/dev/null
         terraform validate -no-color
+        # A pin the module no longer declares is only a warning, so it would
+        # validate cleanly while going unwritten and the published command
+        # silently doing nothing. Require it to reach the wrapper.
+        while read -r pin_name pin_var; do
+          [ -n "${pin_name:-}" ] || continue
+          [ "$pin_name" = "$name" ] || continue
+          if ! grep -qE "^[[:space:]]*${pin_var}[[:space:]]*=" main.tf; then
+            echo "Juju page pins ${pin_var} for ${name}, but the module did not accept it"
+            exit 1
+          fi
+        done <<< "$pins"
       ); then
         fail=1
       fi
