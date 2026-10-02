@@ -48,7 +48,6 @@ def test_deploy_prometheus_k8s(tf_manager, juju: jubilant.Juju, atelier_bin: str
     run_atelier(
         wrapper_dir,
         atelier_bin,
-        "module",
         "add",
         PROM_REPO,
         "--module",

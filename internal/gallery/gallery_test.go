@@ -27,7 +27,7 @@ func TestEntry_commands(t *testing.T) {
 	if got, want := e.ApplyCommand(), "atelier apply x"; got != want {
 		t.Errorf("ApplyCommand = %q, want %q", got, want)
 	}
-	if got, want := e.ScaffoldCommand(), "atelier module add x --strict --yes"; got != want {
+	if got, want := e.ScaffoldCommand(), "atelier add x --strict --yes"; got != want {
 		t.Errorf("ScaffoldCommand = %q, want %q", got, want)
 	}
 }
@@ -39,16 +39,30 @@ func TestEntry_requiresAppendedToApply(t *testing.T) {
 		t.Errorf("ApplyCommand = %q, want %q", got, want)
 	}
 	// The scaffold form CI runs omits them: CI cannot supply deployment-specific
-	// values, and the entry's static preset must still be validated.
-	if got, want := e.ScaffoldCommand(), "atelier module add x --strict --yes"; got != want {
+	// values, and the entry's static presets must still be validated.
+	if got, want := e.ScaffoldCommand(), "atelier add x --strict --yes"; got != want {
 		t.Errorf("ScaffoldCommand = %q, want %q", got, want)
 	}
 }
 
+func TestEntry_requiresWithValueRendersDefault(t *testing.T) {
+	// A `name=value` requires entry carries a working default: it renders that
+	// value rather than a placeholder, and RequiresNames still reports the name.
+	e := Entry{Name: "x", Requires: []string{"storage_backend=storage-class", "model"}}
+	want := "atelier apply x --var storage_backend=storage-class --var model=<model>"
+	if got := e.ApplyCommand(); got != want {
+		t.Errorf("ApplyCommand = %q, want %q", got, want)
+	}
+	got := e.RequiresNames()
+	if len(got) != 2 || got[0] != "storage_backend" || got[1] != "model" {
+		t.Errorf("RequiresNames = %v, want [storage_backend model]", got)
+	}
+}
+
 func TestFind(t *testing.T) {
-	e, ok := Find("haproxy-product")
+	e, ok := Find("cos")
 	if !ok || e.Module == "" {
-		t.Errorf("Find(haproxy-product) = %+v, %v", e, ok)
+		t.Errorf("Find(cos) = %+v, %v", e, ok)
 	}
 	if _, ok := Find("does-not-exist"); ok {
 		t.Error("Find must not match an unknown name")
@@ -56,11 +70,11 @@ func TestFind(t *testing.T) {
 }
 
 func TestLookup(t *testing.T) {
-	data, ok := Lookup("haproxy-dev")
+	data, ok := Lookup("cos-single-unit")
 	if !ok {
-		t.Fatal("haproxy-dev is not embedded")
+		t.Fatal("cos-single-unit is not embedded")
 	}
-	if !strings.Contains(string(data), "protected_hostnames_configuration") {
+	if !strings.Contains(string(data), "loki_coordinator") {
 		t.Errorf("unexpected preset contents:\n%s", data)
 	}
 	if _, ok := Lookup("does-not-exist"); ok {
@@ -69,15 +83,15 @@ func TestLookup(t *testing.T) {
 }
 
 func TestPresetPath_materializes(t *testing.T) {
-	path, ok := PresetPath("haproxy-dev")
+	path, ok := PresetPath("cos-no-ingress")
 	if !ok {
 		t.Fatal("PresetPath returned false for an embedded preset")
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("materialized preset missing: %v", err)
 	}
-	if filepath.Base(path) != "haproxy-dev.tfvars" {
-		t.Errorf("path = %q, want a haproxy-dev.tfvars basename", path)
+	if filepath.Base(path) != "cos-no-ingress.tfvars" {
+		t.Errorf("path = %q, want a cos-no-ingress.tfvars basename", path)
 	}
 	if _, ok := PresetPath("does-not-exist"); ok {
 		t.Error("an unknown preset must not have a path")

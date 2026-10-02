@@ -22,7 +22,7 @@ Lost your Terraform state, or never had one to begin with? With `atelier import`
 Given a running [Canonical Observability Stack (COS)](https://github.com/canonical/observability-stack/tree/main/terraform/cos) deployment, note the model UUID from `juju models`, then run:
 
 ```bash
-atelier module add https://github.com/canonical/observability-stack.git \
+atelier add https://github.com/canonical/observability-stack.git \
     --module terraform/cos-lite \
     --ref track/3.0  # plan and apply
 rm terraform.*  # remove Terraform state
@@ -109,7 +109,7 @@ The six resources to add are `juju_access_secret` objects that `terraform query`
 Similar to the `Importing a full deployment` section, we can also import a partially complete module. In this example, Loki is deployed with Atelier:
 
 ```bash
-atelier module add https://github.com/canonical/loki-operators.git  # plan and apply
+atelier add https://github.com/canonical/loki-operators.git  # plan and apply
 rm terraform.*  # remove Terraform state
 juju remove-application --destroy-storage s3-integrator  # create a partially complete deployment
 atelier import juju \

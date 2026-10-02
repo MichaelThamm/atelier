@@ -84,9 +84,9 @@ gallery-check: build-bin
     fail=0
     while IFS= read -r line; do
       [ -n "$line" ] || continue
-      # The scaffold command is `atelier module add <name> …`; the entry name is
-      # the third token after stripping the leading `atelier`.
-      name="$(awk '{print $3}' <<< "${line#atelier }")"
+      # The scaffold command is `atelier add <name> …`; the entry name is
+      # the second token after stripping the leading `atelier`.
+      name="$(awk '{print $2}' <<< "${line#atelier }")"
       scratch="$(mktemp -d)"
       if ! (
         cd "$scratch"
@@ -100,14 +100,17 @@ gallery-check: build-bin
         read -r -a add_args <<< "${line#atelier }"
         # Entries whose module declares deployment-specific inputs without a
         # default (a Juju model UUID, S3 credentials) cannot validate against
-        # the preset alone. Supply a placeholder for exactly those, read from
-        # the entry's own `requires` list; the preset stays free of fake values,
-        # and a real user supplies the real ones. `presets lint` already checked
-        # the preset's keys.
+        # the presets alone. Supply a value for exactly those, read from the
+        # entry's own `requires` list: a `name=value` entry carries a value that
+        # satisfies the variable's type and validation rules, and a bare name
+        # gets a placeholder (UUID-shaped for `*uuid*` names). The presets stay
+        # free of fake values, and a real user supplies the real ones.
+        # `presets lint` already checked the presets' keys.
         vars=()
         while IFS= read -r req; do
           [ -n "$req" ] || continue
           case "$req" in
+            *=*) vars+=(--var "$req") ;;
             *uuid*) vars+=(--var "$req=00000000-0000-0000-0000-000000000000") ;;
             *) vars+=(--var "$req=placeholder") ;;
           esac

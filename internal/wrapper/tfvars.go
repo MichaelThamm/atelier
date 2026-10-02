@@ -69,7 +69,7 @@ func (d VarFileDiagnostics) Empty() bool {
 // ReadTFVarsFileChecked parses a `.tfvars` file and returns the values for the
 // declared variables, plus diagnostics. It reports undeclared names and type
 // mismatches and skips both, rather than applying values that would be
-// silently ignored or produce an invalid file. Used by `module add --var-file`
+// silently ignored or produce an invalid file. Used by `add --var-file`
 // and the TUI picker (ADR-0031).
 func ReadTFVarsFileChecked(path string, vars []tfvars.Variable) (map[string]cty.Value, VarFileDiagnostics, error) {
 	return readTFVarsFile(path, vars)

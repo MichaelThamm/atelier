@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/gallery"
 )
 
@@ -16,14 +17,19 @@ const galleryUsage = `Usage:
                                                --commands prints one non-applying scaffold command per
                                                entry, for scripts and CI.
   atelier gallery requires <name>
-                                               Print the inputs an entry cannot supply (a Juju model
-                                               UUID, S3 credentials), one per line. Used by the gallery
-                                               check.
+                                               Print the inputs an entry leaves to the user (a Juju model
+                                               UUID, S3 credentials), one per line, as --var arguments.
+                                               An entry written name=value supplies a working default.
+                                               Used by the gallery check.
+  atelier gallery lint
+                                               Clone each entry's pinned module and check that every
+                                               required input (a variable with no default) is covered by
+                                               the entry's presets or requires. Exits non-zero on drift.
 `
 
 // runGallery dispatches the `atelier gallery` subcommand. The gallery is
 // Atelier's curated set of module quick starts; a preset is a `.tfvars` bundle
-// (ADR-0031), which a gallery entry may name.
+// (ADR-0031), which a gallery entry may name — an entry composes all of them.
 func runGallery(args []string) error {
 	if len(args) == 0 {
 		fmt.Print(galleryUsage)
@@ -34,9 +40,58 @@ func runGallery(args []string) error {
 		return runGalleryList(args[1:])
 	case "requires":
 		return runGalleryRequires(args[1:])
+	case "lint":
+		return runGalleryLint(args[1:])
 	default:
 		return fmt.Errorf("unknown gallery subcommand %q\n\n%s", args[0], galleryUsage)
 	}
+}
+
+// runGalleryLint implements `atelier gallery lint`. For each entry it reads the
+// pinned module's schema and checks that the entry covers every required input,
+// so a module that gains a required variable fails here rather than at apply
+// time (ADR-0038).
+func runGalleryLint(args []string) error {
+	if len(args) != 0 {
+		return fmt.Errorf("gallery lint takes no arguments")
+	}
+	entries, err := gallery.List()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := interruptContext()
+	defer cancel()
+
+	failures := 0
+	for _, e := range entries {
+		required, err := bootstrap.LoadRequiredVars(ctx, e.Module, e.Ref, e.Subdir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", e.Name, err)
+			failures++
+			continue
+		}
+		uncovered, stale, err := e.Coverage(required)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", e.Name, err)
+			failures++
+			continue
+		}
+		if len(uncovered) == 0 && len(stale) == 0 {
+			fmt.Printf("%s  ok (%d required input(s))\n", e.Name, len(required))
+			continue
+		}
+		failures++
+		if len(uncovered) > 0 {
+			fmt.Printf("%s  uncovered required input(s): %s\n", e.Name, strings.Join(uncovered, ", "))
+		}
+		if len(stale) > 0 {
+			fmt.Printf("%s  requires not declared by the module: %s\n", e.Name, strings.Join(stale, ", "))
+		}
+	}
+	if failures > 0 {
+		return fmt.Errorf("gallery lint: %d entry/entries need attention", failures)
+	}
+	return nil
 }
 
 func runGalleryList(args []string) error {
@@ -74,6 +129,9 @@ func renderGallery(w io.Writer, entries []gallery.Entry, commands bool) error {
 		}
 		fmt.Fprintf(w, "%s  %s\n", e.Name, e.Description)
 		fmt.Fprintf(w, "    %s\n", moduleRef(e))
+		if len(e.Presets) > 0 {
+			fmt.Fprintf(w, "    presets: %s\n", strings.Join(e.Presets, ", "))
+		}
 		writeCommand(w, e)
 	}
 	return nil
@@ -107,9 +165,11 @@ func writeCommand(w io.Writer, e gallery.Entry) {
 	fmt.Fprintln(w)
 }
 
-// runGalleryRequires prints, one per line, the inputs an entry's preset cannot
-// supply. It is a machine-readable helper for `gallery-check`, which fills them
-// with placeholders so it can validate an entry whose module declares
+// runGalleryRequires prints, one per line, the inputs an entry leaves to the
+// user (ADR-0038). An entry written `name=value` carries a working default and
+// is printed verbatim, so `gallery-check` can pass it straight to `--var`. It is
+// a machine-readable helper for the check, which fills the bare names with
+// placeholders so it can validate an entry whose module declares
 // deployment-specific required inputs.
 func runGalleryRequires(args []string) error {
 	if len(args) != 1 {

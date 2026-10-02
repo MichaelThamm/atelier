@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted — supersedes the "bootstrap from URL" path of `atelier init`.
+Superseded by [ADR-0037](0037-flat-cli-surface.md). (Historical: superseded the
+"bootstrap from URL" path of `atelier init`.)
 
 ## Context
 

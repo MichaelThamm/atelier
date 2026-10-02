@@ -1,6 +1,6 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
-"""Feature tests for ``atelier module add`` against a real upstream module.
+"""Feature tests for ``atelier add`` against a real upstream module.
 
 These exercise the CLI surface — sub-module selection, ref pinning, presets
 (`.tfvars` bundles), block naming, listing/removal, duplicate refusal, and
@@ -36,7 +36,7 @@ DEFAULT_VALUES = {
 
 
 def _add(wrapper_dir, atelier_bin, *extra: str, check: bool = True):
-    """Run ``atelier module add`` for the prometheus module and return the process.
+    """Run ``atelier add`` for the prometheus module and return the process.
 
     ``--dir`` names the wrapper directory Atelier creates, so the caller knows
     where to find ``main.tf`` regardless of the candidate-derived name.
@@ -44,7 +44,6 @@ def _add(wrapper_dir, atelier_bin, *extra: str, check: bool = True):
     return run_atelier(
         wrapper_dir,
         atelier_bin,
-        "module",
         "add",
         PROM_REPO,
         "--module",
@@ -135,7 +134,7 @@ def test_module_list_and_rm(tmp_path, atelier_bin):
     _add(tmp_path, atelier_bin, "--as", "prom", "--ref", PROM_REF)
 
     # WHEN listing the wrapper
-    listed = run_atelier(_wrapper(tmp_path), atelier_bin, "module", "list", capture=True).stdout
+    listed = run_atelier(_wrapper(tmp_path), atelier_bin, "list", capture=True).stdout
 
     # THEN the module, its source and its ref are shown
     assert "prom" in listed
@@ -143,7 +142,7 @@ def test_module_list_and_rm(tmp_path, atelier_bin):
     assert PROM_REF in listed
 
     # WHEN removing it
-    run_atelier(_wrapper(tmp_path), atelier_bin, "module", "rm", "prom", "--force", capture=True)
+    run_atelier(_wrapper(tmp_path), atelier_bin, "rm", "prom", "--force", capture=True)
 
     # THEN its block is gone
     assert not re.search(r'module\s+"prom"', _main_tf(tmp_path))
@@ -190,7 +189,6 @@ def test_duplicate_add_is_refused(tmp_path, atelier_bin):
         run_atelier(
             _wrapper(tmp_path),
             atelier_bin,
-            "module",
             "add",
             PROM_REPO,
             "--module",
