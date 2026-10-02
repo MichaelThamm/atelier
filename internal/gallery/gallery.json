@@ -75,6 +75,16 @@
     "requires": ["k8s_model_uuid"]
   },
   {
+    "name": "github-runner",
+    "description": "Self-hosted GitHub Actions runners on Kubernetes, sharing one image-builder charm.",
+    "module": "https://github.com/canonical/github-runner-operator",
+    "subdir": "terraform/product",
+    "ref": "24801f1ffe753f0e3f4d1914ee8f40923bd736d7",
+    "block": "github_runner",
+    "presets": ["github-runner-defaults"],
+    "requires": ["model"]
+  },
+  {
     "name": "haproxy-product",
     "description": "HAProxy product deployment protecting one hostname.",
     "module": "https://github.com/canonical/haproxy-operator",
@@ -133,6 +143,26 @@
     "requires": ["channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
   },
   {
+    "name": "netbox",
+    "description": "NetBox for Kubernetes: infrastructure asset management (DCIM and IPAM), with Redis, S3, and optional SSO.",
+    "module": "https://github.com/canonical/netbox-k8s-operator",
+    "subdir": "terraform/product",
+    "ref": "078dbfc382d93614b2b1fac208c4249e268c73be",
+    "block": "netbox",
+    "presets": ["netbox-defaults"],
+    "requires": ["model_uuid"]
+  },
+  {
+    "name": "saml-integrator",
+    "description": "A SAML integrator on Kubernetes, for signing in to a product with an external identity provider.",
+    "module": "https://github.com/canonical/saml-integrator-operator",
+    "subdir": "terraform/product",
+    "ref": "ca8f2a96706e0d91ec2d5890f7d588497341279d",
+    "block": "saml_integrator",
+    "presets": ["saml-integrator-defaults"],
+    "requires": ["model_uuid"]
+  },
+  {
     "name": "superset",
     "description": "Apache Superset on Kubernetes: BI with Postgres, Redis, a TLS ingress, and optional SSO.",
     "module": "https://github.com/canonical/superset-k8s-operator",
@@ -148,5 +178,15 @@
     "subdir": "terraform",
     "ref": "b69711084f6b754d4b3eb783a687c596bc134293",
     "requires": ["channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
+  },
+  {
+    "name": "trino",
+    "description": "Trino on Kubernetes: distributed SQL with a Traefik ingress and optional OAuth. The product owns and creates the Juju model it deploys into.",
+    "module": "https://github.com/canonical/trino-k8s-operator",
+    "subdir": "terraform/product",
+    "ref": "39883e1bb65f587b7b4e17cb4e8039f9f0aee1bd",
+    "block": "trino",
+    "presets": ["trino-defaults"],
+    "requires": ["logging_config=all", "model_name", "risk=edge"]
   }
 ]
