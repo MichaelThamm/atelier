@@ -1,0 +1,119 @@
+name: Gallery schedule
+
+# Keeps the bundled module gallery's pinned refs current. Proposes the bump as a
+# pull request rather than committing it, so a moved pin is always reviewed —
+# and validated — before it reaches a release.
+
+on:
+  schedule:
+    # Fortnightly, 06:17 UTC on the 1st and 15th. Cron cannot express a 14-day
+    # period, so two days-of-month is the idiom; the gap is 14 days mid-month
+    # and 15–17 days across a month boundary. A cron also cannot key off an
+    # Ubuntu release date, so this runs every cycle and opens a PR only when a
+    # pin actually moved. Use `workflow_dispatch` to run it on demand, e.g.
+    # right after a release.
+    - cron: '17 6 1,15 * *'
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Ref to track in each module (HEAD, a branch, or a tag)'
+        required: false
+        default: HEAD
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# One refresh at a time; never cancel a run mid-bump.
+concurrency:
+  group: gallery-schedule
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump gallery refs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Install just
+        run: sudo snap install just --classic
+
+      # Resolves each entry's module with `git ls-remote`. A module that cannot
+      # be reached exits non-zero and fails the job, so a flaky remote never
+      # produces a half-bumped manifest.
+      - name: Resolve each module's current ref
+        id: bump
+        env:
+          TRACK: ${{ inputs.track }}
+        run: |
+          args=(-dry-run)
+          if [ -n "$TRACK" ]; then
+            args+=(-ref "$TRACK")
+          fi
+          go run ./tools/gallerybump "${args[@]}" | tee /tmp/bump.txt
+          if grep -q '^no bumps' /tmp/bump.txt; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The point of the gate: prove the new pins still scaffold and validate
+      # before proposing them. A failed run leaves main on the last known-good
+      # pins and opens no PR.
+      - name: Validate the bumped gallery
+        if: steps.bump.outputs.changed == 'true'
+        run: |
+          just gallery-lint
+          just gallery-check
+
+      - name: Open or refresh the bump PR
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: automation/gallery-bump
+        run: |
+          cat > /tmp/pr.md <<'MSG'
+          Automated refresh of the bundled module gallery.
+
+          Each entry's `ref` now points at its module's current tracked ref. The
+          bump was validated before this PR was opened: `just gallery-lint`
+          (every entry covers its module's required inputs) and `just
+          gallery-check` (every entry scaffolds and `terraform validate`).
+
+          Review the diff for anything beyond the `ref` lines. If a module
+          renamed a variable, changed a default, or added a required input, fix
+          the entry here — the bump deliberately does not touch presets or
+          `requires`. See ADR-0040 and the `gallery-bump` skill.
+          MSG
+          git config user.name "atelier-bot"
+          git config user.email "atelier-bot@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          go run ./tools/gallerybump
+          git add internal/gallery/gallery.json
+          git commit -m "chore(gallery): bump module refs to the current tracked ref"
+          git push --force origin "$BRANCH"
+          pr="$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number')"
+          if [ -n "$pr" ]; then
+            gh pr comment "$pr" --body "Refreshed against main at $(date -u +%FT%TZ)."
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore(gallery): bump module refs to the current tracked ref" \
+              --body-file /tmp/pr.md
+          fi
