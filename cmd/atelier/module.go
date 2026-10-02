@@ -739,7 +739,7 @@ func applyWrapper(dir string, autoApprove bool) error {
 	fmt.Fprintln(os.Stderr, "Running terraform init…")
 	tf.SetStdout(os.Stdout)
 	tf.SetStderr(os.Stderr)
-	err = tf.Init(ctx)
+	err = tf.InitUpgrade(ctx)
 	tf.SetStdout(nil)
 	tf.SetStderr(nil)
 	if err != nil {
