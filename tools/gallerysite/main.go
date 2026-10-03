@@ -93,8 +93,9 @@ func render(w io.Writer, entries []gallery.Entry) error {
 }
 
 // writeCard writes one entry as a Material grid card: the description, the
-// module link and pinned ref, the composed presets and required inputs when
-// present, and the apply one-liner. The four-space indent keeps every line inside the list
+// module link and pinned ref, the presets, and the apply one-liner. The
+// one-liner already carries every required input as a `--var`, so the card does
+// not restate them. The four-space indent keeps every line inside the list
 // item that forms the card.
 func writeCard(b *strings.Builder, e gallery.Entry) {
 	fmt.Fprintf(b, "-   __%s__\n\n", e.Name)
@@ -119,14 +120,6 @@ func writeCard(b *strings.Builder, e gallery.Entry) {
 	if len(e.AvailablePresets) > 0 {
 		fmt.Fprintf(b, "    Also available: %s — add one with `--var-file <name>`.\n\n",
 			codeList(e.AvailablePresets))
-	}
-
-	if len(e.Requires) > 0 {
-		reqs := make([]string, len(e.Requires))
-		for i, r := range e.Requires {
-			reqs[i] = "`" + r + "`"
-		}
-		fmt.Fprintf(b, "    Needs %s.\n\n", strings.Join(reqs, ", "))
 	}
 
 	fmt.Fprintf(b, "    ```bash\n    %s\n    ```\n\n", e.ApplyCommand())

@@ -387,8 +387,9 @@ adding modules:
 - If the bootstrap fails partway, removes the `.atelier/` directory it created,
   leaving the target as it was found.
 
-`atelier rm <name>` removes a module block, its outputs, and its
-clone. Does not run `terraform apply -destroy` — state cleanup is the user's
+`atelier rm <name>` removes a module block and its clone under
+`.atelier/clone/`. It removes no outputs, because Atelier writes none — see
+§7.6. Does not run `terraform apply -destroy` — state cleanup is the user's
 responsibility.
 
 `atelier ls` prints a table (name, source, ref) without launching
@@ -578,6 +579,9 @@ exactly like any other `--var-file`.
   gallery check, and opens a pull request when a pin moved — it never edits presets or
   `requires`, so a drifted entry is corrected by hand in that PR
   ([ADR-0040](adr/0040-automated-gallery-refresh.md)).
+- A gallery card names a required input once, as a `--var` in the apply
+  one-liner it offers, and does not restate the list in prose
+  ([ADR-0046](adr/0046-gallery-card-states-inputs-once.md)).
 - The GitHub Pages site publishes a second generated page, `/juju/`, beside the
   provider-agnostic `/gallery/`. It is built by the same tool
   ([ADR-0037](adr/0037-gallery-pages-site.md)) and holds the gallery's Juju
@@ -1205,7 +1209,17 @@ consistent, boxed appearance.
 
 ## 15. Inter-module wiring
 
-When the wrapper contains multiple modules, Atelier offers **wire
+**Not implemented.** This section is the specification for a feature that has no
+code today: Atelier does not parse `output` blocks, so it knows nothing about
+what the modules in a wrapper expose. What *is* implemented is preservation of
+a reference the user hand-writes — a variable whose value is an expression
+Atelier cannot evaluate (`module.x.y`, `data.juju_model.z.uuid`) is stored
+verbatim and re-emitted on every save, shown as `[→]` in the list pane and
+`wired to expression` in the editor ([ADR-0007](adr/0007-sparse-wrapper-write-rule.md)
+§10.2). Everything below describes what Atelier should additionally *offer*.
+Tracked in [ROADMAP.md](ROADMAP.md).
+
+When the wrapper contains multiple modules, Atelier should offer **wire
 suggestions** — type-compatible output→input connections between modules.
 See [ADR-0017](adr/0017-inter-module-wiring.md).
 
@@ -1242,7 +1256,7 @@ Editing a wired variable replaces the reference with a literal value.
 
 ### 15.4 Scope
 
-- Today: wire suggestions for scalar types (`string`, `number`, `bool`).
+- Specified for: wire suggestions for scalar types (`string`, `number`, `bool`).
 - Future: collection and object type wiring.
 
 ## 16. Open questions

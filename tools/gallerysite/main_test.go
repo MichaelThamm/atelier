@@ -8,8 +8,8 @@ import (
 )
 
 // TestRender_cards pins the page shape: a Material grid with one card per
-// entry, carrying the module link, the pinned short ref, the composed presets,
-// the required inputs, and the derived apply command.
+// entry, carrying the module link, the pinned short ref, the presets, and the
+// derived apply command.
 func TestRender_cards(t *testing.T) {
 	entries := []gallery.Entry{
 		{
@@ -40,7 +40,6 @@ func TestRender_cards(t *testing.T) {
 		"[:octicons-mark-github-16: canonical/observability-stack](https://github.com/canonical/observability-stack)",
 		"`terraform/cos-lite` · pinned `d1598ff3bdf9`",
 		"atelier apply cos-lite",
-		"Needs `s3_access_key`, `s3_secret_key`.",
 		"presets `cos-grafana-single-unit` · block `cos`",
 		"Also available: `cos-single-unit`, `cos-no-ingress`",
 		"atelier apply cos --var s3_access_key=<s3_access_key> --var s3_secret_key=<s3_secret_key>",
@@ -48,6 +47,34 @@ func TestRender_cards(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("rendered page missing %q\n\n%s", want, got)
 		}
+	}
+}
+
+// A required input appears in the card once, as a `--var` in the command it
+// offers. A second mention restates the line above in prose and nothing else.
+func TestRender_cardStatesRequiresOnlyInTheCommand(t *testing.T) {
+	entries := []gallery.Entry{{
+		Name: "tempo-operators", Description: "Tempo.",
+		Module: "https://github.com/canonical/observability-stack",
+		Subdir: "terraform/tempo-operators", Ref: "d1598ff3bdf9a25af69145fd557a913e2a13a314",
+		Requires: []string{
+			"channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint",
+		},
+	}}
+
+	var b strings.Builder
+	if err := render(&b, entries); err != nil {
+		t.Fatal(err)
+	}
+	got := b.String()
+
+	for _, want := range []string{"--var channel=dev/edge", "--var s3_endpoint=<s3_endpoint>"} {
+		if n := strings.Count(got, want); n != 1 {
+			t.Errorf("rendered page has %d occurrences of %q, want 1\n\n%s", n, want, got)
+		}
+	}
+	if strings.Contains(got, "Needs ") {
+		t.Errorf("the card restates its required inputs as prose\n\n%s", got)
 	}
 }
 
