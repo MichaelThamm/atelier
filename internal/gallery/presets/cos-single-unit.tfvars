@@ -1,8 +1,6 @@
-# One unit of every COS component.
-#
-# Optional: the entry applies this only when asked, with
-# `--var-file cos-single-unit`. Grafana is already at one unit by default (see
-# `cos-grafana-single-unit`); it is set here so the bundle is correct on its own.
+# One unit of every COS component. Grafana is already at one unit by default
+# (see `cos-grafana-single-unit`); it is set here so the bundle is correct on
+# its own.
 
 alertmanager     = { units = 1 }
 grafana          = { units = 1 }
