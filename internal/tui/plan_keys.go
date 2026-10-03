@@ -76,25 +76,25 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refDetail = true
 			return m, nil
 		}
-	case "up", "k":
+	case "up":
 		m.movePlanCursor(-1)
 		m.planDiffScroll = 0 // reset diff scroll on cursor move
-	case "down", "j":
+	case "down":
 		m.movePlanCursor(+1)
 		m.planDiffScroll = 0 // reset diff scroll on cursor move
-	case "pgup", "ctrl+u":
+	case "pgup":
 		m.movePlanCursor(-m.planPanelHeight() / 2)
 		m.planDiffScroll = 0
-	case "pgdown", "ctrl+d":
+	case "pgdown":
 		m.movePlanCursor(m.planPanelHeight() / 2)
 		m.planDiffScroll = 0
-	case "g":
-		m.movePlanCursor(-maxInt)
+	case "home":
+		m.movePlanCursor(-len(flattenedRows(m.activeTree())))
 		m.planDiffScroll = 0
-	case "G":
-		m.movePlanCursor(maxInt)
+	case "end":
+		m.movePlanCursor(len(flattenedRows(m.activeTree())))
 		m.planDiffScroll = 0
-	case "enter", " ", "space", "right", "left", "h":
+	case "enter", " ":
 		// Toggle collapse on the focused row when it has children.
 		rows := flattenedRows(m.activeTree())
 		if m.planCursor >= 0 && m.planCursor < len(rows) {
@@ -108,7 +108,7 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handlePlanDiffKey handles keys when the diff pane is focused.
-// ↑↓/j/k scroll the diff; Tab/Esc return focus to the tree.
+// ↑↓ scroll the diff; Tab/Esc return focus to the tree.
 func (m *Model) handlePlanDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "tab", "esc":
@@ -119,22 +119,22 @@ func (m *Model) handlePlanDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.planState = planIdle
 		m.planDiffFocus = false
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.planDiffScroll > 0 {
 			m.planDiffScroll--
 		}
-	case "down", "j":
+	case "down":
 		m.planDiffScroll++
-	case "pgup", "ctrl+u":
+	case "pgup":
 		m.planDiffScroll -= m.planPanelHeight() / 2
 		if m.planDiffScroll < 0 {
 			m.planDiffScroll = 0
 		}
-	case "pgdown", "ctrl+d":
+	case "pgdown":
 		m.planDiffScroll += m.planPanelHeight() / 2
-	case "g":
+	case "home":
 		m.planDiffScroll = 0
-	case "G":
+	case "end":
 		m.planDiffScroll = maxInt // clamped at render time
 	}
 	return m, nil

@@ -194,16 +194,15 @@ func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		return e, cmd
 	}
 
-	// --- Field-list jumps (g/G/Ctrl+Home/Ctrl+End). These take precedence
-	// over readline forwarding so the user always has a way to jump the
-	// field cursor even while a scalar field has a caret. (Plain
-	// Home/End belong to the cell — see below.)
+	// --- Field-list jumps (Ctrl+Home/Ctrl+End). No bare-letter aliases: they
+	// would shadow characters typed into a scalar field (ADR-0020 §3, as with
+	// plain Home/End below).
 	keyStr := k.String()
 	switch {
-	case keyStr == "ctrl+home", keyStr == "g":
+	case keyStr == "ctrl+home":
 		e.cursor = 0
 		return e, nil
-	case keyStr == "ctrl+end", keyStr == "G":
+	case keyStr == "ctrl+end":
 		e.cursor = len(e.fields) - 1
 		if e.cursor < 0 {
 			e.cursor = 0

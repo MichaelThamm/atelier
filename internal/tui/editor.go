@@ -222,7 +222,7 @@ func newBoolEditor(v *tfvars.Variable, current cty.Value) *boolEditor {
 func (e *boolEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		switch k.String() {
-		case " ", "space", "enter":
+		case " ", "enter":
 			if e.value.IsNull() || !e.value.True() {
 				e.value = cty.True
 			} else {

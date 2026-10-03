@@ -813,7 +813,7 @@ elements (panel borders, summary lines) subtract from this budget.
 
 **Footer** (contextual hints change by mode):
 - Editor mode: `[cos_lite] [Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [R] ref  [L] logs  [Q] quit  [?] help`
-- Plan mode: `[↑↓/g/G] navigate  [Enter] toggle  [[ ]] diff scroll  [P] re-plan  [A] apply  [L] logs  [Esc] back  [?] help`
+- Plan mode: `[↑↓] navigate  [Enter] toggle  [P] re-plan  [A] apply  [L] logs  [Esc] back  [?] help`
 - Logs view: `[↑↓] scroll  [L/Tab/Esc] back  [?] help`
 - Plan loading: `[L] logs  [Esc] cancel  [?] help`
 - Small terminal (`height < 15`): `[?] help` only.
@@ -888,9 +888,9 @@ Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 m
 - Resources grouped by module path (collapsible) then resource type.
 - Selecting a leaf opens an attribute diff in a side pane.
 - Both the plan tree and the diff pane are independently scrollable when
-  content exceeds the available height. The tree scrolls with `↑↓/PgUp/PgDn/g/G`;
-  the diff pane scrolls with `[` and `]`. A scroll indicator shows position
-  percentage when content overflows.
+  content exceeds the available height. The tree scrolls with
+  `↑↓/PgUp/PgDn` and `Home`/`End` for top/bottom. A scroll indicator
+  shows position percentage when content overflows.
 - The summary header shows both the plan delta and a state context line
   (total resource count and module count), read directly from
   `terraform.tfstate` without invoking terraform.
@@ -951,8 +951,8 @@ is omitted.
 
 **Navigation**:
 - `Tab` switches between Errors and Logs tabs (scroll resets to bottom).
-- `j`/`k` scroll line-by-line, `Ctrl+D`/`Ctrl+U` or `PgDn`/`PgUp`
-  for half-page jumps, `g`/`G` for top/bottom.
+- `↑`/`↓` scroll line-by-line, `PgDn`/`PgUp` for half-page jumps,
+  `Home`/`End` for top/bottom.
 - `L`, `Tab`, or `Esc` returns to the previous view (plan view if
   `planState == planReady`, editor otherwise). `Esc` during plan loading
   cancels the plan and returns to the editor.
