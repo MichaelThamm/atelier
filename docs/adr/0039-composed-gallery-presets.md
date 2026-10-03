@@ -4,7 +4,9 @@
 
 Accepted — supersedes [ADR-0035](0035-bundled-module-gallery.md). The embedded
 manifest, CLI-as-human-interface, and `requires`-is-metadata decisions stand;
-what changes is the preset model and how coverage is enforced.
+what changes is the preset model and how coverage is enforced. Amended by
+[ADR-0045](0045-gallery-available-presets.md), which splits an entry's composed
+presets from the ones it only offers.
 
 ## Context
 
@@ -35,7 +37,8 @@ it just had no enforcement behind it.
 `presets` is a list. An entry applies **all** of them, in order, as its curated
 default scenario; later values win, and a user's own `--var-file` is layered
 after them so it still overrides. Presets are scenario bundles, not
-required-input fillers.
+required-input fillers. Whether every preset an entry ships belongs in this list
+is settled by [ADR-0045](0045-gallery-available-presets.md).
 
 Generic upstream presets move into Atelier rather than being duplicated by every
 product repo: `cos-single-unit` and `cos-no-ingress` are Atelier-hosted copies of

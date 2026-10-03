@@ -21,8 +21,10 @@ func TestRender_cards(t *testing.T) {
 			Name: "cos", Description: "The full stack.",
 			Module: "https://github.com/canonical/observability-stack",
 			Subdir: "terraform/cos", Ref: "d1598ff3bdf9a25af69145fd557a913e2a13a314",
-			Presets: []string{"cos-single-unit", "cos-no-ingress"}, Block: "cos",
-			Requires: []string{"s3_access_key", "s3_secret_key"},
+			Presets:          []string{"cos-grafana-single-unit"},
+			AvailablePresets: []string{"cos-single-unit", "cos-no-ingress"},
+			Block:            "cos",
+			Requires:         []string{"s3_access_key", "s3_secret_key"},
 		},
 	}
 
@@ -39,7 +41,8 @@ func TestRender_cards(t *testing.T) {
 		"`terraform/cos-lite` · pinned `d1598ff3bdf9`",
 		"atelier apply cos-lite",
 		"Needs `s3_access_key`, `s3_secret_key`.",
-		"presets `cos-single-unit`, `cos-no-ingress` · block `cos`",
+		"presets `cos-grafana-single-unit` · block `cos`",
+		"Also available: `cos-single-unit`, `cos-no-ingress`",
 		"atelier apply cos --var s3_access_key=<s3_access_key> --var s3_secret_key=<s3_secret_key>",
 	} {
 		if !strings.Contains(got, want) {
