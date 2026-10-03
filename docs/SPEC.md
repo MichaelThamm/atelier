@@ -947,8 +947,8 @@ is omitted.
 
 **Navigation**:
 - `Tab` switches between Errors and Logs tabs (scroll resets to bottom).
-- `j`/`k` scroll line-by-line, `Ctrl+D`/`Ctrl+U` or `PgDn`/`PgUp`
-  for half-page jumps, `g`/`G` for top/bottom.
+- `↑`/`↓` scroll line-by-line, `PgDn`/`PgUp` for half-page jumps,
+  `Home`/`End` for top/bottom.
 - `L`, `Tab`, or `Esc` returns to the previous view (plan view if
   `planState == planReady`, editor otherwise). `Esc` during plan loading
   cancels the plan and returns to the editor.

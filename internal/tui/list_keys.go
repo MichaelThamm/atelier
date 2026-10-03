@@ -134,9 +134,9 @@ func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(-1)
 	case "down":
 		m.moveCursor(+1)
-	case "pgup", "ctrl+u":
+	case "pgup":
 		m.moveCursor(-m.leftPaneVisibleRows() / 2)
-	case "pgdown", "ctrl+d":
+	case "pgdown":
 		m.moveCursor(m.leftPaneVisibleRows() / 2)
 	case "home":
 		m.moveCursor(-len(m.rows))

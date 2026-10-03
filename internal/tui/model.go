@@ -202,6 +202,9 @@ const (
 // light backgrounds without colour.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+// maxInt is a large sentinel for "scroll to end" (clamped at render time).
+const maxInt = int(^uint(0) >> 1)
+
 type focusPane int
 
 const (

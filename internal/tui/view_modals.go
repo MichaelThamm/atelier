@@ -12,8 +12,8 @@ func (m *Model) renderHelpModal() string {
 	switch {
 	case m.planState == planReady:
 		fmt.Fprintln(&b, "  ↑ ↓            Navigate plan tree")
-		fmt.Fprintln(&b, "  PgUp/Ctrl+U   Half-page up")
-		fmt.Fprintln(&b, "  PgDn/Ctrl+D   Half-page down")
+		fmt.Fprintln(&b, "  PgUp/PgDn      Half-page up/down")
+		fmt.Fprintln(&b, "  Home/End       Jump to first/last row")
 		fmt.Fprintln(&b, "  Enter/Space    Toggle collapse/expand")
 		fmt.Fprintln(&b, "  [ / ]          Scroll diff pane up/down")
 		fmt.Fprintln(&b, "  P              Re-run terraform plan")
@@ -84,8 +84,7 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "Logs view (L):")
 		fmt.Fprintln(&b, "  ↑ ↓            Scroll up/down")
-		fmt.Fprintln(&b, "  PgUp/Ctrl+U   Half-page up")
-		fmt.Fprintln(&b, "  PgDn/Ctrl+D   Half-page down")
+		fmt.Fprintln(&b, "  PgUp/PgDn      Half-page up/down")
 		fmt.Fprintln(&b, "  Home/End      Jump to top/bottom")
 		fmt.Fprintln(&b, "  L/Tab/Esc     Return to previous view")
 
