@@ -109,16 +109,17 @@ func writeCard(b *strings.Builder, e gallery.Entry) {
 	}
 	meta = append(meta, "pinned `"+e.ShortRef()+"`")
 	if len(e.Presets) > 0 {
-		quoted := make([]string, len(e.Presets))
-		for i, p := range e.Presets {
-			quoted[i] = "`" + p + "`"
-		}
-		meta = append(meta, "presets "+strings.Join(quoted, ", "))
+		meta = append(meta, "presets "+codeList(e.Presets))
 	}
 	if e.Block != "" {
 		meta = append(meta, "block `"+e.Block+"`")
 	}
 	fmt.Fprintf(b, "    %s\n\n", strings.Join(meta, " · "))
+
+	if len(e.AvailablePresets) > 0 {
+		fmt.Fprintf(b, "    Also available: %s — add one with `--var-file <name>`.\n\n",
+			codeList(e.AvailablePresets))
+	}
 
 	if len(e.Requires) > 0 {
 		reqs := make([]string, len(e.Requires))

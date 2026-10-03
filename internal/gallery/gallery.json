@@ -47,7 +47,8 @@
     "description": "Charmed Spark on Kubernetes, sized for a dev controller. The product module creates its own Juju model.",
     "module": "https://github.com/canonical/spark-k8s-bundle",
     "subdir": "terraform/products/charmed-spark",
-    "ref": "6a39d83883f92e0581f5c94144c6ddee2a16e140"
+    "ref": "6a39d83883f92e0581f5c94144c6ddee2a16e140",
+    "available_presets": ["spark-single-unit"]
   },
   {
     "name": "cos",
@@ -55,7 +56,8 @@
     "module": "https://github.com/canonical/observability-stack",
     "subdir": "terraform/cos",
     "ref": "d1598ff3bdf9a25af69145fd557a913e2a13a314",
-    "presets": ["cos-single-unit", "cos-no-ingress"],
+    "presets": ["cos-grafana-single-unit"],
+    "available_presets": ["cos-single-unit", "cos-no-ingress"],
     "requires": ["s3_access_key", "s3_secret_key", "s3_endpoint"]
   },
   {
@@ -63,7 +65,8 @@
     "description": "COS Lite: the lightest Canonical Observability Stack — metrics, logs, dashboards, and alerts.",
     "module": "https://github.com/canonical/observability-stack",
     "subdir": "terraform/cos-lite",
-    "ref": "d1598ff3bdf9a25af69145fd557a913e2a13a314"
+    "ref": "d1598ff3bdf9a25af69145fd557a913e2a13a314",
+    "available_presets": ["cos-lite-no-ingress"]
   },
   {
     "name": "datahub",

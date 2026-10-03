@@ -140,9 +140,10 @@ func GalleryVarFiles() []VarFile {
 	var out []VarFile
 	seen := map[string]bool{}
 	for _, e := range entries {
-		// An entry composes all of its presets, and several entries may name
-		// the same bundle, so emit each one once.
-		for _, name := range e.Presets {
+		// An entry composes all of its presets and offers others for the user
+		// to opt into, and several entries may name the same bundle, so emit
+		// each one once.
+		for _, name := range e.AllPresets() {
 			if seen[name] {
 				continue
 			}

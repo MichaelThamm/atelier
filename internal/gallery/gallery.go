@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -43,6 +44,12 @@ type Entry struct {
 	// curated default scenario. A module that deploys with its defaults needs
 	// none.
 	Presets []string `json:"presets,omitempty"`
+	// AvailablePresets are bundles the entry offers but does not compose. The
+	// user opts in with `--var-file`, and they surface in `--list-var-files` and
+	// the TUI picker. Declaring them here rather than leaving them unreferenced
+	// keeps the module association, so `gallery-check` can bind each against
+	// this entry's module instead of letting it drift unchecked.
+	AvailablePresets []string `json:"available_presets,omitempty"`
 	// Requires lists inputs the entry leaves to the user — deployment-specific
 	// values such as a Juju model UUID or S3 credentials. An entry is either a
 	// bare name (rendered as `--var name=<name>`) or `name=value`, which both
@@ -76,6 +83,11 @@ func (e Entry) RequiresNames() []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// AllPresets returns every preset the entry offers, composed ones first.
+func (e Entry) AllPresets() []string {
+	return append(append([]string{}, e.Presets...), e.AvailablePresets...)
 }
 
 // ApplyCommand renders the user-facing command as a single line.
@@ -142,16 +154,24 @@ func validate(entries []Entry) error {
 		case e.Ref == "":
 			return fmt.Errorf("gallery manifest: %q has no ref", e.Name)
 		}
-		for _, p := range e.Presets {
+		for _, p := range e.AllPresets() {
 			if !HasPreset(p) {
 				return fmt.Errorf("gallery manifest: %q names preset %q, which is not embedded", e.Name, p)
 			}
 			referenced[p] = true
 		}
+		// A preset in both lists would be applied on every run and also read as
+		// an opt-in, so its status would depend on which list a reader checked
+		// first. Reject rather than pick one.
+		for _, p := range e.Presets {
+			if slices.Contains(e.AvailablePresets, p) {
+				return fmt.Errorf("gallery manifest: %q lists preset %q as both composed and available", e.Name, p)
+			}
+		}
 		seen[e.Name] = true
 	}
-	// An embedded preset no entry references would never be exercised by
-	// `gallery-check`, so it could rot unnoticed.
+	// An embedded preset no entry claims — composed or available — would never
+	// be exercised by `gallery-check`, so it could rot unnoticed.
 	files, err := presetsFS.ReadDir("presets")
 	if err != nil {
 		return fmt.Errorf("gallery presets: %w", err)
@@ -223,7 +243,7 @@ func materialize() (string, error) {
 	h := sha256.New()
 	h.Write(manifestJSON)
 	for _, e := range entries {
-		for _, p := range e.Presets {
+		for _, p := range e.AllPresets() {
 			data, ok := Lookup(p)
 			if !ok {
 				return "", fmt.Errorf("gallery: preset %q listed but not embedded", p)
@@ -236,7 +256,7 @@ func materialize() (string, error) {
 		return "", err
 	}
 	for _, e := range entries {
-		for _, p := range e.Presets {
+		for _, p := range e.AllPresets() {
 			path := filepath.Join(dir, p+".tfvars")
 			if _, err := os.Stat(path); err == nil {
 				continue

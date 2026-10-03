@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/MichaelThamm/atelier/internal/gallery"
@@ -33,6 +34,10 @@ func resolveModuleSource(opts *moduleOpts) error {
 	}
 	if len(entry.Presets) > 0 {
 		opts.VarFiles = append(append([]string{}, entry.Presets...), opts.VarFiles...)
+		// The composed presets are otherwise invisible: nothing in the command
+		// or the wrapper says which values the entry chose for you. Name them
+		// where they take effect.
+		fmt.Fprintf(os.Stderr, "Applying %s's bundled presets: %s\n", entry.Name, strings.Join(entry.Presets, ", "))
 	}
 	return nil
 }

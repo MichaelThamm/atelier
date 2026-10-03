@@ -51,6 +51,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0042 | [Multiple Juju pins, and modules that own their model](0042-juju-page-pins-and-own-model.md) | Accepted |
 | 0043 | [The Juju page reads the environment, but guesses nothing](0043-juju-page-guesses-nothing.md) | Accepted |
 | 0044 | [`--dir` names the wrapper; an existing wrapper is always the additive case](0044-dir-names-the-wrapper.md) | Accepted |
+| 0045 | [A gallery entry offers presets as well as composing them](0045-gallery-available-presets.md) | Accepted |
 
 ## Conventions
 

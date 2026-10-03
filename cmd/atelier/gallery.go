@@ -132,6 +132,9 @@ func renderGallery(w io.Writer, entries []gallery.Entry, commands bool) error {
 		if len(e.Presets) > 0 {
 			fmt.Fprintf(w, "    presets: %s\n", strings.Join(e.Presets, ", "))
 		}
+		if len(e.AvailablePresets) > 0 {
+			fmt.Fprintf(w, "    optional: %s\n", strings.Join(e.AvailablePresets, ", "))
+		}
 		writeCommand(w, e)
 	}
 	return nil

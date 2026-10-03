@@ -531,6 +531,17 @@ A **preset** is not the same thing as Atelier's **gallery**
 and a gallery entry *composes* zero or more presets as its default scenario
 ([ADR-0039](adr/0039-composed-gallery-presets.md)).
 
+An entry separates the presets it composes from the ones it only *offers*.
+`presets` are applied by default; `available_presets` appear in
+`--list-var-files`, the TUI picker, and the gallery card, and the user opts in
+with `--var-file <name>`. Declaring an offered preset rather than leaving it
+unreferenced is what lets the gallery check bind it against the entry's module,
+so it cannot drift out of sync with a variable the module renames or drops. An
+entry composes only what it needs to deploy: `cos` composes
+`cos-grafana-single-unit`, the smallest change that lets it plan, and offers
+`cos-single-unit` and `cos-no-ingress` as opt-ins. An opt-in resolves by name
+exactly like any other `--var-file`.
+
 - `--var-file <path|name>` seeds values from a Terraform variable file
   (repeatable; comma-separated names accepted; later files win over earlier
   ones). A local path is used as-is; a bare name is resolved first against
@@ -546,8 +557,8 @@ and a gallery entry *composes* zero or more presets as its default scenario
   writing anything. On `atelier add` it needs no other flag; on `import` it
   requires `--source`, since the repo is only searched after a clone.
 - `atelier gallery list [--commands]` renders Atelier's bundled gallery: the
-  module, pinned ref, the composed presets (if any), and the command to deploy
-  it. An entry whose module needs deployment-specific inputs (a Juju model UUID,
+  module, pinned ref, the composed presets (if any), the optional ones, and the
+  command to deploy it. An entry whose module needs deployment-specific inputs (a Juju model UUID,
   S3 credentials) lists them under `requires`, each either a bare `name` —
   rendered as `--var name=<name>` — or `name=value`, which renders a working
   default and gives the gallery check a value that satisfies the variable's type
@@ -558,7 +569,7 @@ and a gallery entry *composes* zero or more presets as its default scenario
   module-repo bundle of the same name wins.
 - `atelier gallery lint` clones each entry's pinned module, reads its schema, and
   checks that every required input — a variable with no default — is supplied by
-  one of the entry's presets or `requires`. It reports inputs nobody supplies and
+  one of the entry's *composed* presets or its `requires`. It reports inputs nobody supplies and
   `requires` the module no longer declares, and exits non-zero on either, so a
   module that gains a required input fails here rather than at apply time.
 - `just gallery-bump` resolves every entry's module with `git ls-remote` and rewrites only

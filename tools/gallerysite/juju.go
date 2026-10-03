@@ -293,13 +293,14 @@ func writeJujuCard(b *strings.Builder, e gallery.Entry) {
 	}
 	meta = append(meta, "pinned `"+e.ShortRef()+"`")
 	if len(e.Presets) > 0 {
-		quoted := make([]string, len(e.Presets))
-		for i, p := range e.Presets {
-			quoted[i] = "`" + p + "`"
-		}
-		meta = append(meta, "presets "+strings.Join(quoted, ", "))
+		meta = append(meta, "presets "+codeList(e.Presets))
 	}
 	fmt.Fprintf(b, "    %s\n\n", strings.Join(meta, " · "))
+
+	if len(e.AvailablePresets) > 0 {
+		fmt.Fprintf(b, "    Also available: %s — add one with `--var-file <name>`.\n\n",
+			codeList(e.AvailablePresets))
+	}
 
 	// The card's own command is the manifest's derivation, unaltered.
 	fmt.Fprintf(b, "    ```bash\n    %s\n    ```\n\n", e.ApplyCommand())

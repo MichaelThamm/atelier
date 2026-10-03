@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"io"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/MichaelThamm/atelier/internal/gallery"
+)
 
 func TestResolveModuleSource_galleryName(t *testing.T) {
 	opts := moduleOpts{Source: "haproxy-product"}
@@ -32,8 +39,56 @@ func TestResolveModuleSource_composesPresets(t *testing.T) {
 	if err := resolveModuleSource(&opts); err != nil {
 		t.Fatalf("resolveModuleSource: %v", err)
 	}
-	if len(opts.VarFiles) != 2 || opts.VarFiles[0] != "cos-single-unit" || opts.VarFiles[1] != "cos-no-ingress" {
-		t.Errorf("VarFiles = %v, want [cos-single-unit cos-no-ingress]", opts.VarFiles)
+	if len(opts.VarFiles) != 1 || opts.VarFiles[0] != "cos-grafana-single-unit" {
+		t.Errorf("VarFiles = %v, want [cos-grafana-single-unit]", opts.VarFiles)
+	}
+}
+
+// An entry's composed presets are named on stderr, since nothing in the command
+// or the wrapper says which values the entry chose for the user.
+func TestResolveModuleSource_namesComposedPresets(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	opts := moduleOpts{Source: "cos"}
+	resolveErr := resolveModuleSource(&opts)
+	w.Close()
+	os.Stderr = old
+	got, _ := io.ReadAll(r)
+	if resolveErr != nil {
+		t.Fatalf("resolveModuleSource: %v", resolveErr)
+	}
+	if !strings.Contains(string(got), "cos-grafana-single-unit") {
+		t.Errorf("stderr = %q, want the composed preset named", got)
+	}
+}
+
+// An entry's available presets are offered, not composed: they must stay out of
+// the composed set so the entry deploys at the module's own defaults unless the
+// user asks for one by name.
+func TestResolveModuleSource_leavesAvailablePresetsAlone(t *testing.T) {
+	entry, ok := gallery.Find("cos")
+	if !ok {
+		t.Fatal("no gallery entry named cos")
+	}
+	if len(entry.AvailablePresets) == 0 {
+		t.Fatal("cos declares no available presets to test")
+	}
+	opts := moduleOpts{Source: "cos"}
+	if err := resolveModuleSource(&opts); err != nil {
+		t.Fatal(err)
+	}
+	composed := map[string]bool{}
+	for _, v := range opts.VarFiles {
+		composed[v] = true
+	}
+	for _, p := range entry.AvailablePresets {
+		if composed[p] {
+			t.Errorf("available preset %q must not be composed", p)
+		}
 	}
 }
 
@@ -46,7 +101,7 @@ func TestResolveModuleSource_flagsWin(t *testing.T) {
 		t.Errorf("an explicit --ref must win over the entry: %q", opts.Ref)
 	}
 	// The entry's presets are layered first so the user's bundle still wins.
-	want := []string{"cos-single-unit", "cos-no-ingress", "mine"}
+	want := []string{"cos-grafana-single-unit", "mine"}
 	if len(opts.VarFiles) != len(want) {
 		t.Fatalf("VarFiles = %v, want %v", opts.VarFiles, want)
 	}
