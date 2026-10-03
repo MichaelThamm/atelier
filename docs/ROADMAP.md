@@ -196,10 +196,12 @@ the Juju *interface* name, and neither side of a pairing states it as data:
 
 - **Producers** expose *endpoint* names, and only incidentally — an `output
   "offers"` holding whole `juju_offer` resources also carries `.url` and
-  `.endpoints` (`logging`, `grafana-dashboards`, `receive-remote-write`). The
-  interface behind `logging` is `loki_push_api`, behind `grafana-dashboards` is
-  `grafana_dashboard`; those live in each charm's `charmcraft.yaml`, which the
-  Terraform module references by revision and never surfaces.
+  `.endpoints`. Even the endpoint is not a literal: `offers.tf` writes
+  `endpoints = [module.loki.provides.logging]`, so it resolves through a
+  submodule. The interface behind that endpoint is `loki_push_api`, behind
+  Grafana's `grafana-dashboard` it is `grafana_dashboard`; interfaces live in
+  each charm's `charmcraft.yaml`, which the Terraform module references by
+  revision and never surfaces.
 - **Consumers** declare a URL or an object of URLs — `cos_offers` as
   `{dashboard, logging, metrics}`, or a single `postgresql_offer_url` — and name
   the interface in the variable's `description` prose. Nothing parses that.
@@ -225,7 +227,7 @@ Two further reasons not to build it:
   convention is "consumer declares a URL variable, operator pastes the URL", and
   Atelier already carries that value across modules:
   `atelier apply cos-lite --dir stack`, then `atelier apply charmed-spark
-  --dir stack --var 'cos_offers={dashboard="admin/cos-lite.grafana-dashboards",…}'`,
+  --dir stack --var 'cos_offers={dashboard="admin/<model>.grafana-dashboards",…}'`,
   with object overrides deep-merged ([ADR-0044](adr/0044-dir-names-the-wrapper.md)).
   The missing actor is someone who can read both modules, which is the right
   home for that knowledge until the modules declare it.
