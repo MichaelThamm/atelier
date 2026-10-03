@@ -889,7 +889,7 @@ Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 m
 - Selecting a leaf opens an attribute diff in a side pane.
 - Both the plan tree and the diff pane are independently scrollable when
   content exceeds the available height. The tree scrolls with
-  `↑↓/PgUp/PgDn`; the diff pane scrolls with `[` and `]`. A scroll indicator
+  `↑↓/PgUp/PgDn` and `Home`/`End` for top/bottom. A scroll indicator
   shows position percentage when content overflows.
 - The summary header shows both the plan delta and a state context line
   (total resource count and module count), read directly from
