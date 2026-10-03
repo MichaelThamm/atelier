@@ -122,10 +122,19 @@ func TestHelpModal_AdvertisesNoVimLetters(t *testing.T) {
 			t.Errorf("help modal still advertises %q; got:\n%s", line, plain)
 		}
 	}
-	for _, want := range []string{"↑ ↓            Move cursor", "Home/End      Jump to top/bottom"} {
+	for _, want := range []string{
+		"↑ ↓            Move cursor",
+		"Home/End       Jump to top/bottom",
+		"Ctrl+U         Delete to start of line",
+	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("help modal missing %q; got:\n%s", want, plain)
 		}
+	}
+	// The modal is the source of truth for keybindings, so it must not
+	// advertise a key no handler binds.
+	if strings.Contains(plain, "[ / ]") {
+		t.Errorf("help modal advertises [ / ], which no handler binds; got:\n%s", plain)
 	}
 
 	// The plan view has its own section, which must be clean too.
@@ -133,7 +142,7 @@ func TestHelpModal_AdvertisesNoVimLetters(t *testing.T) {
 	m.planState = planReady
 	m.helpModal = true
 	plan := stripANSI(m.renderHelpModal())
-	for _, line := range []string{"↑/k", "↓/j", "g/G"} {
+	for _, line := range []string{"↑/k", "↓/j", "g/G", "[ / ]"} {
 		if strings.Contains(plan, line) {
 			t.Errorf("plan-view help still advertises %q; got:\n%s", line, plan)
 		}

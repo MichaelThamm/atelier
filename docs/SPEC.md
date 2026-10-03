@@ -809,7 +809,7 @@ elements (panel borders, summary lines) subtract from this budget.
 
 **Footer** (contextual hints change by mode):
 - Editor mode: `[cos_lite] [Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [R] ref  [L] logs  [Q] quit  [?] help`
-- Plan mode: `[↑↓] navigate  [Enter] toggle  [[ ]] diff scroll  [P] re-plan  [A] apply  [L] logs  [Esc] back  [?] help`
+- Plan mode: `[↑↓] navigate  [Enter] toggle  [P] re-plan  [A] apply  [L] logs  [Esc] back  [?] help`
 - Logs view: `[↑↓] scroll  [L/Tab/Esc] back  [?] help`
 - Plan loading: `[L] logs  [Esc] cancel  [?] help`
 - Small terminal (`height < 15`): `[?] help` only.

@@ -15,7 +15,6 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "  PgUp/PgDn      Half-page up/down")
 		fmt.Fprintln(&b, "  Home/End       Jump to first/last row")
 		fmt.Fprintln(&b, "  Enter/Space    Toggle collapse/expand")
-		fmt.Fprintln(&b, "  [ / ]          Scroll diff pane up/down")
 		fmt.Fprintln(&b, "  P              Re-run terraform plan")
 		if m.tfState != nil {
 			fmt.Fprintln(&b, "  S              Toggle state/diff view")
@@ -85,7 +84,7 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "Logs view (L):")
 		fmt.Fprintln(&b, "  ↑ ↓            Scroll up/down")
 		fmt.Fprintln(&b, "  PgUp/PgDn      Half-page up/down")
-		fmt.Fprintln(&b, "  Home/End      Jump to top/bottom")
+		fmt.Fprintln(&b, "  Home/End       Jump to top/bottom")
 		fmt.Fprintln(&b, "  L/Tab/Esc     Return to previous view")
 
 		if m.activeSwitcher() != nil {
