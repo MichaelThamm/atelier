@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -58,10 +59,10 @@ func TestObjectEditor_TypeableRunesReachScalarField(t *testing.T) {
 	}
 }
 
-// TestObjectEditor_FieldJumpsOnCaretlessField confirms g/G still move the
-// field cursor when the focused field has no caret to type into, so the
-// navigation is narrowed rather than removed.
-func TestObjectEditor_FieldJumpsOnCaretlessField(t *testing.T) {
+// TestObjectEditor_NoBareLetterFieldJumps confirms g/G never move the field
+// cursor, on a scalar field or a caretless one: Ctrl+Home/Ctrl+End are the
+// documented way to jump fields.
+func TestObjectEditor_NoBareLetterFieldJumps(t *testing.T) {
 	tp, err := tftypes.ParseTypeExpr(`object({
 		name  = optional(string, "")
 		items = optional(list(string), [])
@@ -74,24 +75,68 @@ func TestObjectEditor_FieldJumpsOnCaretlessField(t *testing.T) {
 		Name: "obj", Type: tp, HasDefault: true, Default: cty.EmptyObjectVal,
 	})
 
-	for oe.fields[oe.cursor].Name != "items" {
-		oe = drive(t, oe, "down")
+	for _, focus := range []string{"name", "items", "tail"} {
+		for oe.fields[oe.cursor].Name != focus {
+			oe = drive(t, oe, "down")
+		}
+		for _, r := range []string{"g", "G"} {
+			oe = drive(t, oe, r)
+			if got := oe.fields[oe.cursor].Name; got != focus {
+				t.Errorf("on field %q, %q moved the field cursor to %q", focus, r, got)
+			}
+		}
 	}
-	if objectFieldHasCellInput(oe.focusedField()) {
-		t.Fatalf("setup: collection field unexpectedly has a cell input")
+}
+
+// TestListNav_NoBareLetterBindings pins that the vim letters are inert in the
+// variable list. Left unreviewed they invite a muscle-memory contract that
+// collides with typing in the editor.
+func TestListNav_NoBareLetterBindings(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	m = feed(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = feed(m, key("down"), key("down"))
+	start := m.cursor
+	if start == 0 {
+		t.Fatal("setup: cursor should be off the first row")
 	}
 
-	oe = drive(t, oe, "g")
-	if oe.fields[oe.cursor].Name != "name" {
-		t.Errorf("g on a caretless field: focused = %q; want name", oe.fields[oe.cursor].Name)
+	for _, r := range []string{"j", "k", "g", "G"} {
+		m = feed(m, key(r))
+		if m.cursor != start {
+			t.Errorf("%q in the variable list moved the cursor %d → %d", r, start, m.cursor)
+		}
+	}
+}
+
+// TestHelpModal_AdvertisesNoVimLetters keeps the `?` modal, the source of truth
+// for keybindings, in step with the handlers.
+func TestHelpModal_AdvertisesNoVimLetters(t *testing.T) {
+	m := New(sampleState(t), "cos_lite")
+	// Tall enough that the modal is not clipped before the logs section.
+	m = feed(m, tea.WindowSizeMsg{Width: 100, Height: 80})
+	m.helpModal = true
+	plain := stripANSI(m.renderHelpModal())
+
+	for _, line := range []string{"↑/k", "↓/j", "g/G"} {
+		if strings.Contains(plain, line) {
+			t.Errorf("help modal still advertises %q; got:\n%s", line, plain)
+		}
+	}
+	for _, want := range []string{"↑ ↓            Move cursor", "Home/End      Jump to top/bottom"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("help modal missing %q; got:\n%s", want, plain)
+		}
 	}
 
-	for oe.fields[oe.cursor].Name != "items" {
-		oe = drive(t, oe, "down")
-	}
-	oe = drive(t, oe, "G")
-	if got := oe.fields[oe.cursor].Name; got != "tail" {
-		t.Errorf("G on a caretless field: focused = %q; want tail", got)
+	// The plan view has its own section, which must be clean too.
+	m.helpModal = false
+	m.planState = planReady
+	m.helpModal = true
+	plan := stripANSI(m.renderHelpModal())
+	for _, line := range []string{"↑/k", "↓/j", "g/G"} {
+		if strings.Contains(plan, line) {
+			t.Errorf("plan-view help still advertises %q; got:\n%s", line, plan)
+		}
 	}
 }
 

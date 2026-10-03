@@ -76,10 +76,10 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.refDetail = true
 			return m, nil
 		}
-	case "up", "k":
+	case "up":
 		m.movePlanCursor(-1)
 		m.planDiffScroll = 0 // reset diff scroll on cursor move
-	case "down", "j":
+	case "down":
 		m.movePlanCursor(+1)
 		m.planDiffScroll = 0 // reset diff scroll on cursor move
 	case "pgup", "ctrl+u":
@@ -87,12 +87,6 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.planDiffScroll = 0
 	case "pgdown", "ctrl+d":
 		m.movePlanCursor(m.planPanelHeight() / 2)
-		m.planDiffScroll = 0
-	case "g":
-		m.movePlanCursor(-maxInt)
-		m.planDiffScroll = 0
-	case "G":
-		m.movePlanCursor(maxInt)
 		m.planDiffScroll = 0
 	case "enter", " ", "space", "right", "left", "h":
 		// Toggle collapse on the focused row when it has children.
@@ -108,7 +102,7 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handlePlanDiffKey handles keys when the diff pane is focused.
-// ↑↓/j/k scroll the diff; Tab/Esc return focus to the tree.
+// ↑↓ scroll the diff; Tab/Esc return focus to the tree.
 func (m *Model) handlePlanDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "tab", "esc":
@@ -119,11 +113,11 @@ func (m *Model) handlePlanDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.planState = planIdle
 		m.planDiffFocus = false
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.planDiffScroll > 0 {
 			m.planDiffScroll--
 		}
-	case "down", "j":
+	case "down":
 		m.planDiffScroll++
 	case "pgup", "ctrl+u":
 		m.planDiffScroll -= m.planPanelHeight() / 2
@@ -132,10 +126,6 @@ func (m *Model) handlePlanDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "pgdown", "ctrl+d":
 		m.planDiffScroll += m.planPanelHeight() / 2
-	case "g":
-		m.planDiffScroll = 0
-	case "G":
-		m.planDiffScroll = maxInt // clamped at render time
 	}
 	return m, nil
 }

@@ -194,17 +194,15 @@ func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		return e, cmd
 	}
 
-	// --- Field-list jumps (g/G/Ctrl+Home/Ctrl+End). Ctrl+Home/Ctrl+End always
-	// jump; bare g/G only jump when the focused field has no caret, because on
-	// a scalar field they are ordinary characters to insert. Same rule as plain
-	// Home/End below (ADR-0020 §3).
+	// --- Field-list jumps (Ctrl+Home/Ctrl+End). No bare-letter aliases: they
+	// would shadow characters typed into a scalar field (ADR-0020 §3, as with
+	// plain Home/End below).
 	keyStr := k.String()
-	caretless := !objectFieldHasCellInput(e.focusedField())
 	switch {
-	case keyStr == "ctrl+home", keyStr == "g" && caretless:
+	case keyStr == "ctrl+home":
 		e.cursor = 0
 		return e, nil
-	case keyStr == "ctrl+end", keyStr == "G" && caretless:
+	case keyStr == "ctrl+end":
 		e.cursor = len(e.fields) - 1
 		if e.cursor < 0 {
 			e.cursor = 0

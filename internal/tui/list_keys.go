@@ -57,13 +57,13 @@ func (m *Model) handleLogsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.logAutoScroll = true
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.logScroll > 0 {
 			m.logScroll--
 		}
 		m.logAutoScroll = false
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.logScroll < len(lines)-h {
 			m.logScroll++
 		}
@@ -90,11 +90,11 @@ func (m *Model) handleLogsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.logAutoScroll = true
 		}
 		return m, nil
-	case "home", "g":
+	case "home":
 		m.logScroll = 0
 		m.logAutoScroll = false
 		return m, nil
-	case "end", "G":
+	case "end":
 		m.logScroll = len(lines) - h
 		if m.logScroll < 0 {
 			m.logScroll = 0
@@ -130,17 +130,17 @@ func (m *Model) focusVar(moduleIdx int, name string) {
 
 func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "up", "k":
+	case "up":
 		m.moveCursor(-1)
-	case "down", "j":
+	case "down":
 		m.moveCursor(+1)
 	case "pgup", "ctrl+u":
 		m.moveCursor(-m.leftPaneVisibleRows() / 2)
 	case "pgdown", "ctrl+d":
 		m.moveCursor(m.leftPaneVisibleRows() / 2)
-	case "home", "g":
+	case "home":
 		m.moveCursor(-len(m.rows))
-	case "end", "G":
+	case "end":
 		m.moveCursor(len(m.rows))
 	case "enter", "right", "l":
 		m.setFocus(focusRight)

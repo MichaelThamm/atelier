@@ -18,12 +18,12 @@ func (m *Model) handlePresetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.presetPicker = false
 		return m, nil
-	case "up", "k":
+	case "up":
 		if m.presetCursor > 0 {
 			m.presetCursor--
 		}
 		return m, nil
-	case "down", "j":
+	case "down":
 		if m.presetCursor < len(m.presets)-1 {
 			m.presetCursor++
 		}
