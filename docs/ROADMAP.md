@@ -16,16 +16,27 @@ wrapper, iterate against `terraform plan` inside the TUI."
 Concretely:
 
 - The `atelier` CLI: open a wrapper (`atelier`), add/remove/list modules
-  (`atelier add|rm|ls`), prune to sparse form (`atelier tidy`), and clean up
-  (`atelier purge`).
+  (`atelier add|rm|ls`), scaffold-and-deploy a module in one command
+  (`atelier apply`), prune to sparse form (`atelier tidy`), list wrappers under
+  a directory (`atelier wrappers`), and clean up (`atelier purge`).
 - Public git source loading (`atelier add <url>`); local `source =
   "./..."` paths in a hand-authored `main.tf` are also supported.
+- **Multi-module composition in one root.** A target that already holds a
+  `main.tf` is the additive case for both `add` and `apply`, so a deployment is
+  built one module per command: `atelier apply cos-lite`, then
+  `atelier apply charmed-spark --dir cos-lite` appends and deploys both from one
+  state. `--dir` names the wrapper, so it need not be the CWD
+  ([ADR-0044](adr/0044-dir-names-the-wrapper.md)).
 - Two-pane TUI with type-appropriate widgets for `string`, `bool`, `number`,
   `object`, `map(string)`, `map(object)`, `list(string)`, `list(object)`,
   `set(...)`, and nullable scalars.
 - Sparse-plus-required wrapper writes via `hcl/v2`, with hand-edit
   round-tripping.
 - Module candidate discovery (purely heuristic; no upstream manifest).
+- A bundled gallery of pinned quick starts (`atelier gallery list`), usable
+  wherever a URL is accepted, with `atelier gallery lint` and
+  `atelier presets lint` gating each entry's required inputs against its module
+  ([ADR-0039](adr/0039-composed-gallery-presets.md)).
 - Presets: named `.tfvars` bundles discovered from an ancestor
   `atelier.presets/` directory (walk-up) and from the module repo's `presets/`,
   applied via `--var-file` or the TUI `F` picker, and saved with `S`.
@@ -171,25 +182,76 @@ What remains parked:
 This is speculative; the actual design will be informed by what users do in
 practice.
 
+### Cross-module integration wiring (`atelier integrate`)
+
+A wrapper can hold several modules ([ADR-0015](adr/0015-multi-module-grouping.md)),
+and Canonical's product modules integrate through Juju offers — the producer
+exposes them, the consumer takes an offer URL. The request was for Atelier to
+close that gap: `atelier integrate cos-lite charmed-spark`, reading both
+modules' `outputs.tf` and writing the `juju_integration` resources that connect
+them.
+
+**Blocked on the modules, which do not declare interfaces yet.** The join key is
+the Juju *interface* name, and neither side of a pairing states it as data:
+
+- **Producers** expose *endpoint* names, and only incidentally — an `output
+  "offers"` holding whole `juju_offer` resources also carries `.url` and
+  `.endpoints` (`logging`, `grafana-dashboards`, `receive-remote-write`). The
+  interface behind `logging` is `loki_push_api`, behind `grafana-dashboards` is
+  `grafana_dashboard`; those live in each charm's `charmcraft.yaml`, which the
+  Terraform module references by revision and never surfaces.
+- **Consumers** declare a URL or an object of URLs — `cos_offers` as
+  `{dashboard, logging, metrics}`, or a single `postgresql_offer_url` — and name
+  the interface in the variable's `description` prose. Nothing parses that.
+
+A live `juju show-offers` would map endpoint to interface, but only for a
+producer already applied, and it still cannot say what the consumer *requires*.
+
+So a pairing would be a hand-written assertion with no oracle: `terraform
+validate` type-checks it, and a wrong pairing fails only later, when Juju
+creates the integration, reported in the consuming charm's terms rather than
+the module's. That also rules out the gate that keeps the gallery manifest
+trustworthy ([ADR-0039](adr/0039-composed-gallery-presets.md)) — a pair table
+would be the one class of curated entry in the repo that `just gallery-check`
+cannot assert, and therefore the first thing to rot.
+
+Two further reasons not to build it:
+
+- [ADR-0017](adr/0017-inter-module-wiring.md) already rejected automatic wiring
+  by name match as "too magical; users should explicitly opt into cross-module
+  dependencies". A curated table is that same automatic wiring, with a lookup
+  table standing in for the name match.
+- **The composition already works, with a person in the loop.** The upstream
+  convention is "consumer declares a URL variable, operator pastes the URL", and
+  Atelier already carries that value across modules:
+  `atelier apply cos-lite --dir stack`, then `atelier apply charmed-spark
+  --dir stack --var 'cos_offers={dashboard="admin/cos-lite.grafana-dashboards",…}'`,
+  with object overrides deep-merged ([ADR-0044](adr/0044-dir-names-the-wrapper.md)).
+  The missing actor is someone who can read both modules, which is the right
+  home for that knowledge until the modules declare it.
+
+**Unblock:** product modules declaring the interface on both sides — a producer
+output pairing each offer with its interface, and a consumer input declaring
+what it requires — at which point a generic matcher exists and a curated mapping
+becomes checkable against the pinned ref. Worth raising with the module teams;
+it is their modelling gap, not an Atelier one.
+
+Independently of that, **Atelier cannot read `output` blocks at all**:
+`internal/tfvars` parses `variable` blocks and nothing else, and `outputs.tf` is
+neither written nor read (SPEC §7.6). Parsing them is the missing
+provider-agnostic primitive under ADR-0017's wire suggestions — specified in
+SPEC §15, with no implementation. That is worth doing on its own merits: it
+surfaces `module.<name>.offers` and friends as referenceable, which makes the
+manual wiring above fast without asserting anything the modules do not say.
+
 ### Multi-instance wrappers
 
-A wrapper directory holds one module instance today. A user who wants two
-COS Lite deployments uses two directories. Multi-instance (multiple `module
-{}` blocks in one wrapper, distinguished by name or by `for_each`) is
-plausible but the UX is unsettled and there are no concrete users asking for
-it.
+This is about running **the same module more than once**, not about holding
+several modules: a wrapper may already declare `cos_lite` and `charmed_spark`
+([ADR-0015](adr/0015-multi-module-grouping.md),
+[ADR-0044](adr/0044-dir-names-the-wrapper.md)), and that is supported today.
 
-### Telemetry / opt-in usage reporting
-
-Not present. If added later, must be opt-in and clearly disclosed.
-
-## Out of scope (likely never)
-
-- A web UI. Atelier is a TUI. If a web tool is wanted, it's a different
-  project.
-- Replacing `terraform apply` with Atelier-native apply. The point of Atelier
-  is to feed Terraform a config; it's not in the business of being Terraform.
-- Configuration languages other than HCL (CDK, Pulumi YAML, etc.). Atelier is
-  a Terraform tool.
-- General-purpose form-filling for arbitrary YAML/JSON. Atelier's model is
-  specifically Terraform's type system and provider schema.
+What is not supported is one module twice. A user who wants two COS Lite
+deployments uses two directories. Repeating a module inside one wrapper —
+distinguished by block name or by `for_each` — is plausible but the UX is
+unsettled and there are no concrete users asking for it.

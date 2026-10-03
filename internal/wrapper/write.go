@@ -206,9 +206,8 @@ func (s *State) RenderMain() ([]byte, error) {
 }
 
 // findOrCreateModuleBlock locates the `module "<name>"` block (creating it if
-// absent). Currently scoped to v1's single-instance-per-wrapper invariant —
-// if there are multiple module blocks, the first one with a matching name
-// wins; if none match, a new block is appended.
+// absent). A wrapper may hold several module blocks, one per State; the name
+// match is what keeps a write to its own block.
 func (s *State) findOrCreateModuleBlock(file *hclwrite.File) *hclwrite.Block {
 	for _, b := range file.Body().Blocks() {
 		if b.Type() != "module" {

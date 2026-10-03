@@ -38,7 +38,16 @@ first; this file only adds what is local to the package.
   in a way that discards user content.
 - **Writes are atomic** (temp file + rename) because the TUI's `terraform
   validate` watcher can race a write.
-- Multiple `module` blocks in one wrapper are not supported.
+- **One `State` per `module` block; a wrapper may hold several**
+  ([ADR-0015](../../docs/adr/0015-multi-module-grouping.md)). `ModuleBlockName`
+  selects the block that `RenderMain`, `RenameModuleBlock`, and `RemoveModuleBlock`
+  act on, so a write never reaches a sibling's arguments — and the sparse rule
+  is per module, not per wrapper.
+- **`versions.tf` reflects the module that bootstrapped the wrapper.**
+  `Bootstrap` runs once, from the first module; a module composed into an
+  existing wrapper never rewrites it, which is why applying a composed wrapper
+  needs `terraform init -upgrade`
+  ([ADR-0044](../../docs/adr/0044-dir-names-the-wrapper.md)).
 
 ## Testing
 
