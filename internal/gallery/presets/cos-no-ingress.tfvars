@@ -1,6 +1,4 @@
-# Disable ingress (and Traefik) for every COS component. Use it when the model
-# has no ingress controller, or when nothing should be reachable from outside
-# the cluster.
+# Disable ingress (and Traefik) for every COS component.
 
 ingress = {
   alertmanager            = false
