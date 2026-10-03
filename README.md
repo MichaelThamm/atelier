@@ -102,13 +102,37 @@ atelier add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 
 `atelier add` creates a directory named after the module candidate (here
 `cos-lite`) unless `--dir`/`--as` names one, so there is no `mkdir`/`cd` to do
-first. If the current directory already holds a wrapper, it appends a module
-block instead; when it creates its own directory, a non-empty target is refused
-rather than scaffolded over
+first. When the target — `--dir`, else the current directory — already holds a
+wrapper, it appends a module block instead; when it creates its own directory, a
+non-empty target is refused rather than scaffolded over
 ([ADR-0030](docs/adr/0030-target-directory-preflight.md),
 [ADR-0034](docs/adr/0034-module-apply-one-liner.md)). Run `atelier wrappers` to
 list the wrappers sharing a parent directory (e.g. a `tf-testing/` scratch
 dir).
+
+### Compose several modules
+
+Because `--dir` names the wrapper to compose into, a deployment of several
+modules is one command per module, and they all land in the same root — one
+`terraform init`, one state, one `apply`:
+
+```bash
+atelier add cos-lite                          # scaffolds ./cos-lite/
+atelier add charmed-spark --dir cos-lite      # composes into it
+```
+
+`atelier apply` follows the same rule, and deploys the composed root:
+
+```bash
+atelier apply charmed-spark --dir cos-lite
+```
+
+The TUI groups each module's variables under its own header and switches the
+ref, plan, and apply target to whichever one you are on, so a multi-module
+wrapper is edited as one document. Modules are ordinary Terraform blocks, so
+wire one module's output into another's input the way you would by hand —
+`greeting = module.cos_lite.greeting`. See
+[ADR-0044](docs/adr/0044-dir-names-the-wrapper.md).
 
 ### Just apply it
 
@@ -128,8 +152,10 @@ and confirm it at Terraform's own prompt (there is no `--yes`). With no terminal
 — a script, CI, or `… < /dev/null` — it applies with `-auto-approve` instead, so
 the same command runs unattended. `atelier apply <git-url>` is an alias. The
 directory is named after the module (`cos-lite` above); `--as`/`--dir` override
-it, and a non-empty target is refused rather than scaffolded over. The result is
-an ordinary wrapper — `cd` into it and run `atelier` to configure further, or
+it, and a non-empty target with no `main.tf` is refused rather than scaffolded
+over. A `--dir` (or CWD) that already holds a wrapper composes into it instead —
+see [Compose several modules](#compose-several-modules). The result is an
+ordinary wrapper — `cd` into it and run `atelier` to configure further, or
 `terraform` directly. See [ADR-0034](docs/adr/0034-module-apply-one-liner.md).
 
 Re-open an existing wrapper (run with no arguments in the wrapper dir):

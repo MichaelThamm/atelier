@@ -4,13 +4,14 @@
 //
 //	atelier                                     open the wrapper in CWD
 //	atelier add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR] [--dir PATH] [--yes]
-//	                                            add a module and open the editor (bootstraps if needed)
+//	                                            add a module and open the editor (bootstraps a new
+//	                                            wrapper, or appends to one the target already holds)
 //	atelier rm <name> [--force]                 remove a module from the wrapper
 //	atelier ls                                  list modules in the wrapper
 //	atelier wrappers [PATH]                     list wrappers directly under a directory
 //	atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH]
-//	                                            scaffold a wrapper in a new directory, then
-//	                                            init and apply it
+//	                                            compose into the wrapper the target holds and deploy
+//	                                            it, or scaffold a new one and init and apply it
 //	atelier tidy [PATH] [--write]               prune arguments left at their default
 //	atelier purge [PATH] [--force]              remove .atelier/ and .clone/
 //	atelier gallery list [--commands]           list the bundled gallery quick starts
@@ -54,12 +55,13 @@ Usage:
   atelier add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR]
                                 [--dir PATH] [--var-file PATH|NAME] [--var KEY=VALUE]
                                 [--list-var-files] [--strict] [--yes]
-                                               Add a module and open the editor on it. If the current
-                                               directory is already a wrapper, appends a module block to
-                                               it; otherwise creates a directory named after the module
-                                               (or by --dir/--as) and scaffolds a wrapper there. Does not
+                                               Add a module and open the editor on it. If the target
+                                               (--dir, else the current directory) already holds a
+                                               wrapper, appends a module block to it; otherwise creates
+                                               a directory named after the module (or by --dir/--as)
+                                               and scaffolds a wrapper there. Does not
                                                run terraform init or apply — use 'atelier apply' for that.
-                                               Warns and asks before scaffolding into a directory that
+                                               Warns and asks before writing into a directory that
                                                already holds other files; --yes skips the prompt.
                                                --var-file seeds values from a Terraform variable file: a local
                                                path, a name in an ancestor atelier.presets/ directory, or a name
@@ -79,12 +81,14 @@ Usage:
   atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--as NAME]
                                 [--dir PATH] [--var-file PATH|NAME]
                                 [--var KEY=VALUE] [--list-var-files]
-                                               Scaffold a wrapper in a new directory, then run
-                                               'terraform init' and 'terraform apply'. The directory
-                                               is named after the module candidate unless --as or
-                                               --dir says otherwise. At a terminal you confirm the
-                                               plan at Terraform's prompt; with no terminal it
-                                               applies with -auto-approve.
+                                               Compose into the wrapper the target already holds
+                                               (--dir, else the current directory) and deploy that
+                                               root; otherwise scaffold a wrapper in a new directory
+                                               and run 'terraform init' and 'terraform apply'. A new
+                                               directory is named after the module candidate unless
+                                               --as or --dir says otherwise. At a terminal you
+                                               confirm the plan at Terraform's prompt; with no
+                                               terminal it applies with -auto-approve.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).

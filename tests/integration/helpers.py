@@ -56,6 +56,23 @@ class TfDirManager:
         """Run ``terraform validate`` in the latched wrapper directory."""
         subprocess.run(shlex.split(f"{self.tf_cmd} validate"), check=True)
 
+    def state_list(self) -> list[str]:
+        """Return the resource addresses currently in the wrapper's state.
+
+        Complements :meth:`plan_changes`: that one reports what a plan *would*
+        change, so it is empty once resources exist. Asserting on state is how a
+        caller shows that a composed wrapper really deployed both of its
+        modules into one root.
+        """
+        logger.info("running: %s state list", self.tf_cmd)
+        result = subprocess.run(
+            shlex.split(f"{self.tf_cmd} state list"),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return [line for line in result.stdout.splitlines() if line.strip()]
+
     def plan_changes(self) -> list[tuple[str, str, list[str]]]:
         """Return a plan's managed-resource changes as ``(address, type, actions)``.
 

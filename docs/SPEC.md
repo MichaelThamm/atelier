@@ -239,10 +239,11 @@ refs. See [ADR-0007](adr/0007-sparse-wrapper-write-rule.md).
 
 ```
 atelier                                    # open TUI on existing wrapper in CWD
-atelier add <git-url|gallery-name>  # add a module to the wrapper (bootstraps if needed)
+atelier add <git-url|gallery-name>  # add a module to the wrapper (bootstraps a new one if needed)
 atelier add <git-url> --as <name>   # add with explicit HCL block name
 atelier add <git-url> --ref <ref>   # add at a specific ref
 atelier add <git-url> --module <subdir>  # skip the candidate picker
+atelier add <git-url> --dir <path>  # target directory; compose into it when it holds a wrapper (§6.2)
 atelier add <git-url> --yes         # skip the target-directory confirmation (§6.5)
 atelier add <git-url> --var-file <path|name>  # seed values from a .tfvars file (local path or repo-local name; repeatable/comma-separated)
 atelier add <git-url> --var <K=V>   # set a single module input (repeatable; wins over --var-file)
@@ -254,7 +255,7 @@ atelier apply <git-url>             # scaffold a wrapper in a new dir, init, the
 atelier apply <git-url> --module <subdir>  # skip the candidate picker
 atelier apply <git-url> --ref <ref>  # pin a ref
 atelier apply <git-url> --as <name>  # target directory / HCL block name
-atelier apply <git-url> --dir <path> # explicit target directory
+atelier apply <git-url> --dir <path> # target directory; compose into and deploy it when it holds a wrapper (§6.9)
 atelier apply <git-url> --var <K=V>  # set a module input (repeatable; wins over --var-file)
 atelier tidy [PATH] [--write]              # prune module arguments left at their default value
 atelier import [PROVIDER] [flags]          # import live resources into Terraform state
@@ -356,10 +357,13 @@ worked Juju example.
 `atelier add <git-url|gallery-name>` is the primary entry point for
 adding modules:
 
-- If the current directory is already a wrapper, appends a `module {}` block to
-  its `main.tf`. Otherwise it creates a directory — named after the discovered
-  module candidate, or by `--dir`/`--as` — and scaffolds a fresh wrapper there,
-  so `atelier add` no longer requires a hand-made `mkdir && cd`.
+- If the target — `--dir`, else the current directory — already holds a
+  `main.tf`, appends a `module {}` block to that `main.tf`. Otherwise it creates
+  a directory — named after the discovered module candidate, or by `--dir`/`--as`
+  — and scaffolds a fresh wrapper there, so `atelier add` no longer requires a
+  hand-made `mkdir && cd`. `--dir` names *which* wrapper to compose into, so a
+  multi-module deployment is built one `add` per module without entering the
+  wrapper between steps ([ADR-0044](adr/0044-dir-names-the-wrapper.md)).
 - Derives the HCL block name from the candidate directory basename unless
   `--as` is provided.
 - Accepts a gallery entry name (§6.8) in place of a URL: the name expands to the
@@ -418,6 +422,8 @@ re-introspection on next open.
 | Non-empty, no `main.tf`            | `atelier add <url>` | Preflight warning + confirmation (§6.5); then bootstrap, preserving existing files.  |
 | Non-empty, hand-authored `.tf` files | `atelier add <url>` | Preflight warning + confirmation (§6.5); then append, preserving existing blocks.  |
 | Has existing wrapper (`main.tf` + `.atelier/`) | `atelier add <url>` | Append module block to existing `main.tf`. No prompt.                  |
+| `--dir` names a directory holding `main.tf` | `atelier add <url> --dir PATH` | Append to that wrapper's `main.tf` (§6.5 preflight as above).          |
+| `--dir` names a non-empty directory with no `main.tf` | `atelier add <url> --dir PATH` | Refused; nothing written.                          |
 | Wrapper already has this module at this ref | `atelier add <url>` | Error naming the existing block; nothing written (§6.7).                |
 | Any (has `.atelier/` or `.clone/`)  | `atelier purge`    | Prompt, then remove `.atelier/` and `.clone/`. Wrapper files untouched.                    |
 | Any (neither exists)               | `atelier purge`    | Print "nothing to purge".                                                                  |
@@ -432,6 +438,11 @@ writing anything, they inspect the target and — if anything looks wrong — pr
 the findings and ask for confirmation. When `atelier add` creates its own
 directory (`--dir`/`--as`, or the candidate-derived name), a non-empty target is
 refused rather than scaffolded over (§6.9).
+
+`atelier add` and `atelier apply` inspect the same target — `--dir` when given,
+else the CWD ([ADR-0044](adr/0044-dir-names-the-wrapper.md)). `atelier add`
+asks; `atelier apply` prints without asking, because it rejects `--yes` and
+Terraform's plan prompt is its confirmation (§6.9).
 
 Findings are one of two levels:
 
@@ -616,7 +627,25 @@ atelier apply https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite --var model_uuid=<MODEL_UUID>
 ```
 
-Sequence:
+The target — `--dir`, else the current directory — decides the shape of the
+run. **A target that already holds a `main.tf` composes**: the module block is
+appended to that wrapper and `terraform init`/`apply` run in that root, exactly
+as `add` does ([ADR-0044](adr/0044-dir-names-the-wrapper.md)). So
+
+```
+atelier apply cos-lite                       # new wrapper in ./cos-lite/
+atelier apply charmed-spark --dir cos-lite   # composes, then deploys both
+```
+
+deploy both modules from one state, and running `atelier apply <url>` with a
+wrapper as the CWD deploys that wrapper rather than nesting a second root inside
+it. Only a `main.tf` opts in; any other non-empty target is refused, as below.
+
+Note that `--dir` names the directory *literally*: `atelier apply cos-lite --dir
+stack/` puts the wrapper in `stack/`, not in `stack/cos-lite/`, and the
+candidate-derived name applies only when no `--dir`/`--as` is given.
+
+Sequence, for a target with no `main.tf`:
 
 1. Clone the module and discover candidates, exactly as `atelier add` does
    (same `--module`, `--ref`, `--var-file`, `--var`, `--as`, and candidate
@@ -631,6 +660,10 @@ Sequence:
 3. Write the wrapper (bootstrap) into the target.
 4. Run `terraform init`, then **`terraform apply`**.
 
+For a target that already holds a `main.tf`, steps 2 and 3 are replaced by the
+additive append of §6.2 — same clone, candidate discovery, duplicate refusal,
+and `--var`/`--var-file` handling — and step 4 runs in that target.
+
 The apply is **not auto-approved when a terminal is present**: Terraform prints
 the plan and asks `Do you want to perform these actions?`, and the user answers.
 There is no `--yes` for this command — that flag means "don't prompt", and here
@@ -644,10 +677,14 @@ TUI; the redirect only decides whether the final apply prompts.
 
 Rules:
 
-- The target directory must be new or empty. A non-empty target is refused
-  (naming `--dir`/`--as`) instead of scaffolded over, because `atelier apply`
-  creates a fresh wrapper — unlike `atelier add`, which may append into an
-  existing one.
+- The target directory must be new, empty, or already hold a `main.tf`. Any
+  other non-empty target is refused (naming `--dir`/`--as`) instead of
+  scaffolded over. A target holding a `main.tf` composes rather than scaffolds,
+  so the refusal and the additive case are decided by the same predicate
+  `atelier add` uses.
+- In the additive case the §6.5 preflight findings are printed but not prompted
+  over: `atelier apply` rejects `--yes`, so Terraform's plan prompt is the only
+  confirmation it has, and a question it cannot answer is worse than none.
 - If the module declares a required variable with no value, `atelier apply`
   writes the wrapper and stops before applying, naming the variable and
   suggesting `--var`. Terraform would otherwise reject the run with a less
