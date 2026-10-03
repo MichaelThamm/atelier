@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted — amended by
+[ADR-0046](0046-gallery-card-states-inputs-once.md), which drops a card's
+restatement of the required inputs its own command already carries.
 
 ## Context
 
