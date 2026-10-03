@@ -194,16 +194,17 @@ func (e *objectEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		return e, cmd
 	}
 
-	// --- Field-list jumps (g/G/Ctrl+Home/Ctrl+End). These take precedence
-	// over readline forwarding so the user always has a way to jump the
-	// field cursor even while a scalar field has a caret. (Plain
-	// Home/End belong to the cell — see below.)
+	// --- Field-list jumps (g/G/Ctrl+Home/Ctrl+End). Ctrl+Home/Ctrl+End always
+	// jump; bare g/G only jump when the focused field has no caret, because on
+	// a scalar field they are ordinary characters to insert. Same rule as plain
+	// Home/End below (ADR-0020 §3).
 	keyStr := k.String()
+	caretless := !objectFieldHasCellInput(e.focusedField())
 	switch {
-	case keyStr == "ctrl+home", keyStr == "g":
+	case keyStr == "ctrl+home", keyStr == "g" && caretless:
 		e.cursor = 0
 		return e, nil
-	case keyStr == "ctrl+end", keyStr == "G":
+	case keyStr == "ctrl+end", keyStr == "G" && caretless:
 		e.cursor = len(e.fields) - 1
 		if e.cursor < 0 {
 			e.cursor = 0
