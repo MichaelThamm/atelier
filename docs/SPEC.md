@@ -578,6 +578,9 @@ exactly like any other `--var-file`.
   gallery check, and opens a pull request when a pin moved — it never edits presets or
   `requires`, so a drifted entry is corrected by hand in that PR
   ([ADR-0040](adr/0040-automated-gallery-refresh.md)).
+- A gallery card names a required input once, as a `--var` in the apply
+  one-liner it offers, and does not restate the list in prose
+  ([ADR-0046](adr/0046-gallery-card-states-inputs-once.md)).
 - The GitHub Pages site publishes a second generated page, `/juju/`, beside the
   provider-agnostic `/gallery/`. It is built by the same tool
   ([ADR-0037](adr/0037-gallery-pages-site.md)) and holds the gallery's Juju
