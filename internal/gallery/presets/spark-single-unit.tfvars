@@ -1,4 +1,4 @@
-# One Kyuubi and one ZooKeeper unit. Both default to three units for high
+# One Kyuubi and one ZooKeeper unit.
 # availability, which is a development controller's worth of compute.
 
 kyuubi_units    = 1
