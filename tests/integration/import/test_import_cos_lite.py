@@ -6,9 +6,8 @@ Flow under test — the end-to-end value of the provider registry
 (internal/importer/providers), exercised with non-default module inputs:
 
 1. Create a temporary Juju model (Jubilant).
-2. Shell out to Atelier to bootstrap a COS-Lite wrapper pinned to ``--ref``,
-   non-interactively (``stdin=/dev/null`` skips the TUI). Inputs come from two
-   ``--var-file`` bundles: a local ``ci`` file pinning the model and
+2. Bootstrap a COS-Lite wrapper pinned to ``--ref``, non-interactively, from two
+   ``.tfvars`` bundles: a local ``ci`` file pinning the model and
    ``internal_tls = false`` explicitly, then the module's own ``no-ingress``
    preset, resolved by name from the clone, which disables every ingress
    integration (so no Traefik). Later files win.
@@ -18,32 +17,37 @@ Flow under test — the end-to-end value of the provider registry
    rebuild the state from live resources — detection, discovery, matching,
    import-ID construction and the post-import steps all run through the
    registered Juju provider.
-6. Assert the run reported matches/imports, that the state file was
+6. Assert the run reported matches and imports, that the state file was
    repopulated, and — the strongest check — that a following ``terraform plan``
    finds nothing to change for the core resources the module manages
-   (applications, integrations, offers). Drift in other types (``terraform_data``,
-   secrets) is tolerated; see ``PRESERVED_TYPES``.
+   (applications, integrations, offers). Drift in other types
+   (``terraform_data``, secrets) is tolerated; see ``PRESERVED_TYPES``.
 
 ``--query-var model_uuid`` is required: the Juju list resources for
 applications and integrations carry a required ``model_uuid`` config block, so
 without it only ``juju_model``/``juju_offer`` are queryable.
 
 The ``ci`` bundle is a local path; the ``no-ingress`` bundle is the module's own
-preset, committed to the upstream repo, so ``--var-file no-ingress`` exercises
-name resolution against the clone.
+preset, committed to the upstream repo, so a preset by name exercises resolution
+against the clone.
 
 This is deliberately the same recipe as a user's disaster-recovery flow:
-``module add`` to author the wrapper, then ``import`` to recover state from a
-live model.
+``add`` to author the wrapper, then ``import`` to recover state from a live
+model.
 """
 
 import json
-from pathlib import Path
 
 import jubilant
 import pytest
 
-from helpers import run_atelier, wait_for_active_idle_without_error, write_var_file
+from helpers import (
+    atelier_add,
+    atelier_apply,
+    atelier_import,
+    wait_for_active_idle_without_error,
+    write_tfvars,
+)
 
 COS_REPO = "https://github.com/canonical/observability-stack.git"
 COS_MODULE = "terraform/cos-lite"
@@ -102,18 +106,17 @@ def _hcl_block(text: str, name: str) -> str:
 
 
 @pytest.mark.cloud
-def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin: str):
+def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # GIVEN a running Juju model
     model_uuid = juju.show_model(juju.model).model_uuid
 
     # AND a fresh directory for Atelier to author a wrapper into
-    wrapper_dir = tf_manager.new_wrapper_dir()
+    wrapper_dir = tmp_path
 
     # AND a bundle describing the deployment for that model, kept beside the
-    # wrapper directory: `--dir .` targets the prepared (empty) wrapper, and a
-    # non-empty target is refused.
-    var_file = write_var_file(
-        Path(wrapper_dir).parent,
+    # wrapper directory: the wrapper directory itself stays empty for `--dir`.
+    write_tfvars(
+        wrapper_dir.parent,
         "ci",
         {
             "model": {"uuid": model_uuid, "name": juju.model},
@@ -123,40 +126,39 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
 
     # WHEN Atelier bootstraps the module, non-interactively, pinned to --ref
     # and configured from both bundles: the explicit ci values, then the
-    # module's own no-ingress preset. `--dir .` targets the prepared directory.
-    run_atelier(
-        wrapper_dir,
-        atelier_bin,
-        "add",
+    # module's own no-ingress preset.
+    added = atelier_add(
         COS_REPO,
-        "--module",
-        COS_MODULE,
-        "--dir",
-        ".",
-        "--ref",
-        COS_REF,
-        "--var-file",
-        var_file,
-        "--var-file",
-        COS_PRESET,
-        "--yes",
+        module=COS_MODULE,
+        ref=COS_REF,
+        dir=".",
+        cwd=wrapper_dir,
+        var_file=["ci", COS_PRESET],
     )
 
-    # AND the wrapper really does reference the module at the ref, with the
-    # bundle values written through
-    main_tf = (Path(wrapper_dir) / "main.tf").read_text()
-    assert "//terraform/cos-lite" in main_tf
-    assert f"ref={COS_REF}" in main_tf
+    # THEN the wrapper went where the test prepared it, at the subdirectory the
+    # repository puts the module in, and main.tf has the bundle values written
+    # through with every ingress component switched off
+    assert added.wrapper == wrapper_dir
+    assert added.module.module_path == COS_MODULE
+    assert added.module.ref == COS_REF
+    main_tf = (wrapper_dir / "main.tf").read_text()
     assert f'uuid = "{model_uuid}"' in main_tf
     assert "internal_tls = false" in main_tf
-    # no-ingress: every ingress component the module declares is switched off
     ingress_block = _hcl_block(main_tf, "ingress")
     assert "= false" in ingress_block
     assert "= true" not in ingress_block
 
-    # AND Terraform deploys COS-Lite into the model
-    tf_manager.init()
-    tf_manager.apply()
+    # AND the module is deployed. `apply` is `add` plus `terraform init` and
+    # `apply`, so Terraform needs no separate invocation here.
+    atelier_apply(
+        COS_REPO,
+        module=COS_MODULE,
+        ref=COS_REF,
+        dir=".",
+        cwd=wrapper_dir,
+        var_file=["ci", COS_PRESET],
+    )
 
     # THEN the model settles active and idle
     wait_for_active_idle_without_error(juju)
@@ -164,8 +166,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     # AND the state is deleted, orphaning the live deployment — after first
     # recording what apply created, so the test can flag any COS-Lite resource
     # type it has not classified
-    wrapper = Path(wrapper_dir)
-    state_file = wrapper / "terraform.tfstate"
+    state_file = wrapper_dir / "terraform.tfstate"
     assert state_file.exists(), "apply should have produced terraform.tfstate"
     applied = json.loads(state_file.read_text())
     applied_types = {
@@ -180,34 +181,24 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
         "or DRIFT_TYPES (may drift)."
     )
     state_file.unlink()
-    (wrapper / "terraform.tfstate.backup").unlink(missing_ok=True)
+    (wrapper_dir / "terraform.tfstate.backup").unlink(missing_ok=True)
 
     # WHEN Atelier imports the live deployment back into a fresh state, with
     # the same --ref/--var-file bundles and the model UUID as a query variable
-    result = run_atelier(
-        wrapper_dir,
-        atelier_bin,
-        "import",
+    result = atelier_import(
         "juju",
-        "--source",
-        COS_REPO,
-        "--module",
-        COS_MODULE,
-        "--ref",
-        COS_REF,
-        "--var-file",
-        var_file,
-        "--var-file",
-        COS_PRESET,
-        "--query-var",
-        f"model_uuid={model_uuid}",
-        capture=True,
+        cwd=wrapper_dir,
+        source=COS_REPO,
+        module=COS_MODULE,
+        ref=COS_REF,
+        dir=".",
+        var_file=["ci", COS_PRESET],
+        query_var={"model_uuid": model_uuid},
     )
 
-    # THEN the run matched live objects to module addresses, imported them,
-    # and the post-import steps repopulated the state file
-    assert "Matched" in result.stderr, f"no matches reported:\n{result.stderr}"
-    assert "Imported" in result.stderr, f"nothing imported:\n{result.stderr}"
+    # THEN live objects were matched to module addresses and imported
+    assert result.matched, "nothing matched the module's resources"
+    assert result.imported, f"nothing was imported: {result.unresolved}"
     assert state_file.exists(), "import should have repopulated terraform.tfstate"
 
     # AND the core resource types really were recovered (guards against a
@@ -220,6 +211,11 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, atelier_bin:
     # AND the strongest check: a plan against the imported state finds nothing
     # to change for those core resources. Drift in other types is tolerated —
     # see PRESERVED_TYPES for why.
+    #
+    # This is the one thing left that needs Terraform directly. `atelier` has no
+    # command that answers "would a plan change anything?", and it needs the
+    # addresses, not the counts an import --dry-run preview gives.
+    tf_manager.latch(wrapper_dir)
     changes = tf_manager.plan_changes()
     drifted = sorted(c for c in changes if c[1] in PRESERVED_TYPES)
     assert not drifted, (

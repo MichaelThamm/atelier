@@ -16,8 +16,16 @@ See ADR-0044.
 """
 
 import re
+import subprocess
 
-from helpers import TfDirManager, run_atelier
+import pytest
+
+from helpers import (
+    TfDirManager,
+    atelier_add,
+    atelier_apply,
+    atelier_ls,
+)
 
 
 def write_module(directory, name: str, required_var: str, outputs=()) -> str:
@@ -43,19 +51,14 @@ resource "terraform_data" "{name}" {{
     return str(directory)
 
 
-def add(atelier_bin, cwd, source, *extra: str):
-    """Run `atelier add` non-interactively and return the completed process."""
-    return run_atelier(cwd, atelier_bin, "add", source, "--yes", *extra, capture=True)
-
-
 def module_blocks(main_tf: str) -> list[str]:
     return re.findall(r'^module\s+"([^"]+)"', main_tf, re.M)
 
 
-def test_add_composes_a_second_module_by_dir(tmp_path, atelier_bin):
+def test_add_composes_a_second_module_by_dir(tmp_path):
     # GIVEN a wrapper holding one module
     first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
-    add(atelier_bin, tmp_path, first, "--dir", "wrapper")
+    atelier_add(first, dir="wrapper", cwd=tmp_path)
     main_tf = (tmp_path / "wrapper" / "main.tf").read_text()
     assert module_blocks(main_tf) == ["cos_lite"], main_tf
 
@@ -63,36 +66,40 @@ def test_add_composes_a_second_module_by_dir(tmp_path, atelier_bin):
     # --dir. This is the composition path ADR-0044 restored: --dir names the
     # wrapper to compose into, and used to be rejected outright.
     second = write_module(tmp_path / "src" / "charmed-spark", "charmed_spark", "channel")
-    add(atelier_bin, tmp_path, second, "--dir", "wrapper")
+    added = atelier_add(second, dir="wrapper", cwd=tmp_path)
 
     # THEN both blocks are declared in one root
     main_tf = (tmp_path / "wrapper" / "main.tf").read_text()
     assert module_blocks(main_tf) == ["cos_lite", "charmed_spark"], main_tf
+    # AND the payload says so, so the file read above is confirmation rather
+    # than the only evidence
+    assert added.blocks == ("cos_lite", "charmed_spark")
 
 
-def test_add_composes_into_a_nested_wrapper(tmp_path, atelier_bin):
+def test_add_composes_into_a_nested_wrapper(tmp_path):
     # GIVEN a wrapper one level under the scratch directory
     first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
-    add(atelier_bin, tmp_path, first, "--dir", "stack/cos-lite")
+    atelier_add(first, dir="stack/cos-lite", cwd=tmp_path)
 
-    # WHEN a second module composes into it by a relative --dir
+    # WHEN a second module composes into it by a relative --dir, resolved
+    # against the invocation directory rather than the runner's
     second = write_module(tmp_path / "src" / "charmed-spark", "charmed_spark", "channel")
-    add(atelier_bin, tmp_path, second, "--dir", "stack/cos-lite")
+    atelier_add(second, dir="stack/cos-lite", cwd=tmp_path)
 
     # THEN the wrapper holds both
     main_tf = (tmp_path / "stack" / "cos-lite" / "main.tf").read_text()
     assert module_blocks(main_tf) == ["cos_lite", "charmed_spark"], main_tf
 
 
-def test_composed_wrapper_is_one_valid_terraform_root(tmp_path, atelier_bin):
+def test_composed_wrapper_is_one_valid_terraform_root(tmp_path):
     # GIVEN a wrapper composed of two modules
     first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
-    add(atelier_bin, tmp_path, first, "--dir", "wrapper", "--var", "model_uuid=uuid-1")
+    atelier_add(first, dir="wrapper", cwd=tmp_path, var={"model_uuid": "uuid-1"})
     second = write_module(tmp_path / "src" / "charmed-spark", "charmed_spark", "channel")
-    add(atelier_bin, tmp_path, second, "--dir", "wrapper", "--var", "channel=8.0/stable")
+    atelier_add(second, dir="wrapper", cwd=tmp_path, var={"channel": "8.0/stable"})
 
     # WHEN Terraform initialises the composed root
-    tf = TfDirManager(tmp_path)
+    tf = TfDirManager()
     tf.latch(tmp_path / "wrapper")
     tf.init()
 
@@ -101,16 +108,16 @@ def test_composed_wrapper_is_one_valid_terraform_root(tmp_path, atelier_bin):
     tf.validate()
 
     # AND both modules are addressable from the wrapper
-    listed = run_atelier(tmp_path / "wrapper", atelier_bin, "ls", capture=True).stdout
-    assert "cos_lite" in listed and "charmed_spark" in listed, listed
+    listed = atelier_ls(cwd=tmp_path / "wrapper")
+    assert [m.name for m in listed] == ["cos_lite", "charmed_spark"]
 
 
-def test_composed_modules_are_wired_by_reference(tmp_path, atelier_bin):
+def test_composed_modules_are_wired_by_reference(tmp_path):
     # GIVEN a composed wrapper whose first module exports an output
     first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid", outputs=["greeting"])
-    add(atelier_bin, tmp_path, first, "--dir", "wrapper", "--var", "model_uuid=uuid-1")
+    atelier_add(first, dir="wrapper", cwd=tmp_path, var={"model_uuid": "uuid-1"})
     second = write_module(tmp_path / "src" / "charmed-spark", "charmed_spark", "greeting")
-    add(atelier_bin, tmp_path, second, "--dir", "wrapper", "--var", "greeting=placeholder")
+    atelier_add(second, dir="wrapper", cwd=tmp_path, var={"greeting": "placeholder"})
 
     # WHEN the second module's input is wired to the first module's output, the
     # reference ADR-0017 describes
@@ -121,32 +128,22 @@ def test_composed_modules_are_wired_by_reference(tmp_path, atelier_bin):
 
     # THEN Terraform resolves it, so the two blocks are composed in the graph
     # rather than merely sharing a file
-    tf = TfDirManager(tmp_path)
+    tf = TfDirManager()
     tf.latch(tmp_path / "wrapper")
     tf.init()
     tf.validate()
 
 
-def test_apply_composes_and_deploys_the_whole_root(tmp_path, atelier_bin):
+def test_apply_composes_and_deploys_the_whole_root(tmp_path):
     # GIVEN a wrapper holding one module
     first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
-    add(atelier_bin, tmp_path, first, "--dir", "wrapper", "--var", "model_uuid=uuid-1")
+    atelier_add(first, dir="wrapper", cwd=tmp_path, var={"model_uuid": "uuid-1"})
 
     # WHEN a second module is composed and deployed with `apply --dir`. The
     # fixtures use only the builtin terraform provider, so this runs for real
     # without downloading anything.
     second = write_module(tmp_path / "src" / "charmed-spark", "charmed_spark", "channel")
-    done = run_atelier(
-        tmp_path,
-        atelier_bin,
-        "apply",
-        second,
-        "--dir",
-        "wrapper",
-        "--var",
-        "channel=8.0/stable",
-        capture=True,
-    )
+    atelier_apply(second, dir="wrapper", cwd=tmp_path, var={"channel": "8.0/stable"})
 
     # THEN the block landed in the existing wrapper rather than a new directory
     # beside it. Before ADR-0044, apply refused a non-empty target outright, so
@@ -156,24 +153,25 @@ def test_apply_composes_and_deploys_the_whole_root(tmp_path, atelier_bin):
     assert not (tmp_path / "wrapper" / "charmed-spark").exists(), "apply nested a root"
 
     # AND the apply succeeded, producing state for both modules in one root
-    assert done.returncode == 0, done.stderr
-    tf = TfDirManager(tmp_path)
+    tf = TfDirManager()
     tf.latch(tmp_path / "wrapper")
     state = tf.state_list()
     assert "module.cos_lite.terraform_data.cos_lite" in state, state
     assert "module.charmed_spark.terraform_data.charmed_spark" in state, state
 
 
-def test_apply_inside_a_wrapper_deploys_it_rather_than_nesting(tmp_path, atelier_bin):
+def test_apply_inside_a_wrapper_deploys_it_rather_than_nesting(tmp_path):
     # GIVEN a wrapper holding one module
-    first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
-    add(atelier_bin, tmp_path, first, "--dir", "wrapper")
     wrapper = tmp_path / "wrapper"
+    first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
+    atelier_add(first, dir="wrapper", cwd=tmp_path)
     before = sorted(p.name for p in wrapper.iterdir())
 
-    # WHEN apply runs with the wrapper as the CWD
+    # WHEN apply runs with the wrapper as the CWD. It exits non-zero, because
+    # the module's required channel is unset; the wrapper is still written.
     second = write_module(tmp_path / "src" / "charmed-spark", "charmed_spark", "channel")
-    run_atelier(wrapper, atelier_bin, "apply", second, check=False, capture=True)
+    with pytest.raises(subprocess.CalledProcessError):
+        atelier_apply(second, cwd=wrapper)
 
     # THEN the module joined that wrapper, and no second root was created
     # inside it. Before ADR-0044 apply scaffolded a candidate-named directory
@@ -184,15 +182,15 @@ def test_apply_inside_a_wrapper_deploys_it_rather_than_nesting(tmp_path, atelier
     assert after == before, f"apply created {set(after) - set(before)} inside the wrapper"
 
 
-def test_compose_resolves_a_relative_local_source_against_the_invocation_dir(tmp_path, atelier_bin):
+def test_compose_resolves_a_relative_local_source_against_the_invocation_dir(tmp_path):
     # GIVEN a wrapper built from one module
     first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
-    add(atelier_bin, tmp_path, first, "--dir", "stack/cos-lite")
+    atelier_add(first, dir="stack/cos-lite", cwd=tmp_path)
 
     # WHEN a second module is composed by a source path relative to the CWD,
     # with the wrapper somewhere else
     write_module(tmp_path / "src" / "charmed-spark", "charmed_spark", "channel")
-    add(atelier_bin, tmp_path, "./src/charmed-spark", "--dir", "stack/cos-lite")
+    atelier_add("./src/charmed-spark", dir="stack/cos-lite", cwd=tmp_path)
 
     # THEN it resolved against the invocation directory, not the wrapper. Before
     # ADR-0044 the additive path passed no base directory, so a --dir outside
@@ -201,7 +199,7 @@ def test_compose_resolves_a_relative_local_source_against_the_invocation_dir(tmp
     assert module_blocks(main_tf) == ["cos_lite", "charmed_spark"], main_tf
 
 
-def test_apply_refuses_a_non_wrapper_non_empty_directory(tmp_path, atelier_bin):
+def test_apply_refuses_a_non_wrapper_non_empty_directory(tmp_path):
     # GIVEN a directory holding files but no main.tf — the mistyped --dir case
     # ADR-0030's preflight exists for
     source = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
@@ -212,7 +210,7 @@ def test_apply_refuses_a_non_wrapper_non_empty_directory(tmp_path, atelier_bin):
     # WHEN apply targets it, THEN it is refused and nothing is written. Only a
     # main.tf opts into the additive case; every other non-empty target stays
     # refused.
-    done = run_atelier(tmp_path, atelier_bin, "apply", source, "--dir", "busy", check=False, capture=True)
+    with pytest.raises(subprocess.CalledProcessError):
+        atelier_apply(source, dir="busy", cwd=tmp_path)
 
-    assert done.returncode != 0
     assert not (busy / "main.tf").exists()
