@@ -347,10 +347,7 @@ atelier import juju \
 ```
 
 `--dir` creates the directory if it does not exist, so importing into a fresh
-wrapper is one command. `--source` also accepts a bundled quick-start name in
-place of the URL (`--source cos-lite`), which supplies the module, its
-subdirectory, and a pinned revision — but none of that entry's presets, since an
-import has to match what you are already running.
+wrapper is one command instead of `mkdir … && cd …`.
 
 The pieces that make this work:
 

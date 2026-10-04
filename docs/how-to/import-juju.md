@@ -21,7 +21,20 @@ It works in the current directory, or in the one `--dir` names. With `--source` 
 
 ### Importing a full deployment
 
-Given a running [Canonical Observability Stack (COS)](https://github.com/canonical/observability-stack/tree/main/terraform/cos) deployment, note the model UUID from `juju models`, then run:
+Given a running [Canonical Observability Stack Lite (COS Lite)](https://github.com/canonical/observability-stack/tree/main/terraform/cos-lite) deployment, note the model UUID from `juju models`, then run:
+
+```bash
+atelier import juju \
+    --source https://github.com/canonical/observability-stack.git \
+    --module terraform/cos-lite \
+    --ref track/3.0 \
+    --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8 \
+    --dir cos-lite-import
+```
+
+That one command is the migration path: it writes the wrapper into `cos-lite-import` — creating the directory — and imports the running deployment into it.
+
+To rehearse disaster recovery on a deployment Atelier already manages, deploy it first and throw the state away:
 
 ```bash
 atelier add https://github.com/canonical/observability-stack.git \
@@ -29,26 +42,15 @@ atelier add https://github.com/canonical/observability-stack.git \
     --ref track/3.0  # plan and apply
 rm terraform.*  # remove Terraform state
 atelier import juju \
-    --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8
     --source https://github.com/canonical/observability-stack.git \
     --module terraform/cos-lite \
     --ref track/3.0 \
+    --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8
 ```
 
-The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. `--query-var model_uuid` is required by the Juju provider's query engine — it selects which model to enumerate.
+The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. Pin `--ref` to the revision you deployed: matching happens against the addresses the module declares at that ref, so a moving branch can yield addresses your deployment does not have. `--query-var model_uuid` is required by the Juju provider's query engine — it selects which model to enumerate.
 
-If the module is one of Atelier's bundled quick starts, its name works in place of the URL:
-
-```bash
-atelier import juju \
-    --source cos-lite \
-    --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8 \
-    --dry-run
-```
-
-That supplies the module, its subdirectory, and a pinned revision. It does **not** apply the entry's presets: they describe what a good new deployment looks like, and an import has to match the one you are running. Pass anything that differs with `--var` or `--var-file`. An explicit `--ref` overrides the pin, if you need a different revision than the entry tracks.
-
-Whichever form you use, when the target directory already holds a wrapper, the module comes from that wrapper rather than from the flags — so a `--ref` or `--module` that contradicts it is refused instead of ignored.
+When the directory already holds a wrapper, the module comes from that wrapper rather than from these flags — so a `--module` or `--ref` that contradicts it is refused instead of ignored. Flags you leave out are not a contradiction, so the recovery command above also works with only `--source` and `--query-var`.
 
 ### When you still need `--var` or `--var-file`
 
