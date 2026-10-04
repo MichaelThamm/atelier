@@ -7,6 +7,70 @@ import (
 	"testing"
 )
 
+// --- checkImportTarget: which directory --dir may name ---
+
+// With --source a wrapper is bootstrapped into the target, so a --dir that does
+// not exist yet is allowed — as it is for `atelier apply` — and setupSourceModule
+// creates it. Refusing it only pushed a `mkdir` out of the command.
+func TestCheckImportTarget_bootstrapsMissingDir(t *testing.T) {
+	base := t.TempDir()
+	if err := checkImportTarget(filepath.Join(base, "stack"), true); err != nil {
+		t.Errorf("a missing --dir with --source must be allowed: %v", err)
+	}
+}
+
+// A directory holding files is refused rather than scaffolded over, exactly as
+// `atelier apply` refuses one. The remedy names --dir, the only flag import has.
+func TestCheckImportTarget_refusesNonEmptyWithoutMainTF(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := checkImportTarget(dir, true)
+	if err == nil {
+		t.Fatal("expected an error for a non-empty target")
+	}
+	if !strings.Contains(err.Error(), "--dir") {
+		t.Errorf("error = %q, want it to name --dir", err)
+	}
+	if strings.Contains(err.Error(), "--as") {
+		t.Errorf("error = %q, must not name --as: import has no such flag", err)
+	}
+}
+
+// A directory with a hand-authored main.tf is adopted (setupSourceModule
+// re-hydrates it), so the non-empty refusal must not fire.
+func TestCheckImportTarget_adoptsExistingMainTF(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte("# mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkImportTarget(dir, true); err != nil {
+		t.Errorf("an existing main.tf must be adopted, not refused: %v", err)
+	}
+}
+
+// Without --source nothing is scaffolded, so a missing --dir has nothing to
+// become a Terraform root.
+func TestCheckImportTarget_requiresExistingRootWithoutSource(t *testing.T) {
+	base := t.TempDir()
+	err := checkImportTarget(filepath.Join(base, "stack"), false)
+	if err == nil {
+		t.Fatal("expected an error for a missing --dir without --source")
+	}
+	if !strings.Contains(err.Error(), "Terraform root") {
+		t.Errorf("error = %q, want it to say what the directory must be", err)
+	}
+
+	empty := filepath.Join(base, "empty")
+	if err := os.Mkdir(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkImportTarget(empty, false); err != nil {
+		t.Errorf("an existing directory is importable without --source: %v", err)
+	}
+}
+
 // --- sourceConflict: --source/--module/--ref against a wrapper's source ---
 
 func TestSourceConflict(t *testing.T) {

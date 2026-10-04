@@ -202,8 +202,8 @@ func runImport(args []string) error {
 	if listVarFiles {
 		return listVarFileBundles(dir, sourceArg, refArg, moduleArg)
 	}
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return fmt.Errorf("directory does not exist: %s", dir)
+	if err := checkImportTarget(dir, sourceArg != ""); err != nil {
+		return err
 	}
 
 	// When --source is given, import bootstraps a wrapper in dir, so it needs
@@ -577,6 +577,10 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 		return dir, res.State, res.CloneDir, res.ModulePath, nil
 	}
 
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", nil, "", "", err
+	}
+
 	// The clone, wrapper authoring and failure cleanup are the same fresh
 	// bootstrap `add` runs (bootstrapFreshWrapper), so `import
 	// --source` cannot drift from it.
@@ -668,6 +672,27 @@ func validateImportFlags(varFiles []string, sourceArg string, listVarFiles bool)
 		return fmt.Errorf("--list-var-files requires --source: there is no module repo to search otherwise")
 	}
 	return nil
+}
+
+// checkImportTarget resolves the target directory. With --source a wrapper is
+// about to be bootstrapped there: an existing main.tf is adopted rather than
+// scaffolded over, any other directory holding files is refused, and a missing
+// one is created by setupSourceModule once the preflight has had its say — the
+// same rule `atelier apply` applies to --dir (ADR-0044). Without --source
+// nothing is scaffolded, so the directory must already be an initialised
+// Terraform root.
+func checkImportTarget(dir string, bootstraps bool) error {
+	if !bootstraps {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("--dir %s is not a directory; without --source there is nothing to bootstrap, so it must be an initialised Terraform root", dir)
+		}
+		return nil
+	}
+	if mainTFExists(dir) {
+		return nil
+	}
+	return checkApplyTarget(dir, "choose another name with --dir")
 }
 
 // checkImportTargetSource refuses a --source/--module/--ref that contradicts the

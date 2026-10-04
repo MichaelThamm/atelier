@@ -319,8 +319,13 @@ Flags:
   `--ref` still wins.
 - `--module <path>` — skip the candidate picker and use the given module path.
 - `--ref <ref>` — check out a specific git ref when cloning.
-- `--dir <path>` — target directory (default: current directory). It also selects
-  which walk-up `atelier.presets/` bundles are visible (§11).
+- `--dir <path>` — target directory (default: current directory). With
+  `--source` it follows the `atelier apply` rule
+  ([ADR-0044](adr/0044-dir-names-the-wrapper.md)): an existing `main.tf` is
+  adopted, a missing directory is created, and one already holding other files is
+  refused. Without `--source` nothing is scaffolded, so it must already be an
+  initialised Terraform root. It also selects which walk-up `atelier.presets/`
+  bundles are visible (§11).
 - `--type <T>` — restrict discovery to the given list-resource type(s).
 - `--var <K=V>` — supply a module variable value (repeatable). Written to
   `main.tf`.

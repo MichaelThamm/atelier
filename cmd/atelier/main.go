@@ -111,6 +111,8 @@ Usage:
                                                 derived from the live deployment, so it need not be passed
                                                 as a --var. Variables the module declares without a default
                                                 must still be supplied via --var or --var-file.
+                                                --dir creates the directory when it is missing; without
+                                                --source it must already be an initialised Terraform root.
                                                 --list-var-files prints the local and repo .tfvars bundles
                                                 available (requires --source) and exits without importing.
                                                 --dry-run writes an imports.tf artifact and previews the plan

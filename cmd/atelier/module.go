@@ -488,7 +488,7 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 			explicitTarget = filepath.Join(cwd, explicitTarget)
 		}
 		explicitTarget = filepath.Clean(explicitTarget)
-		if err := checkApplyTarget(explicitTarget); err != nil {
+		if err := checkApplyTarget(explicitTarget, "choose another name with --dir or --as"); err != nil {
 			return "", nil, err
 		}
 	}
@@ -551,7 +551,7 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 	if target == "" {
 		name := bootstrap.ModuleDirName(res.ModulePath, modulesource.RepoBasename(opts.Source))
 		target = filepath.Join(cwd, name)
-		if err := checkApplyTarget(target); err != nil {
+		if err := checkApplyTarget(target, "choose another name with --dir or --as"); err != nil {
 			cleanup()
 			return "", nil, err
 		}
@@ -671,8 +671,9 @@ func openWrapper(dir string) error {
 // checkApplyTarget refuses a target directory that already holds files.
 // `apply` creates a fresh wrapper; a non-empty directory is almost
 // always a mistyped --dir or --as, so it is refused rather than scaffolded
-// over. An existing empty directory is allowed and reused.
-func checkApplyTarget(target string) error {
+// over. An existing empty directory is allowed and reused. remedy is the
+// command's own way of naming another target, since the flags differ per verb.
+func checkApplyTarget(target, remedy string) error {
 	info, err := os.Stat(target)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -688,7 +689,7 @@ func checkApplyTarget(target string) error {
 		return err
 	}
 	if len(entries) > 0 {
-		return fmt.Errorf("target directory %s already exists and is not empty; choose another name with --dir or --as", target)
+		return fmt.Errorf("target directory %s already exists and is not empty; %s", target, remedy)
 	}
 	return nil
 }

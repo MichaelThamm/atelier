@@ -321,7 +321,7 @@ func TestUnsetRequiredVars_none(t *testing.T) {
 func TestCheckApplyTarget(t *testing.T) {
 	base := t.TempDir()
 
-	if err := checkApplyTarget(filepath.Join(base, "new")); err != nil {
+	if err := checkApplyTarget(filepath.Join(base, "new"), "pick another"); err != nil {
 		t.Errorf("missing target: %v", err)
 	}
 
@@ -329,7 +329,7 @@ func TestCheckApplyTarget(t *testing.T) {
 	if err := os.Mkdir(empty, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkApplyTarget(empty); err != nil {
+	if err := checkApplyTarget(empty, "pick another"); err != nil {
 		t.Errorf("empty target: %v", err)
 	}
 
@@ -340,15 +340,20 @@ func TestCheckApplyTarget(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nonEmpty, "main.tf"), []byte("# existing\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkApplyTarget(nonEmpty); err == nil {
-		t.Error("expected an error for a non-empty target")
+	err := checkApplyTarget(nonEmpty, "pick another")
+	if err == nil {
+		t.Fatal("expected an error for a non-empty target")
+	}
+	// The remedy names the caller's own flags, which differ per verb.
+	if !strings.Contains(err.Error(), "pick another") {
+		t.Errorf("error = %q, want it to carry the remedy", err)
 	}
 
 	file := filepath.Join(base, "afile")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkApplyTarget(file); err == nil {
+	if err := checkApplyTarget(file, "pick another"); err == nil {
 		t.Error("expected an error when the target is a file")
 	}
 }

@@ -10,6 +10,8 @@ Lost your Terraform state, or never had one to begin with? With `atelier import`
 
 `atelier import juju` clones the upstream module, writes an Atelier wrapper, discovers live resources via `terraform query`, matches them to the module's resource addresses, and runs `terraform import` for each match. The result is a wrapper directory whose Terraform state reflects your running infrastructure, ready to manage with normal Atelier operations.
 
+It works in the current directory, or in the one `--dir` names. With `--source` that directory is created if it does not exist, and an existing `main.tf` is imported into as it stands — which is also what makes re-running the command after a partial import safe.
+
 ## Use cases
 
 1. **Juju to Terraform migration**. A Juju client deployment to be managed by Terraform.
