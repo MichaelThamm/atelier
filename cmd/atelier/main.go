@@ -97,7 +97,11 @@ Usage:
         [--list-var-files] [--query-var K=V] [--dry-run] [--list] [--yes]
                                                 Import a running deployment into Terraform state. With --source,
                                                 clones a remote module, writes an Atelier wrapper, and imports
-                                                live resources into it. Without --source, imports into an
+                                                live resources into it. --source takes a gallery name (see
+                                                'atelier gallery list') in place of a URL: it supplies the
+                                                module, its subdirectory and its pinned revision, but none of
+                                                its presets — an import must match what is already deployed.
+                                                Without --source, imports into an
                                                 already-initialised directory. Discovers live resources via
                                                 'terraform query' (requires terraform >= 1.14), matches them to
                                                 your module's resource addresses by name, and runs

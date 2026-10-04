@@ -35,6 +35,19 @@ atelier import juju \
 
 The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. `--query-var model_uuid` is required by the Juju provider's query engine — it selects which model to enumerate.
 
+If the module is one of Atelier's bundled quick starts, its name works in place of the URL:
+
+```bash
+atelier import juju \
+    --source cos-lite \
+    --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8 \
+    --dry-run
+```
+
+That supplies the module, its subdirectory, and a pinned revision. It does **not** apply the entry's presets: they describe what a good new deployment looks like, and an import has to match the one you are running. Pass anything that differs with `--var` or `--var-file`. An explicit `--ref` overrides the pin, if you need a different revision than the entry tracks.
+
+Whichever form you use, when the target directory already holds a wrapper, the module comes from that wrapper rather than from the flags — so a `--ref` or `--module` that contradicts it is refused instead of ignored.
+
 ### When you still need `--var` or `--var-file`
 
 Atelier cannot invent values for variables the module requires:
@@ -174,6 +187,7 @@ Worth knowing before you run this against something you care about:
 - **Importing cannot change your infrastructure.** Atelier uses `terraform import`, which only writes state. A wrong or partial import produces a bad state file, not a damaged deployment.
 - **Re-running is safe and expected.** Resources already in state are skipped, so the intended loop is: run, read the report, fix your variables, run again. A second run over a finished import reports `Nothing to import: all N matched resource(s) are already in state.` and changes nothing.
 - **A model mismatch is refused.** If the configuration targets a different model than the live resources came from, Atelier aborts before writing anything. `model_uuid` forces replacement on every Juju resource, so proceeding would make the next apply destroy everything just imported and recreate it in the other model.
+- **A source that contradicts the wrapper is refused.** Importing with `--source` into a directory that already has one reads the module from `main.tf`; a `--ref` or `--module` naming something else is an error rather than something quietly dropped, because matching happens against the pinned revision.
 - **If an import fails part-way**, the resources that did not get imported are written to `imports.tf` so you can inspect, fix and retry rather than reconstructing the list by hand.
 - **Check the plan before applying.** `juju_application` resources must not show `replace` or `create`. A clean import shows only attribute drift and any Terraform-internal resources that have no live counterpart.
 

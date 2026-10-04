@@ -136,3 +136,88 @@ func TestResolveModuleSource_unknownName(t *testing.T) {
 		t.Error("an unknown bare name must error")
 	}
 }
+
+// --- resolveImportSource: the same expansion, without the presets ---
+
+func TestResolveImportSource_expandsEntry(t *testing.T) {
+	opts := moduleOpts{Source: "cos-lite"}
+	if err := resolveImportSource(&opts); err != nil {
+		t.Fatalf("resolveImportSource: %v", err)
+	}
+	if opts.Source != "https://github.com/canonical/observability-stack" {
+		t.Errorf("Source = %q", opts.Source)
+	}
+	if opts.ModulePath != "terraform/cos-lite" {
+		t.Errorf("ModulePath = %q", opts.ModulePath)
+	}
+	if opts.Ref != "d1598ff3bdf9a25af69145fd557a913e2a13a314" {
+		t.Errorf("Ref = %q", opts.Ref)
+	}
+}
+
+// An import must describe a deployment that already exists, so the entry's
+// composed presets — which describe what a good new one looks like — are not
+// applied. An entry that composes some (`cos`) is the case that matters.
+func TestResolveImportSource_composesNoPresets(t *testing.T) {
+	opts := moduleOpts{Source: "cos", VarFiles: []string{"mine"}}
+	if err := resolveImportSource(&opts); err != nil {
+		t.Fatalf("resolveImportSource: %v", err)
+	}
+	if len(opts.VarFiles) != 1 || opts.VarFiles[0] != "mine" {
+		t.Errorf("VarFiles = %v, want only the user's own [mine]", opts.VarFiles)
+	}
+}
+
+// The skipped presets are named, since nothing else says the entry had any.
+func TestResolveImportSource_namesSkippedPresets(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	opts := moduleOpts{Source: "cos"}
+	resolveErr := resolveImportSource(&opts)
+	w.Close()
+	os.Stderr = old
+	got, _ := io.ReadAll(r)
+	if resolveErr != nil {
+		t.Fatalf("resolveImportSource: %v", resolveErr)
+	}
+	if !strings.Contains(string(got), "cos-grafana-single-unit") {
+		t.Errorf("stderr = %q, want the skipped preset named", got)
+	}
+}
+
+func TestResolveImportSource_flagsWin(t *testing.T) {
+	opts := moduleOpts{Source: "cos-lite", Ref: "track/3.0"}
+	if err := resolveImportSource(&opts); err != nil {
+		t.Fatalf("resolveImportSource: %v", err)
+	}
+	if opts.Ref != "track/3.0" {
+		t.Errorf("an explicit --ref must win over the entry's pin: %q", opts.Ref)
+	}
+}
+
+func TestResolveImportSource_urlUntouched(t *testing.T) {
+	const url = "https://github.com/canonical/observability-stack.git"
+	opts := moduleOpts{Source: url}
+	if err := resolveImportSource(&opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Source != url {
+		t.Errorf("Source = %q, want it unchanged", opts.Source)
+	}
+}
+
+func TestResolveImportSource_unknownName(t *testing.T) {
+	opts := moduleOpts{Source: "no-such-entry"}
+	err := resolveImportSource(&opts)
+	if err == nil {
+		t.Fatal("an unknown bare name must error")
+	}
+	// The failure names the gallery rather than letting git report it.
+	if !strings.Contains(err.Error(), "gallery list") {
+		t.Errorf("error = %q, want it to point at the gallery", err)
+	}
+}

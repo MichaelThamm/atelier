@@ -53,6 +53,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0044 | [`--dir` names the wrapper; an existing wrapper is always the additive case](0044-dir-names-the-wrapper.md) | Accepted |
 | 0045 | [A gallery entry offers presets as well as composing them](0045-gallery-available-presets.md) | Accepted |
 | 0046 | [A gallery card names its required inputs once](0046-gallery-card-states-inputs-once.md) | Accepted |
+| 0047 | [An import takes a gallery entry's module but none of its presets](0047-import-gallery-name.md) | Accepted |
 
 ## Conventions
 
