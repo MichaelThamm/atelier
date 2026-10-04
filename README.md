@@ -359,6 +359,52 @@ The pieces that make this work:
 - **`--list-var-files`** works on both `atelier add` and `import` (the latter
   needs `--source`, since the repo is only searched after a clone).
 
+## Scripting and CI
+
+`atelier add`, `atelier ls`, `atelier wrappers` and `atelier import` take
+`--json`, which writes the result to stdout as JSON. The text you normally read
+still goes to stderr, so nothing is lost:
+
+```bash
+atelier add https://github.com/canonical/observability-stack.git \
+  --module terraform/cos-lite --dir stack/ --yes --json
+```
+
+```json
+{
+  "schema": 1,
+  "command": "add",
+  "data": {
+    "wrapper": "/home/you/stack",
+    "added": {
+      "name": "cos_lite",
+      "source": "https://github.com/canonical/observability-stack.git",
+      "modulePath": "terraform/cos-lite",
+      "ref": "main"
+    },
+    "blocks": ["cos_lite"]
+  }
+}
+```
+
+Use it to assert on what happened instead of matching terminal output:
+
+```bash
+atelier import juju --source "$REPO" --ref main --json > import.json
+jq -e '.data.matchedNothing == false' import.json
+jq -r '.data.imported[]' import.json
+```
+
+Two fields are worth knowing about. `alreadyInState` means everything matched was
+already in state — a harmless re-run. `matchedNothing` means nothing matched
+what the module wants, which usually means a wrong model UUID or a `--query-var`
+that never reached the query; `atelier import` still exits `0` either way, so
+check one of them rather than the exit code alone. `unresolved` lists resources
+that matched but whose import ID could not be built, which a later
+`terraform apply` would *create*, duplicating live infrastructure.
+
+`atelier apply` does not take `--json`: it reports Terraform's own output.
+
 ## Comparing versions
 
 Press `R` to switch the module ref without leaving the TUI. Atelier

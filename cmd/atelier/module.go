@@ -31,6 +31,7 @@ type moduleOpts struct {
 	Yes          bool     // --yes/-y: skip the target-directory confirmation
 	ListVarFiles bool     // --list-var-files: print the repo's .tfvars files and exit
 	Strict       bool     // --strict: make var-file binding warnings fatal
+	JSON         bool     // --json: report the result as JSON on stdout (add only; apply rejects it)
 }
 
 func parseModuleArgs(args []string) (moduleOpts, error) {
@@ -45,6 +46,8 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 			opts.ListVarFiles = true
 		case "--strict":
 			opts.Strict = true
+		case "--json":
+			opts.JSON = true
 		case "--as":
 			i++
 			if i >= len(args) {
@@ -171,18 +174,21 @@ func printVarFiles(files []bootstrap.VarFile) {
 // clone is removed before returning, so nothing is written and no preflight is
 // needed. Names are resolved against the same walk-up and repo locations the
 // command itself would see.
-func listVarFileBundles(wrapperDir, source, ref, modulePath string) error {
+func listVarFileBundles(wrapperDir string, opts moduleOpts) error {
 	ctx, cancel := interruptContext()
 	defer cancel()
 	files, err := bootstrap.ListVarFiles(ctx, bootstrap.InitOptions{
 		WrapperDir:  wrapperDir,
-		Source:      source,
-		LocalSource: modulesource.IsLocal(source),
-		Ref:         ref,
-		ModulePath:  modulePath,
+		Source:      opts.Source,
+		LocalSource: modulesource.IsLocal(opts.Source),
+		Ref:         opts.Ref,
+		ModulePath:  opts.ModulePath,
 	})
 	if err != nil {
 		return err
+	}
+	if opts.JSON {
+		return renderJSON(os.Stdout, "add", varFilesPayload(files))
 	}
 	printVarFiles(files)
 	return nil
@@ -265,7 +271,7 @@ func runModuleAdd(args []string) error {
 	// and no preflight is needed. It runs before the terraform check because
 	// listing needs only git.
 	if opts.ListVarFiles {
-		return listVarFileBundles(cwd, opts.Source, opts.Ref, opts.ModulePath)
+		return listVarFileBundles(cwd, opts)
 	}
 
 	if _, err := tfexec.Locate(); err != nil {
@@ -278,7 +284,14 @@ func runModuleAdd(args []string) error {
 	// `add` creates a directory of its own, named after the candidate (or
 	// --dir/--as), exactly as `apply` does — but stops before init/apply.
 	if target := existingWrapperTarget(cwd, opts.Dir); target != "" {
-		return addModuleToWrapper(cwd, target, opts)
+		out, err := addModuleToWrapper(cwd, target, opts)
+		if err != nil {
+			return err
+		}
+		if opts.JSON {
+			return renderJSON(os.Stdout, "add", addPayload(out))
+		}
+		return nil
 	}
 	return addModuleInNewDir(cwd, opts)
 }
@@ -309,11 +322,51 @@ func existingWrapperTarget(cwd, dir string) string {
 
 // addModuleToWrapper appends a module block to an existing wrapper in dir and
 // opens the editor on it.
-func addModuleToWrapper(cwd, dir string, opts moduleOpts) error {
-	if _, err := appendModuleBlock(cwd, dir, opts, opts.Yes); err != nil {
-		return err
+// jsonUnsupported rejects --json on a command that has no report of its own to
+// give. A silent no-op would be worse than the error: a CI job reads a missing
+// payload as success.
+func jsonUnsupported(command string, opts moduleOpts) error {
+	if !opts.JSON {
+		return nil
 	}
-	return openWrapper(dir)
+	return fmt.Errorf("--json is not supported by %q, which reports Terraform's own output.\n"+
+		"Use 'atelier add --json' and run Terraform yourself.", command)
+}
+
+// addOutcome is what `atelier add` wrote, for the --json report.
+type addOutcome struct {
+	Dir   string                    // the wrapper directory the block landed in
+	Block jsonModule                // the block as it reads back from main.tf
+	All   []wrapper.ModuleBlockInfo // every block in the wrapper afterwards
+}
+
+// describeAdd reads the wrapper back to describe what was added, rather than
+// echoing the request: --as is sanitised into a valid HCL identifier on the way
+// in, and the ref a gallery entry resolves to is not the one that was asked for.
+func describeAdd(dir, blockName string) (addOutcome, error) {
+	blocks, err := wrapper.ReadModuleBlocks(dir)
+	if err != nil {
+		return addOutcome{}, err
+	}
+	for _, b := range blocks {
+		if b.Name == blockName {
+			return addOutcome{Dir: dir, Block: newJSONModule(b.Name, b.Source), All: blocks}, nil
+		}
+	}
+	return addOutcome{}, fmt.Errorf("module block %q is missing from %s after writing it", blockName, dir)
+}
+
+func addModuleToWrapper(cwd, dir string, opts moduleOpts) (addOutcome, error) {
+	state, err := appendModuleBlock(cwd, dir, opts, opts.Yes)
+	if err != nil {
+		return addOutcome{}, err
+	}
+	// --json reports and stops: there is no terminal to edit, so loading the
+	// wrapper back into the TUI would only spend time.
+	if opts.JSON {
+		return describeAdd(dir, state.ModuleBlockName)
+	}
+	return addOutcome{}, openWrapper(dir)
 }
 
 // appendModuleBlock appends a module block for opts to the existing wrapper in
@@ -456,12 +509,19 @@ func addModuleInNewDir(cwd string, opts moduleOpts) error {
 	ctx, cancel := interruptContext()
 	defer cancel()
 
-	target, _, err := scaffoldIntoTarget(ctx, cwd, opts)
+	target, state, err := scaffoldIntoTarget(ctx, cwd, opts)
 	if err != nil {
 		return err
 	}
 	if target == "" {
 		return nil // multiple candidates; already reported
+	}
+	if opts.JSON {
+		out, err := describeAdd(target, state.ModuleBlockName)
+		if err != nil {
+			return err
+		}
+		return renderJSON(os.Stdout, "add", addPayload(out))
 	}
 	return openWrapper(target)
 }
@@ -582,6 +642,9 @@ func runModuleApply(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := jsonUnsupported("atelier apply", opts); err != nil {
+		return err
+	}
 	// The apply approval comes from Terraform's own prompt, so it only has a
 	// gate to show when stdin is a terminal. Detect that here: an
 	// auto-approved apply is used otherwise (see applyWrapper), so a pipe,
@@ -602,7 +665,7 @@ func runModuleApply(args []string) error {
 		return err
 	}
 	if opts.ListVarFiles {
-		return listVarFileBundles(cwd, opts.Source, opts.Ref, opts.ModulePath)
+		return listVarFileBundles(cwd, opts)
 	}
 	if _, err := tfexec.Locate(); err != nil {
 		return err
@@ -881,8 +944,12 @@ func runModuleRm(args []string) error {
 
 // runModuleList implements `atelier ls`.
 func runModuleList(args []string) error {
+	asJSON := false
 	for _, a := range args {
-		if strings.HasPrefix(a, "-") && a != "--help" && a != "-h" {
+		switch {
+		case a == "--json":
+			asJSON = true
+		case strings.HasPrefix(a, "-") && a != "--help" && a != "-h":
 			return fmt.Errorf("unknown flag %q for ls", a)
 		}
 	}
@@ -893,6 +960,9 @@ func runModuleList(args []string) error {
 	}
 
 	if !mainTFExists(cwd) {
+		if asJSON {
+			return renderJSON(os.Stdout, "ls", lsPayload(false, nil))
+		}
 		fmt.Println("Not a wrapper directory (no main.tf). Run 'atelier wrappers' to find wrappers under here.")
 		return nil
 	}
@@ -902,8 +972,15 @@ func runModuleList(args []string) error {
 		return fmt.Errorf("reading main.tf: %w", err)
 	}
 	if len(blocks) == 0 {
+		if asJSON {
+			return renderJSON(os.Stdout, "ls", lsPayload(true, nil))
+		}
 		fmt.Println("No modules found in this wrapper.")
 		return nil
+	}
+
+	if asJSON {
+		return renderJSON(os.Stdout, "ls", lsPayload(true, blocks))
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)

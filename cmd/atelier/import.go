@@ -59,6 +59,7 @@ func runImport(args []string) error {
 		listOnly     bool
 		dryRun       bool
 		yes          bool
+		asJSON       bool
 		config       = map[string]string{}
 		queryConfig  = map[string]string{}
 	)
@@ -77,6 +78,8 @@ func runImport(args []string) error {
 			strict = true
 		case a == "--verbose":
 			verbose = true
+		case a == "--json":
+			asJSON = true
 		case a == "--dry-run":
 			dryRun = true
 		case a == "--source" || a == "--module" || a == "--ref" || a == "--type" || a == "--var" || a == "--query-var" || a == "--dir" || a == "--provider-version" || a == "--var-file":
@@ -200,7 +203,9 @@ func runImport(args []string) error {
 	// there is no repo to search. It honours --dir so the local walk-up is the
 	// same one the import itself would see.
 	if listVarFiles {
-		return listVarFileBundles(dir, sourceArg, refArg, moduleArg)
+		return listVarFileBundles(dir, moduleOpts{
+			Source: sourceArg, Ref: refArg, ModulePath: moduleArg, JSON: asJSON,
+		})
 	}
 	if err := checkImportTarget(dir, sourceArg != ""); err != nil {
 		return err
@@ -344,6 +349,9 @@ func runImport(args []string) error {
 		if err != nil {
 			return err
 		}
+		if asJSON {
+			return renderJSON(os.Stdout, "import", listResourcesPayload(res))
+		}
 		fmt.Fprintf(os.Stderr, "Importable list resources (terraform %s):\n", res.TerraformVersion)
 		for _, lr := range res.Available {
 			fmt.Printf("  %s", lr.Type)
@@ -398,7 +406,7 @@ func runImport(args []string) error {
 
 	if res.Preview != nil {
 		reportDryRun(res)
-		return nil
+		return renderImportJSON(asJSON, res, dryRun)
 	}
 
 	if len(res.Imported) > 0 {
@@ -408,7 +416,18 @@ func runImport(args []string) error {
 		}
 	}
 
-	return nil
+	return renderImportJSON(asJSON, res, dryRun)
+}
+
+// renderImportJSON adds the machine-readable payload when --json was asked for.
+// It runs after the text report rather than instead of it: both renderings come
+// from the same Result, and the explanation on stderr is what a user needs when
+// a run went the way it did (ADR-0048).
+func renderImportJSON(asJSON bool, res *importer.Result, dryRun bool) error {
+	if !asJSON {
+		return nil
+	}
+	return renderJSON(os.Stdout, "import", importPayload(res, dryRun))
 }
 
 // reportDryRun summarises a dry run. The number that matters is Add: those are
