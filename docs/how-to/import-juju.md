@@ -10,6 +10,8 @@ Lost your Terraform state, or never had one to begin with? With `atelier import`
 
 `atelier import juju` clones the upstream module, writes an Atelier wrapper, discovers live resources via `terraform query`, matches them to the module's resource addresses, and runs `terraform import` for each match. The result is a wrapper directory whose Terraform state reflects your running infrastructure, ready to manage with normal Atelier operations.
 
+It works in the current directory, or in the one `--dir` names. With `--source` that directory is created if it does not exist, and an existing `main.tf` is imported into as it stands — which is also what makes re-running the command after a partial import safe.
+
 ## Use cases
 
 1. **Juju to Terraform migration**. A Juju client deployment to be managed by Terraform.
@@ -19,7 +21,20 @@ Lost your Terraform state, or never had one to begin with? With `atelier import`
 
 ### Importing a full deployment
 
-Given a running [Canonical Observability Stack (COS)](https://github.com/canonical/observability-stack/tree/main/terraform/cos) deployment, note the model UUID from `juju models`, then run:
+Given a running [Canonical Observability Stack Lite (COS Lite)](https://github.com/canonical/observability-stack/tree/main/terraform/cos-lite) deployment, note the model UUID from `juju models`, then run:
+
+```bash
+atelier import juju \
+    --source https://github.com/canonical/observability-stack.git \
+    --module terraform/cos-lite \
+    --ref track/3.0 \
+    --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8 \
+    --dir cos-lite-import
+```
+
+That one command is the migration path: it writes the wrapper into `cos-lite-import` — creating the directory — and imports the running deployment into it.
+
+To rehearse disaster recovery on a deployment Atelier already manages, deploy it first and throw the state away:
 
 ```bash
 atelier add https://github.com/canonical/observability-stack.git \
@@ -27,13 +42,15 @@ atelier add https://github.com/canonical/observability-stack.git \
     --ref track/3.0  # plan and apply
 rm terraform.*  # remove Terraform state
 atelier import juju \
-    --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8
     --source https://github.com/canonical/observability-stack.git \
     --module terraform/cos-lite \
     --ref track/3.0 \
+    --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8
 ```
 
-The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. `--query-var model_uuid` is required by the Juju provider's query engine — it selects which model to enumerate.
+The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. Pin `--ref` to the revision you deployed: matching happens against the addresses the module declares at that ref, so a moving branch can yield addresses your deployment does not have. `--query-var model_uuid` is required by the Juju provider's query engine — it selects which model to enumerate.
+
+When the directory already holds a wrapper, the module comes from that wrapper rather than from these flags — so a `--module` or `--ref` that contradicts it is refused instead of ignored. Flags you leave out are not a contradiction, so the recovery command above also works with only `--source` and `--query-var`.
 
 ### When you still need `--var` or `--var-file`
 
@@ -174,6 +191,7 @@ Worth knowing before you run this against something you care about:
 - **Importing cannot change your infrastructure.** Atelier uses `terraform import`, which only writes state. A wrong or partial import produces a bad state file, not a damaged deployment.
 - **Re-running is safe and expected.** Resources already in state are skipped, so the intended loop is: run, read the report, fix your variables, run again. A second run over a finished import reports `Nothing to import: all N matched resource(s) are already in state.` and changes nothing.
 - **A model mismatch is refused.** If the configuration targets a different model than the live resources came from, Atelier aborts before writing anything. `model_uuid` forces replacement on every Juju resource, so proceeding would make the next apply destroy everything just imported and recreate it in the other model.
+- **A source that contradicts the wrapper is refused.** Importing with `--source` into a directory that already has one reads the module from `main.tf`; a `--ref` or `--module` naming something else is an error rather than something quietly dropped, because matching happens against the pinned revision.
 - **If an import fails part-way**, the resources that did not get imported are written to `imports.tf` so you can inspect, fix and retry rather than reconstructing the list by hand.
 - **Check the plan before applying.** `juju_application` resources must not show `replace` or `create`. A clean import shows only attribute drift and any Terraform-internal resources that have no live counterpart.
 

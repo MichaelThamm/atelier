@@ -311,10 +311,21 @@ import support to Juju for v1.
 Flags:
 
 - `--source <git-url>` — clone a remote module, write an Atelier wrapper, and
-  import into it. When omitted, imports into an already-initialised directory.
+  import into it. When omitted, imports into an already-initialised directory. A
+  gallery entry name (§6.8) is accepted in place of a URL; it supplies the
+  module, subdirectory and pinned ref, and **none** of its presets, because an
+  import must describe a deployment that already exists
+  ([ADR-0047](adr/0047-import-gallery-name.md)). An explicit `--module` or
+  `--ref` still wins.
 - `--module <path>` — skip the candidate picker and use the given module path.
 - `--ref <ref>` — check out a specific git ref when cloning.
-- `--dir <path>` — target directory (default: current directory).
+- `--dir <path>` — target directory (default: current directory). With
+  `--source` it follows the `atelier apply` rule
+  ([ADR-0044](adr/0044-dir-names-the-wrapper.md)): an existing `main.tf` is
+  adopted, a missing directory is created, and one already holding other files is
+  refused. Without `--source` nothing is scaffolded, so it must already be an
+  initialised Terraform root. It also selects which walk-up `atelier.presets/`
+  bundles are visible (§11).
 - `--type <T>` — restrict discovery to the given list-resource type(s).
 - `--var <K=V>` — supply a module variable value (repeatable). Written to
   `main.tf`.
@@ -344,6 +355,13 @@ a `--var-file`, or the wrapper): Terraform cannot plan without them, and
 `terraform query` — which loads the root module — rejects the run first.
 Identity values such as the Juju model UUID are not among them; Atelier seeds or
 derives those itself.
+
+`--source` against a directory that already holds a wrapper imports into that
+wrapper, so `--source`, `--module` and `--ref` describe a module it already
+declares. A component that contradicts `main.tf` is refused rather than dropped:
+matching happens against the pinned revision, so an ignored `--ref` would import
+against one the user did not ask for. Components the command omits are not a
+contradiction — the wrapper's own subdirectory and ref are used.
 
 Generated inputs (`atelier-import.tfquery.hcl`, `imports.tf`,
 `atelier-import.auto.tfvars`) are removed when a run succeeds and kept only when
@@ -600,11 +618,15 @@ exactly like any other `--var-file`.
   no input that targets an existing one, gets a card that says so instead of a
   variant ([ADR-0042](adr/0042-juju-page-pins-and-own-model.md)).
 - A gallery entry's **name** may be given to `atelier add` / `atelier
-  apply` in place of a URL. It expands to the entry's module, ref, block, and
-  composed presets; an explicit `--ref`, `--module`, `--as`, or `--var-file` still
-  wins,
+  apply` / `atelier import --source` in place of a URL. It expands to the entry's
+  module, ref, block, and composed presets; an explicit `--ref`, `--module`,
+  `--as`, or `--var-file` still wins,
   and a URL or local path is never treated as a name. A bare name that matches
-  nothing is an error naming `atelier gallery list`.
+  nothing is an error naming `atelier gallery list`. `atelier import` is the one
+  exception to the expansion: it takes the module, subdirectory and ref but
+  **none** of the composed presets, because it must describe a deployment that
+  already exists ([ADR-0047](adr/0047-import-gallery-name.md)); the skipped
+  presets are named on stderr.
 - `--var <K=V>` sets a single module input directly (repeatable). It is applied
   after every `--var-file`, so it wins, and accepts an HCL expression for
   structured values (e.g. `--var 'ingress={alertmanager=false}'`). An

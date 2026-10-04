@@ -15,6 +15,18 @@ import (
 // entry, and the entry's presets are composed ahead of any user --var-file so
 // the user's own bundle still wins (ADR-0039).
 func resolveModuleSource(opts *moduleOpts) error {
+	return resolveSource(opts, true)
+}
+
+// resolveImportSource is resolveModuleSource for `atelier import`, which takes
+// the entry's module, subdirectory and pinned ref but composes none of its
+// presets: an import must describe a deployment that already exists, and an
+// entry's preset describes what a good new one looks like.
+func resolveImportSource(opts *moduleOpts) error {
+	return resolveSource(opts, false)
+}
+
+func resolveSource(opts *moduleOpts, composePresets bool) error {
 	if looksLikeSource(opts.Source) {
 		return nil
 	}
@@ -32,12 +44,20 @@ func resolveModuleSource(opts *moduleOpts) error {
 	if opts.As == "" {
 		opts.As = entry.Block
 	}
-	if len(entry.Presets) > 0 {
+	if len(entry.Presets) == 0 {
+		return nil
+	}
+	// Name the presets either way. Composed, nothing else says which values the
+	// entry chose for the user; skipped, nothing else says the entry had any.
+	if composePresets {
 		opts.VarFiles = append(append([]string{}, entry.Presets...), opts.VarFiles...)
-		// The composed presets are otherwise invisible: nothing in the command
-		// or the wrapper says which values the entry chose for you. Name them
-		// where they take effect.
 		fmt.Fprintf(os.Stderr, "Applying %s's bundled presets: %s\n", entry.Name, strings.Join(entry.Presets, ", "))
+	} else {
+		fmt.Fprintf(os.Stderr,
+			"Using %s's module and revision; not applying its presets: %s\n"+
+				"  An import matches what is already deployed, so supply any values that\n"+
+				"  describe it yourself with --var or --var-file.\n",
+			entry.Name, strings.Join(entry.Presets, ", "))
 	}
 	return nil
 }

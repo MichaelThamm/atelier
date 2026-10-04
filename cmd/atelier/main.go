@@ -97,7 +97,11 @@ Usage:
         [--list-var-files] [--query-var K=V] [--dry-run] [--list] [--yes]
                                                 Import a running deployment into Terraform state. With --source,
                                                 clones a remote module, writes an Atelier wrapper, and imports
-                                                live resources into it. Without --source, imports into an
+                                                live resources into it. --source takes a gallery name (see
+                                                'atelier gallery list') in place of a URL: it supplies the
+                                                module, its subdirectory and its pinned revision, but none of
+                                                its presets — an import must match what is already deployed.
+                                                Without --source, imports into an
                                                 already-initialised directory. Discovers live resources via
                                                 'terraform query' (requires terraform >= 1.14), matches them to
                                                 your module's resource addresses by name, and runs
@@ -107,6 +111,8 @@ Usage:
                                                 derived from the live deployment, so it need not be passed
                                                 as a --var. Variables the module declares without a default
                                                 must still be supplied via --var or --var-file.
+                                                --dir creates the directory when it is missing; without
+                                                --source it must already be an initialised Terraform root.
                                                 --list-var-files prints the local and repo .tfvars bundles
                                                 available (requires --source) and exits without importing.
                                                 --dry-run writes an imports.tf artifact and previews the plan

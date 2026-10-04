@@ -15,6 +15,7 @@ import (
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/importer"
 	"github.com/MichaelThamm/atelier/internal/importer/providers"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -166,6 +167,17 @@ func runImport(args []string) error {
 		return err
 	}
 
+	// A gallery entry name is a valid --source: expand it before anything reads
+	// the source. Import takes the module, subdirectory and pinned ref, and
+	// none of the entry's presets (ADR-0047).
+	src := moduleOpts{Source: sourceArg, ModulePath: moduleArg, Ref: refArg}
+	if sourceArg != "" {
+		if err := resolveImportSource(&src); err != nil {
+			return err
+		}
+		sourceArg, moduleArg, refArg = src.Source, src.ModulePath, src.Ref
+	}
+
 	dir := dirArg
 	if dir == "" {
 		cwd, err := os.Getwd()
@@ -190,8 +202,8 @@ func runImport(args []string) error {
 	if listVarFiles {
 		return listVarFileBundles(dir, sourceArg, refArg, moduleArg)
 	}
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return fmt.Errorf("directory does not exist: %s", dir)
+	if err := checkImportTarget(dir, sourceArg != ""); err != nil {
+		return err
 	}
 
 	// When --source is given, import bootstraps a wrapper in dir, so it needs
@@ -552,6 +564,9 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	// re-cloning the module (needed for variable declarations used by
 	// post-import normalisation).
 	if mainTFExists(dir) {
+		if err := checkImportTargetSource(dir, source, modulePath, ref); err != nil {
+			return "", nil, "", "", err
+		}
 		fmt.Fprintln(os.Stderr, "Wrapper already exists; loading module variables…")
 		ctx, cancel := interruptContext()
 		defer cancel()
@@ -560,6 +575,10 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 			return "", nil, "", "", err
 		}
 		return dir, res.State, res.CloneDir, res.ModulePath, nil
+	}
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", nil, "", "", err
 	}
 
 	// The clone, wrapper authoring and failure cleanup are the same fresh
@@ -653,6 +672,97 @@ func validateImportFlags(varFiles []string, sourceArg string, listVarFiles bool)
 		return fmt.Errorf("--list-var-files requires --source: there is no module repo to search otherwise")
 	}
 	return nil
+}
+
+// checkImportTarget resolves the target directory. With --source a wrapper is
+// about to be bootstrapped there: an existing main.tf is adopted rather than
+// scaffolded over, any other directory holding files is refused, and a missing
+// one is created by setupSourceModule once the preflight has had its say — the
+// same rule `atelier apply` applies to --dir (ADR-0044). Without --source
+// nothing is scaffolded, so the directory must already be an initialised
+// Terraform root.
+func checkImportTarget(dir string, bootstraps bool) error {
+	if !bootstraps {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("--dir %s is not a directory; without --source there is nothing to bootstrap, so it must be an initialised Terraform root", dir)
+		}
+		return nil
+	}
+	if mainTFExists(dir) {
+		return nil
+	}
+	return checkApplyTarget(dir, "choose another name with --dir")
+}
+
+// checkImportTargetSource refuses a --source/--module/--ref that contradicts the
+// wrapper the target already holds. `import --source` re-hydrates that wrapper
+// and imports into the module it declares, so the flags describe an address it
+// already has; a mismatch used to be dropped in silence, leaving the import to
+// match against a revision the user did not ask for.
+func checkImportTargetSource(dir, source, modulePath, ref string) error {
+	if source == "" && modulePath == "" && ref == "" {
+		return nil
+	}
+	blocks, err := wrapper.ReadModuleBlocks(dir)
+	if err != nil || len(blocks) == 0 {
+		// A root with no module block declares no address to contradict, so
+		// there is nothing here being ignored.
+		return nil
+	}
+	requested := modulesource.Compose(source, modulePath, ref)
+	var conflict, declared string
+	for _, b := range blocks {
+		c := sourceConflict(requested, b.Source)
+		if c == "" {
+			return nil
+		}
+		if conflict == "" {
+			conflict, declared = c, b.Source
+		}
+	}
+	return fmt.Errorf("%s.\n\n"+
+		"  The wrapper in %s declares:\n    %s\n\n"+
+		"  Importing with --source into a wrapper that already exists reads its module\n"+
+		"  from main.tf rather than applying these flags. Re-run without them to import\n"+
+		"  into the wrapper as it stands, or point --dir somewhere without one. To change\n"+
+		"  the revision, switch the wrapper's ref first (edit main.tf, or use the TUI).",
+		conflict, dir, declared)
+}
+
+// sourceConflict names the component by which a requested module address differs
+// from one a wrapper declares, or "" when they agree. Only components the
+// request actually carries are compared: an omitted --module or --ref is not a
+// request to change the wrapper's, and the wrapper is what the import runs
+// against.
+func sourceConflict(requested, declared string) string {
+	if got, want := modulesource.Remote(requested), modulesource.Remote(declared); got != want {
+		return fmt.Sprintf("the source is %s, the wrapper uses %s", got, want)
+	}
+	if got := modulesource.ModulePath(requested); got != "" && got != modulesource.ModulePath(declared) {
+		return fmt.Sprintf("--module %s, the wrapper uses %s", got, declaredModulePath(declared))
+	}
+	if got := refOf(requested); got != "" && got != refOf(declared) {
+		if refOf(declared) == "" {
+			return fmt.Sprintf("--ref %s, the wrapper pins none", got)
+		}
+		return fmt.Sprintf("--ref %s, the wrapper pins %s", got, refOf(declared))
+	}
+	return ""
+}
+
+// declaredModulePath renders a wrapper's //subdir for an error message, where
+// none reads better than an empty string.
+func declaredModulePath(declared string) string {
+	if p := modulesource.ModulePath(declared); p != "" {
+		return p
+	}
+	return "the repository root"
+}
+
+func refOf(source string) string {
+	_, ref := modulesource.Decompose(source)
+	return ref
 }
 
 // tfexecLocate checks that terraform/tofu is on PATH. It is a thin wrapper

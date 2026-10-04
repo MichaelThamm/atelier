@@ -337,14 +337,17 @@ atelier add \
 **Import an existing deployment into that shape:**
 
 ```bash
-mkdir cos-lite-import && cd cos-lite-import
 atelier import juju \
+  --dir cos-lite-import \
   --source https://github.com/canonical/observability-stack.git \
   --module terraform/cos-lite \
   --var-file no-ingress \
   --var 'model={uuid="<MODEL_UUID>"}' \
   --query-var model_uuid=<MODEL_UUID>
 ```
+
+`--dir` creates the directory if it does not exist, so importing into a fresh
+wrapper is one command instead of `mkdir … && cd …`.
 
 The pieces that make this work:
 
