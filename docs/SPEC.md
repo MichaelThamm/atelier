@@ -795,6 +795,13 @@ TUI; the redirect only decides whether the final apply prompts.
 
 Rules:
 
+- The exit code says which side failed, never why — the reason is on stderr.
+  `0` the wrapper was written and Terraform applied it. `1` Atelier's failure:
+  bad usage, a clone that failed, a refusal, the required-input gate. Nothing was
+  deployed. `2` Terraform ran and reported failure: the wrapper on disk is
+  current and infrastructure may be partly applied, so this is not a safe blind
+  re-run. Every other command exits `0` or `1` and carries its reason in the
+  `--json` payload or on stderr ([ADR-0051](adr/0051-apply-exit-codes.md)).
 - The target directory must be new, empty, or already hold a `main.tf`. Any
   other non-empty target is refused (naming `--dir`/`--as`) instead of
   scaffolded over. A target holding a `main.tf` composes rather than scaffolds,

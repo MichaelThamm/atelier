@@ -1106,6 +1106,8 @@ func applyWrapper(dir string, autoApprove bool) error {
 
 	tf, err := tfexec.New(dir, "")
 	if err != nil {
+		// Terraform could not be located or its log directory opened. Nothing ran,
+		// so this is the environment's problem, not a deployment failure.
 		return err
 	}
 
@@ -1122,13 +1124,13 @@ func applyWrapper(dir string, autoApprove bool) error {
 	tf.SetStdout(nil)
 	tf.SetStderr(nil)
 	if err != nil {
-		return fmt.Errorf("terraform init: %w", err)
+		return terraformFailure(fmt.Errorf("terraform init: %w", err))
 	}
 
 	if autoApprove {
 		fmt.Fprintln(os.Stderr, "no terminal on stdin: applying without the plan prompt.")
 	}
-	return tf.ApplyDirect(ctx, autoApprove)
+	return terraformFailure(tf.ApplyDirect(ctx, autoApprove))
 }
 
 // bootstrapFreshWrapper clones a remote module source and writes a wrapper
