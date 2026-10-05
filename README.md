@@ -79,7 +79,8 @@ cd cos-lite
 
 Redirecting stdin (`< /dev/null`) skips the TUI, so the command works unattended
 in scripts and CI. Without it, `atelier add` opens the TUI, where you review the
-module's variables and fill in any it requires.
+module's variables, fill in any it requires, and press `[P]` to run a plan and
+`[A]` to apply it.
 
 What Atelier wrote is a normal Terraform project — Atelier is not needed to run
 it:
@@ -182,32 +183,6 @@ atelier
 > **Note:** run `atelier --help` for the full command list, including `atelier
 > add|rm|ls`, `atelier wrappers`, `atelier tidy`, and `atelier purge`.
 
-> **Note:** the demos below use
-> [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform):
-> its module has many inputs, so it shows the variable list well.
-
-<details>
-<summary>Demo: adding a module</summary>
-
-1. `atelier add https://github.com/canonical/loki-operators.git`
-2. Browse the module's variables
-
-![Adding a module](docs/gifs/module-add.gif)
-
-</details>
-
-<details>
-<summary>Demo: plan a module deployment</summary>
-
-1. `atelier`
-2. Press `[P]` to begin the plan
-3. Investigate the Terraform state changes
-4. Optionally press `[A]` to apply the state
-
-![Plan a module deployment](docs/gifs/plan.gif)
-
-</details>
-
 ## Presets
 
 A preset is a named `.tfvars` file: a bundle of variable values you apply in
@@ -285,27 +260,6 @@ files but no wrapper and Atelier asks before appending a module block
 ([ADR-0030](docs/adr/0030-target-directory-preflight.md)). Without a terminal on
 stdin the preflight fails, naming `--yes`.
 
-<details>
-<summary>Demo: saving a preset</summary>
-
-1. `atelier`
-2. Fill in all the required variables
-3. Press `[S]` to save an `atelier.presets/<name>.tfvars` bundle
-
-![Saving a preset](docs/gifs/save-preset.gif)
-
-</details>
-
-<details>
-<summary>Demo: applying a preset</summary>
-
-1. `atelier`
-2. `[F]` to select and apply a bundle from a parent directory
-
-![Applying a preset](docs/gifs/apply-preset.gif)
-
-</details>
-
 ## Importing live infrastructure
 
 `atelier import` reconstructs Terraform state for an existing module from a
@@ -316,16 +270,6 @@ match — a state-only operation that cannot change your infrastructure. Use
 create, without touching state. See
 [docs/how-to/import-juju.md](docs/how-to/import-juju.md) for a step-by-step Juju
 walkthrough.
-
-<details>
-<summary>Demo: importing a live deployment</summary>
-
-1. `atelier import`
-2. `atelier`
-
-![Importing a live deployment](docs/gifs/import.gif)
-
-</details>
 
 ### From bundle to import
 
@@ -466,23 +410,12 @@ Atelier API.
 Press `R` to switch the module ref without leaving the TUI. Atelier
 re-clones the module, carries your values forward, runs
 `terraform init -upgrade`, and flags any orphaned or newly required
-variables.
+variables. `[D]` opens a detail modal naming each one.
 
 The ref field filters the remote's branches and tags as you type, so a big
 repo's 50-plus refs narrow to the few you mean. Free text (an arbitrary SHA, an
 unlisted ref) is always accepted. Press `?` in the modal for its navigation
 keys.
-
-<details>
-<summary>Demo: switch module ref</summary>
-
-1. `atelier`
-2. `[R]` to browse module refs
-3. Apply and inspect module changes with `[D]`
-
-![Switch module ref](docs/gifs/switch-ref.gif)
-
-</details>
 
 ## Keyboard shortcuts
 
@@ -492,8 +425,7 @@ keymap (`Ctrl+A`/`Ctrl+E`, `Ctrl+W`, `Alt+B`/`Alt+F`, …), so editing feels lik
 `bash`.
 
 Press `?` anywhere for the complete, context-aware keymap — it lists the keys for
-the view you are in and is the single source of truth for shortcuts. The demo
-GIFs in the feature sections show each flow end to end.
+the view you are in and is the single source of truth for shortcuts.
 
 ## Validate on save
 
