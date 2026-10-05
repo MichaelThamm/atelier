@@ -1,192 +1,152 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
-"""Helpers for Atelier's Juju + Terraform integration tests."""
+"""Helpers for Atelier's Juju + Terraform integration tests.
+
+Atelier authors the wrapper and deploys it; a test's job is to ask what happened.
+:func:`run` and :func:`write_tfvars` cover the two things that are fiddly to get
+right — running Atelier without a terminal, and writing an input bundle — and
+:class:`TfDirManager` asks Terraform what became of the wrapper.
+
+Atelier's own commands are called as :func:`run` spells them out, because that is
+what anyone scripting Atelier has to write: they cannot import from here. Read the
+flags in a test and you can see the command it runs.
+"""
 
 import json
 import logging
 import os
 import shlex
+import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 import jubilant
 
 logger = logging.getLogger(__name__)
 
 
-class TfDirManager:
-    """Runs Terraform against a wrapper directory authored by Atelier.
+@lru_cache(maxsize=None)
+def atelier_bin() -> str:
+    """The Atelier under test: ``ATELIER_BIN``, else ``atelier`` on ``PATH``.
 
-    A static-fixture manager copies a pre-written ``.tf`` file into a scratch
-    directory and plans there. Atelier's wrapper *is* the artifact, so this
-    manager instead **latches onto the directory Atelier writes**: allocate it
-    with :meth:`new_wrapper_dir`, run ``atelier add …`` in it, then call
-    :meth:`init` / :meth:`apply` to run Terraform in that same directory.
+    Absolute, because :func:`run` executes inside the wrapper under test, where a
+    relative path would be looked for instead of where the test started.
     """
-
-    def __init__(self, base_tmpdir):
-        self.base: str = str(base_tmpdir)
-        self.dir: str = ""
-
-    @property
-    def tf_cmd(self) -> str:
-        if not self.dir:
-            raise RuntimeError("TfDirManager has not latched onto a directory yet")
-        return f"terraform -chdir={self.dir}"
-
-    def new_wrapper_dir(self, name: str = "wrapper") -> str:
-        """Allocate and return a fresh directory for Atelier to bootstrap into."""
-        self.dir = os.path.join(self.base, name)
-        os.makedirs(self.dir, exist_ok=True)
-        return self.dir
-
-    def latch(self, directory) -> None:
-        """Point the manager at an existing wrapper directory."""
-        self.dir = str(directory)
-
-    def init(self, *extra_args: str) -> None:
-        """Run ``terraform init -upgrade`` in the latched wrapper directory."""
-        cmd = f"{self.tf_cmd} init -upgrade"
-        if extra_args:
-            cmd += " " + " ".join(shlex.quote(a) for a in extra_args)
-        subprocess.run(shlex.split(cmd), check=True)
-
-    def validate(self) -> None:
-        """Run ``terraform validate`` in the latched wrapper directory."""
-        subprocess.run(shlex.split(f"{self.tf_cmd} validate"), check=True)
-
-    def state_list(self) -> list[str]:
-        """Return the resource addresses currently in the wrapper's state.
-
-        Complements :meth:`plan_changes`: that one reports what a plan *would*
-        change, so it is empty once resources exist. Asserting on state is how a
-        caller shows that a composed wrapper really deployed both of its
-        modules into one root.
-        """
-        logger.info("running: %s state list", self.tf_cmd)
-        result = subprocess.run(
-            shlex.split(f"{self.tf_cmd} state list"),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return [line for line in result.stdout.splitlines() if line.strip()]
-
-    def plan_changes(self) -> list[tuple[str, str, list[str]]]:
-        """Return a plan's managed-resource changes as ``(address, type, actions)``.
-
-        Runs ``terraform plan -out`` then ``terraform show -json`` so the result
-        is machine-readable. Data sources and no-op changes are omitted; each
-        remaining entry is something the plan would add, change, or destroy.
-
-        This is what lets a caller separate real infrastructure deltas from
-        ``terraform_data`` bookkeeping, which has no live counterpart and can
-        never be imported.
-        """
-        plan_file = os.path.join(self.dir, ".atelier-integration.tfplan")
-        logger.info("running: %s plan -out=%s", self.tf_cmd, plan_file)
-        subprocess.run(
-            shlex.split(f"{self.tf_cmd} plan -out={plan_file} -input=false -no-color"),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        try:
-            shown = subprocess.run(
-                shlex.split(f"{self.tf_cmd} show -json {plan_file}"),
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
-        finally:
-            if os.path.exists(plan_file):
-                os.remove(plan_file)
-
-        changes: list[tuple[str, str, list[str]]] = []
-        for rc in json.loads(shown).get("resource_changes") or []:
-            if rc.get("mode") != "managed":
-                continue
-            actions = (rc.get("change") or {}).get("actions") or []
-            if actions == ["no-op"]:
-                continue
-            changes.append((rc.get("address", ""), rc.get("type", ""), actions))
-        return changes
-
-    @staticmethod
-    def _args_str(target: Optional[str] = None, **kwargs) -> str:
-        target_arg = f"-target module.{target}" if target else ""
-        var_args = " ".join(f"-var {k}={v}" for k, v in kwargs.items())
-        return "-auto-approve " + f"{target_arg} " + var_args
-
-    def apply(self, target: Optional[str] = None, **kwargs) -> None:
-        cmd_str = f"{self.tf_cmd} apply " + self._args_str(target, **kwargs)
-        subprocess.run(shlex.split(cmd_str), check=True)
-
-    def destroy(self, **kwargs) -> None:
-        cmd_str = f"{self.tf_cmd} destroy " + self._args_str(None, **kwargs)
-        subprocess.run(shlex.split(cmd_str), check=True)
+    configured = os.environ.get("ATELIER_BIN") or "atelier"
+    # which() expands a PATH name but returns a path-like argument unchanged.
+    return os.path.abspath(shutil.which(configured) or configured)
 
 
-def run_atelier(
-    wrapper_dir,
-    atelier_bin: str,
-    *args: str,
-    env: Optional[dict] = None,
-    capture: bool = False,
-    check: bool = True,
-) -> subprocess.CompletedProcess:
-    """Run the Atelier CLI in ``wrapper_dir`` with stdin pinned to ``/dev/null``.
+def run(*args: str, cwd: Path | str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run ``atelier <args>`` in ``cwd`` and return the finished process.
 
-    Pinning stdin to ``/dev/null`` is what makes ``module add`` non-blocking:
-    Atelier detects the non-terminal, applies any ``--var-file`` and skips the
-    TUI instead of trying (and failing) to open one.
+    Two details are what make this work from CI. Standard input is
+    ``/dev/null``, which is how Atelier knows there is no terminal and declines to
+    open its editor instead of hanging. And stdout is captured on its own, so the
+    ``--json`` payload can be read with ``json.loads(result.stdout)["data"]``
+    without progress chatter mixed in.
 
-    With ``capture=True`` the completed process is returned with ``stdout`` and
-    ``stderr`` as text (useful for ``module list`` assertions).
+    With ``check`` (the default) a non-zero exit raises ``CalledProcessError``;
+    pass ``check=False`` to assert on the exit instead.
     """
-    cmd = [atelier_bin, *args]
-    logger.info("running: %s", " ".join(shlex.quote(c) for c in cmd))
-    with open(os.devnull, "rb") as devnull:
-        return subprocess.run(
-            cmd,
-            cwd=wrapper_dir,
-            stdin=devnull,
-            env={**os.environ, **(env or {})},
-            check=check,
-            capture_output=capture,
-            text=capture,
-        )
+    cmd = [atelier_bin(), *args]
+    logger.info("running: %s (in %s)", shlex.join(cmd), cwd)
+    result = subprocess.run(cmd, cwd=cwd, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=3600, check=False)
+    logger.debug("exit %d\nstdout:\n%s\nstderr:\n%s", result.returncode, result.stdout, result.stderr)
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, cmd,
+                                            output=result.stdout, stderr=result.stderr)
+    return result
 
 
-def _hcl_value(value) -> str:
-    """Render a Python value as HCL for a ``.tfvars`` file."""
+def write_tfvars(directory: Path | str, name: str, values: dict) -> Path:
+    """Write a ``.tfvars`` input bundle and return its path.
+
+    Returns a path rather than a name on purpose. ``--var-file`` also accepts a
+    preset name, and a name that resolves to nothing is skipped — an outright
+    error under ``--strict``, which every caller here passes — so handing over
+    the name would drop the bundle rather than configure the module.
+    """
+    path = Path(directory) / f"{name}.tfvars"
+    path.write_text("".join(f"{k} = {_hcl(v)}\n" for k, v in values.items()))
+    logger.info("wrote %s with variables: %s", path, ", ".join(values))
+    return path
+
+
+def _hcl(value) -> str:
+    """Render a Python value as HCL. bool is checked before int: bool is an int."""
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, str):
         return json.dumps(value)
+    if value is None:
+        return "null"
     if isinstance(value, dict):
-        inner = ", ".join(f"{k} = {_hcl_value(v)}" for k, v in value.items())
-        return "{ " + inner + " }"
+        return "{ " + ", ".join(f"{k} = {_hcl(v)}" for k, v in value.items()) + " }"
     if isinstance(value, (list, tuple)):
-        return "[" + ", ".join(_hcl_value(v) for v in value) + "]"
-    raise TypeError(f"unsupported value for .tfvars: {value!r}")
+        return "[" + ", ".join(_hcl(v) for v in value) + "]"
+    raise TypeError(f"cannot render {value!r} as HCL")
 
 
-def write_var_file(directory, name: str, values: dict) -> str:
-    """Write a ``<name>.tfvars`` bundle and return its path.
+class TfDirManager:
+    """Asks Terraform what became of a wrapper Atelier wrote. Verification, not authoring.
 
-    This is the preset mechanism: ``module add --var-file <path>`` reads it, and
-    the TUI's `S` key writes the same shape under ``atelier.presets/``, so the
-    tests document the real thing.
+    The wrapper is the artifact (ADR-0001), so this attaches to the directory
+    Atelier wrote and answers only the three questions Atelier has no command for:
+    is it valid, what is in state, and would a plan change anything. Editing the
+    wrapper afterwards is the test's own business — write the HCL, then ``init``
+    and ``validate``.
     """
-    path = Path(directory) / f"{name}.tfvars"
-    body = "".join(f"{k} = {_hcl_value(v)}\n" for k, v in values.items())
-    path.write_text(body)
-    logger.info("wrote %s: %s", path, values)
-    return str(path)
+
+    def __init__(self) -> None:
+        self.dir: str = ""
+
+    def latch(self, directory: Path | str) -> None:
+        """Point this at a wrapper directory."""
+        self.dir = str(directory)
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        cmd = shlex.split(f"terraform -chdir={self.dir} {shlex.join(args)}")
+        logger.info("running: %s", shlex.join(cmd))
+        return subprocess.run(cmd, stdin=subprocess.DEVNULL, check=True, capture_output=True, text=True)
+
+    def init(self) -> None:
+        """Fetch the module and providers, without deploying anything."""
+        self._run("init", "-upgrade")
+
+    def validate(self) -> None:
+        """Check the configuration parses — still without deploying."""
+        self._run("validate")
+
+    def state_list(self) -> list[str]:
+        """Addresses currently in state. Complements :meth:`plan_changes`, which is
+        empty once they exist."""
+        return [line for line in self._run("state", "list").stdout.splitlines() if line.strip()]
+
+    def plan_changes(self) -> list[tuple[str, str, list[str]]]:
+        """Managed resources a plan would ``(address, type, actions)``, no-ops omitted.
+
+        This is how a caller separates real infrastructure drift from
+        ``terraform_data`` bookkeeping, which has no live counterpart and can never
+        be imported. An import report gives counts; a drift assertion needs
+        addresses.
+        """
+        plan_file = os.path.join(self.dir, ".atelier-integration.tfplan")
+        try:
+            self._run("plan", f"-out={plan_file}", "-input=false", "-no-color")
+            shown = json.loads(self._run("show", "-json", plan_file).stdout)
+        finally:
+            if os.path.exists(plan_file):
+                os.remove(plan_file)
+        return [
+            (rc.get("address", ""), rc.get("type", ""), (rc.get("change") or {}).get("actions") or [])
+            for rc in shown.get("resource_changes") or []
+            if rc.get("mode") == "managed" and (rc.get("change") or {}).get("actions") != ["no-op"]
+        ]
 
 
 def wait_for_active_idle_without_error(juju: jubilant.Juju, timeout: int = 60 * 45) -> None:
@@ -194,9 +154,4 @@ def wait_for_active_idle_without_error(juju: jubilant.Juju, timeout: int = 60 * 
     print(f"\nwaiting for the model ({juju.model}) to settle ...\n")
     juju.wait(jubilant.all_active, delay=10, timeout=timeout)
     print("\nwaiting for agents idle ...\n")
-    juju.wait(
-        jubilant.all_agents_idle,
-        delay=10,
-        timeout=timeout,
-        error=jubilant.any_error,
-    )
+    juju.wait(jubilant.all_agents_idle, delay=10, timeout=timeout, error=jubilant.any_error)

@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from helpers import run_atelier, write_var_file
+from helpers import run, write_tfvars
 
 
 def local_module(base) -> str:
@@ -25,37 +25,33 @@ def local_module(base) -> str:
     return str(module)
 
 
-def test_an_unresolvable_var_file_is_fatal_under_strict(tmp_path, atelier_bin):
+def test_an_unresolvable_var_file_is_fatal_under_strict(tmp_path):
     # GIVEN a bundle written under one name
-    write_var_file(tmp_path, "ci", {"greeting": "hello"})
+    write_tfvars(tmp_path, "ci", {"greeting": "hello"})
     target = tmp_path / "wrapper"
     target.mkdir()
 
     # WHEN `add` is asked for it by a name that resolves to nothing, under --strict
     with pytest.raises(subprocess.CalledProcessError) as failure:
-        run_atelier(tmp_path, atelier_bin, "add", local_module(tmp_path),
-                    "--as", "stack", "--dir", "wrapper",
-                    "--var-file", "no-such-bundle", "--strict", "--yes",
-                    capture=True)
+        run("add", local_module(tmp_path), "--as", "stack", "--dir", "wrapper",
+            "--var-file", "no-such-bundle", "--strict", "--yes", cwd=tmp_path)
 
-    # THEN the run fails, rather than writing a wrapper that silently holds none
-    # of the values the bundle carried. Without this the omission surfaces later
-    # as a missing required input — or not at all, if the module has a default.
+    # THEN the run fails, rather than writing a wrapper that silently holds none of
+    # the values the bundle carried. Without this the omission surfaces later as a
+    # missing required input — or not at all, if the module has a default.
     assert "no-such-bundle" in failure.value.stderr
     assert not (target / "main.tf").exists()
 
 
-def test_an_unresolvable_var_file_is_only_a_warning_without_strict(tmp_path, atelier_bin):
+def test_an_unresolvable_var_file_is_only_a_warning_without_strict(tmp_path):
     # GIVEN the same typo, without --strict
-    write_var_file(tmp_path, "ci", {"greeting": "hello"})
+    write_tfvars(tmp_path, "ci", {"greeting": "hello"})
     target = tmp_path / "wrapper"
     target.mkdir()
 
     # WHEN it is asked for by a name that resolves to nothing
-    result = run_atelier(tmp_path, atelier_bin, "add", local_module(tmp_path),
-                         "--as", "stack", "--dir", "wrapper",
-                         "--var-file", "no-such-bundle", "--yes",
-                         capture=True, check=False)
+    result = run("add", local_module(tmp_path), "--as", "stack", "--dir", "wrapper",
+                 "--var-file", "no-such-bundle", "--yes", cwd=tmp_path, check=False)
 
     # THEN the wrapper is still written and the bundle is reported as skipped.
     # A gallery entry's preset may be superseded by one the caller supplies, so
