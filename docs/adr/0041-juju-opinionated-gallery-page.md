@@ -3,8 +3,9 @@
 ## Status
 
 Superseded by [ADR-0043](0043-juju-page-guesses-nothing.md) for its credential and
-channel defaults. The page, its per-card model pins, and the split between the
-agnostic and provider-specific pages stand.
+channel defaults, and by [ADR-0049](0049-juju-page-model-from-environment.md) for
+resolving the model inside each command. The page, its per-card model pins, and
+the split between the agnostic and provider-specific pages stand.
 
 ## Context
 

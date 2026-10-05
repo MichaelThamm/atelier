@@ -615,11 +615,16 @@ exactly like any other `--var-file`.
   because it is an opinion: Juju has no single convention for naming a model
   (`model_uuid` takes a UUID, `model` an object whose `uuid` selects an existing
   model, or a model name), and on some modules pinning it overrides what the
-  module would otherwise do. An entry may need more than one pin to make the
-  model pin apply — Charmed Kubeflow reads `model_uuid` only when
-  `create_model` is false — and a module that always creates its own model, with
-  no input that targets an existing one, gets a card that says so instead of a
-  variant ([ADR-0042](adr/0042-juju-page-pins-and-own-model.md)).
+  module would otherwise do. The model is read from the environment rather than
+  resolved per command: the page's banner exports `CURRENT_MODEL` (the current
+  model's UUID) and `CURRENT_MODEL_NAME` (its short name) from `juju show-model`,
+  and every pin passes one of them, so a card's command is one `--var` per input
+  ([ADR-0049](adr/0049-juju-page-model-from-environment.md)). An entry may need
+  more than one pin to make the model pin apply — Charmed Kubeflow reads
+  `model_uuid` only when `create_model` is false — and a module that always
+  creates its own model, with no input that targets an existing one, gets a card
+  that says so instead of a variant
+  ([ADR-0042](adr/0042-juju-page-pins-and-own-model.md)).
 - A gallery entry's **name** may be given to `atelier add` / `atelier
   apply` / `atelier import --source` in place of a URL. It expands to the entry's
   module, ref, block, and composed presets; an explicit `--ref`, `--module`,

@@ -22,54 +22,53 @@ import (
 
 // jujuModels maps an entry to the `--var` arguments that target the reader's
 // current model. Juju has no single convention for naming a model, and which one
-// a module uses is not derivable from the manifest:
-//
-//   - `model_uuid` takes a UUID string (Loki, Mimir, Tempo, Charmed Spark,
-//     HAProxy, NetBox, Superset, and most of the product modules).
-//   - `model` takes an object whose `uuid` selects an existing model (COS,
-//     COS Lite). The value must reach Terraform as `{uuid="…"}`, so the inner
-//     quotes are escaped and the shell still expands the substitution.
-//   - `model` takes a UUID string (Authentik, GitHub runner).
-//   - `model` takes a model name (Charmarr), as does `model_name` (Trino).
+// a module uses is not derivable from the manifest: `model_uuid` takes a UUID
+// string, `model` takes an object whose `uuid` selects an existing model (COS,
+// COS Lite), and `model` or `model_name` takes a model *name* (Charmarr, Trino).
+// Authentik and the GitHub runner take a UUID string in `model`.
 //
 // An entry carries more than one pin where the model cannot be targeted without
 // also changing how the module behaves: Kubeflow only reads `model_uuid` when
 // `create_model` is false, so pinning one and not the other deploys into a
 // model the module made anyway.
 //
-// Each value is a complete shell-quoted token, so it pastes as-is. All forms
-// need `jq` on PATH.
+// Each pin reads the model from the environment, which the banner exports once.
 var jujuModels = map[string][]string{
-	"airbyte":         {modelUUIDPin},
-	"authentik":       {`model="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`},
-	"bingo":           {modelUUIDPin},
+	"airbyte":         {uuidPin("model_uuid")},
+	"authentik":       {uuidPin("model")},
+	"bingo":           {uuidPin("model_uuid")},
 	"charmarr":        {modelNamePin},
 	"charmarr-plus":   {modelNamePin},
-	"charmed-spark":   {modelUUIDPin},
+	"charmed-spark":   {uuidPin("model_uuid")},
 	"cos":             {modelObjectPin},
 	"cos-lite":        {modelObjectPin},
-	"datahub":         {`k8s_model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`},
-	"github-runner":   {`model="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`},
-	"haproxy-product": {modelUUIDPin},
-	"hrms":            {modelUUIDPin},
-	"kubeflow":        {`create_model=false`, modelUUIDPin},
-	"kubeflow-iam":    {`create_model=false`, modelUUIDPin, `iam_core_model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`},
-	"loki-operators":  {modelUUIDPin},
-	"mimir-operators": {modelUUIDPin},
-	"netbox":          {modelUUIDPin},
-	"saml-integrator": {modelUUIDPin},
-	"superset":        {modelUUIDPin},
-	"tempo-operators": {modelUUIDPin},
-	"trino":           {`model_name="$(juju show-model --format json | jq -r '.[]."short-name"')"`},
+	"datahub":         {uuidPin("k8s_model_uuid")},
+	"github-runner":   {uuidPin("model")},
+	"haproxy-product": {uuidPin("model_uuid")},
+	"hrms":            {uuidPin("model_uuid")},
+	"kubeflow":        {`create_model=false`, uuidPin("model_uuid")},
+	"kubeflow-iam":    {`create_model=false`, uuidPin("model_uuid"), uuidPin("iam_core_model_uuid")},
+	"loki-operators":  {uuidPin("model_uuid")},
+	"mimir-operators": {uuidPin("model_uuid")},
+	"netbox":          {uuidPin("model_uuid")},
+	"saml-integrator": {uuidPin("model_uuid")},
+	"superset":        {uuidPin("model_uuid")},
+	"tempo-operators": {uuidPin("model_uuid")},
+	"trino":           {`model_name="$CURRENT_MODEL_NAME"`},
 }
 
-// The three model shapes, named for the variable that carries them. A pin is a
-// complete `--var` token, so a module calling its variable `model` or
-// `model_name` spells its own rather than reusing these.
+// uuidPin sets the named variable to the current model's UUID. The model is
+// exported once by the banner, so a pin names a variable rather than resolving
+// the model itself.
+func uuidPin(name string) string { return name + `="$CURRENT_MODEL"` }
+
+// The remaining model shapes, named for the variable that carries them. A pin is
+// a complete `--var` token, so a module calling its variable `model` or
+// `model_name` spells its own rather than reusing these. The object's inner
+// quotes are escaped so the shell still expands the variable.
 const (
-	modelUUIDPin   = `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`
-	modelNamePin   = `model="$(juju show-model --format json | jq -r '.[]."short-name"')"`
-	modelObjectPin = `model={uuid=\"$(juju show-model --format json | jq -r '.[]."model-uuid"')\"}`
+	modelNamePin   = `model="$CURRENT_MODEL_NAME"`
+	modelObjectPin = `model={uuid=\"$CURRENT_MODEL\"}`
 )
 
 // jujuOwnModel names the entries whose module creates its Juju model
@@ -217,7 +216,7 @@ func renderJujuPage(w io.Writer, entries []gallery.Entry) error {
 		"[Juju provider](https://registry.terraform.io/providers/juju/juju/latest) " +
 		"take their model and S3 credentials from your environment. Each card shows " +
 		"the command from the [gallery](gallery.md); the collapsed variant below it " +
-		"resolves the model you have switched to.\n\n")
+		"deploys into the model you have switched to.\n\n")
 
 	writeJujuBanner(&b, entries)
 
@@ -249,11 +248,16 @@ func writeJujuBanner(b *strings.Builder, entries []gallery.Entry) {
 	}
 
 	b.WriteString("## Deploying into your current model\n\n")
-	b.WriteString("You need `juju` and `jq` on your `PATH`, and a model to deploy into:\n\n")
-	b.WriteString("```bash\njuju switch <your-model>\n```\n\n")
+	b.WriteString("Switch to the model you want to deploy into, then export it once for every " +
+		"command below — `juju` and `jq` must be on your `PATH`:\n\n")
+	b.WriteString("```bash\njuju switch <your-model>\n")
+	b.WriteString("export CURRENT_MODEL=\"$(juju show-model --format json | jq -r '.[].\"model-uuid\"')\"\n")
+	b.WriteString("export CURRENT_MODEL_NAME=\"$(juju show-model --format json | jq -r '.[].\"short-name\"')\"\n")
+	b.WriteString("```\n\n")
 	b.WriteString("Juju modules name their model in one of three ways — a UUID in `model_uuid`, " +
 		"an object whose `uuid` selects a model, or a model *name* — so the variant " +
-		"under each card is shaped for that module.\n\n")
+		"under each card passes `$CURRENT_MODEL`, or `$CURRENT_MODEL_NAME` for the " +
+		"modules that want a name.\n\n")
 
 	// Counts, not name lists: as the gallery grows these two groups reach
 	// fifteen and seven entries, and a card already states its own case in the
