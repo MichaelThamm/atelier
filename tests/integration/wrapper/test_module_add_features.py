@@ -87,7 +87,7 @@ def test_var_file_applies_typed_values(tmp_path):
         module=PROM_MODULE,
         dir=WRAPPER_DIR,
         cwd=tmp_path,
-        var_file=[str(var_file)],
+        var_file=[var_file],
     )
 
     # THEN the values are written as typed HCL arguments
@@ -176,7 +176,7 @@ def test_wrapper_initialises_and_validates(tmp_path):
         module=PROM_MODULE,
         dir=WRAPPER_DIR,
         cwd=tmp_path,
-        var_file=[str(var_file)],
+        var_file=[var_file],
     )
 
     # WHEN Terraform initialises it (fetching the module and provider)

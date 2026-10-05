@@ -115,7 +115,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
 
     # AND a bundle describing the deployment for that model, kept beside the
     # wrapper directory: the wrapper directory itself stays empty for `--dir`.
-    write_tfvars(
+    bundle = write_tfvars(
         wrapper_dir.parent,
         "ci",
         {
@@ -133,7 +133,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
         ref=COS_REF,
         dir=".",
         cwd=wrapper_dir,
-        var_file=["ci", COS_PRESET],
+        var_file=[bundle, COS_PRESET],
     )
 
     # THEN the wrapper went where the test prepared it, at the subdirectory the
@@ -157,7 +157,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
         ref=COS_REF,
         dir=".",
         cwd=wrapper_dir,
-        var_file=["ci", COS_PRESET],
+        var_file=[bundle, COS_PRESET],
     )
 
     # THEN the model settles active and idle
@@ -192,7 +192,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
         module=COS_MODULE,
         ref=COS_REF,
         dir=".",
-        var_file=["ci", COS_PRESET],
+        var_file=[bundle, COS_PRESET],
         query_var={"model_uuid": model_uuid},
     )
 

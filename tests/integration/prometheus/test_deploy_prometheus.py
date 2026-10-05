@@ -32,7 +32,7 @@ def test_deploy_prometheus_k8s(juju: jubilant.Juju, tmp_path):
 
     # AND a bundle describing the deployment for that model, kept beside the
     # wrapper directory so the prepared directory stays empty for `--dir`.
-    write_tfvars(
+    bundle = write_tfvars(
         wrapper_dir.parent,
         "ci",
         {"model_uuid": model_uuid, "channel": "dev/edge", "units": 1},
@@ -46,7 +46,7 @@ def test_deploy_prometheus_k8s(juju: jubilant.Juju, tmp_path):
         module=PROM_MODULE,
         dir=".",
         cwd=wrapper_dir,
-        var_file=["ci"],
+        var_file=[bundle],
     )
 
     # THEN the wrapper went where the test prepared it and declares the module

@@ -122,6 +122,16 @@ def run_atelier(
     return result
 
 
+def _as_list(value: Path | str | list[Path | str] | None) -> list[Path | str]:
+    """Normalise a var-file argument to a list.
+
+    A single bundle reads as a scalar at the call site, which is the usual shape.
+    """
+    if value is None:
+        return []
+    return [value] if isinstance(value, (str, Path)) else list(value)
+
+
 def _wrapper_flags(
     *,
     as_: str | None,
@@ -146,8 +156,8 @@ def _wrapper_flags(
         flags += ["--ref", ref]
     if dir is not None:
         flags += ["--dir", str(dir)]
-    for bundle in [var_file] if isinstance(var_file, str) else (var_file or []):
-        flags += ["--var-file", bundle]
+    for bundle in _as_list(var_file):
+        flags += ["--var-file", str(bundle)]
     for key, value in (var or {}).items():
         flags += ["--var", f"{key}={value}"]
     if strict:
@@ -163,7 +173,7 @@ def atelier_add(
     ref: str | None = None,
     module: str | None = None,
     dir: Path | str | None = None,
-    var_file: str | list[str] | None = None,
+    var_file: Path | str | list[Path | str] | None = None,
     var: dict[str, str] | None = None,
     strict: bool = True,
     yes: bool = True,
@@ -204,7 +214,7 @@ def atelier_apply(
     ref: str | None = None,
     module: str | None = None,
     dir: Path | str | None = None,
-    var_file: str | list[str] | None = None,
+    var_file: Path | str | list[Path | str] | None = None,
     var: dict[str, str] | None = None,
     strict: bool = True,
     timeout: float | None = 3600.0,
@@ -236,7 +246,7 @@ def atelier_import(
     module: str | None = None,
     ref: str | None = None,
     dir: Path | str | None = None,
-    var_file: str | list[str] | None = None,
+    var_file: Path | str | list[Path | str] | None = None,
     query_var: dict[str, str] | None = None,
     timeout: float | None = 3600.0,
 ) -> ImportResult:
@@ -259,8 +269,8 @@ def atelier_import(
         flags += ["--ref", ref]
     if dir is not None:
         flags += ["--dir", str(dir)]
-    for bundle in [var_file] if isinstance(var_file, str) else (var_file or []):
-        flags += ["--var-file", bundle]
+    for bundle in _as_list(var_file):
+        flags += ["--var-file", str(bundle)]
     for key, value in (query_var or {}).items():
         flags += ["--query-var", f"{key}={value}"]
 
