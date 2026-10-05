@@ -187,7 +187,7 @@ func (s *State) RenderMain() ([]byte, error) {
 	// preserved user expression (UnknownAttrs).
 	keep := make(map[string]bool, len(s.Vars)+len(s.UnknownAttrs)+8)
 	keep["source"] = true
-	for _, meta := range []string{"version", "count", "for_each", "providers", "depends_on"} {
+	for _, meta := range metaArguments {
 		keep[meta] = true
 	}
 	for i := range s.Vars {

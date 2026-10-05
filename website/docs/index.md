@@ -42,8 +42,10 @@ atelier apply cos-lite
 ```
 
 `atelier apply` deploys: it writes the wrapper, runs `terraform init`, and hands
-the plan to Terraform's own prompt. To configure the values first — and review
-them in Atelier's TUI — use `atelier add`:
+the plan to Terraform's own prompt. Running it again is safe — it converges on
+the module the wrapper already declares, keeping the values it holds and
+re-pointing the block if you changed `--ref`. To configure the values first — and
+review them in Atelier's TUI — use `atelier add`:
 
 ```bash
 atelier add cos-lite

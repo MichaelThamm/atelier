@@ -158,6 +158,22 @@ see [Compose several modules](#compose-several-modules). The result is an
 ordinary wrapper — `cd` into it and run `atelier` to configure further, or
 `terraform` directly. See [ADR-0034](docs/adr/0034-module-apply-one-liner.md).
 
+Run the same command again and it converges rather than complaining or
+duplicating:
+
+```bash
+atelier apply charmed-spark --dir cos-lite --var channel=8.0/stable
+atelier apply charmed-spark --dir cos-lite --var channel=8.18/stable  # re-run
+```
+
+The second run updates that module's existing block and keeps every input the
+first one set. Changing `--ref` re-points the same block instead of adding a
+second one, and inputs the new revision no longer declares are dropped with a
+note. `--as` names the block to work on when the wrapper declares the same module
+more than once; a name that matches nothing falls back to the block that does,
+which is why a gallery entry's own block name never gets in the way. See
+[ADR-0050](docs/adr/0050-tolerant-apply-converges.md).
+
 Re-open an existing wrapper (run with no arguments in the wrapper dir):
 ```bash
 atelier
@@ -405,6 +421,46 @@ that matched but whose import ID could not be built, which a later
 
 `atelier apply` does not take `--json`: it reports Terraform's own output.
 
+Driving a deployment from a script is then two steps: declare the wrapper, then
+apply it. Because `apply` converges on the block it finds, the same invocation is
+safe to re-run, so a CI retry needs no `git diff` check first.
+
+```python
+import json, subprocess
+from pathlib import Path
+
+def run(*args, cwd="."):
+    """Run Atelier non-interactively, with stdin closed and output separated.
+
+    stdin is /dev/null so nothing waits on a prompt, and Atelier's own report
+    stays on stderr while stdout carries only the --json payload.
+    """
+    done = subprocess.run(
+        ["atelier", *args],
+        cwd=cwd, stdin=subprocess.DEVNULL,
+        capture_output=True, text=True, check=True,
+    )
+    print(done.stderr, end="")          # keep the human report in the job log
+    return json.loads(done.stdout)["data"]
+
+# Declare the wrapper once.
+run("add", COS_REPO, "--module", "terraform/cos-lite",
+    "--dir", "stack", "--yes", "--json")
+
+# Deploy it, and deploy it again on every later run of the job. Both converge on
+# the same block; --var merges into whatever the wrapper already holds.
+run("apply", COS_REPO, "--module", "terraform/cos-lite",
+    "--dir", "stack", "--var", "model_uuid=...")
+
+print(Path("stack/main.tf").read_text())   # the wrapper is yours to read
+```
+
+To assert on what Terraform actually did — state, plan changes — reach for
+`terraform` directly: no Atelier command reports state.
+[`tests/integration/helpers.py`](tests/integration/helpers.py) is a working
+reference for both (`TfDirManager.state_list`, `plan_changes`) and is not an
+Atelier API.
+
 ## Comparing versions
 
 Press `R` to switch the module ref without leaving the TUI. Atelier
@@ -475,6 +531,15 @@ the same writer the TUI uses, so the change is apply-neutral: `terraform plan`
 is identical before and after. Arguments whose value is an expression
 (`var.x`, `module.y.z`) are never pruned. See
 [ADR-0021](docs/adr/0021-tidy-command.md) for the design.
+
+Every Atelier write applies the same rule, so you will sometimes see an
+at-default argument disappear without asking: the TUI when you save, and
+`atelier apply` when it rewrites a module's block — which it names on stderr.
+What those do not offer is a chance to look first. Tidy is how you see a prune
+before it happens: it shows the diff, changes nothing unless you pass `--write`,
+keeps a backup, and reports an unpinned ref (where "default" is only whatever
+upstream says today) before it prunes against it. It also prunes the whole
+wrapper, including modules you are not about to deploy.
 
 ## Troubleshooting
 

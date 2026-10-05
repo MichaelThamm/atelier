@@ -457,22 +457,7 @@ func LoadRefState(ctx context.Context, opts InitOptions, blockName string, prior
 	if blockName != "" {
 		state.ModuleBlockName = blockName
 	}
-	state.EnsureValues()
-
-	keep := make(map[string]bool, len(state.Vars))
-	for _, v := range state.Vars {
-		keep[v.Name] = true
-	}
-	for name, val := range priorValues {
-		if keep[name] {
-			state.Values[name] = val
-		}
-	}
-	for _, ra := range priorAttrs {
-		if keep[ra.Name] {
-			state.UnknownAttrs = append(state.UnknownAttrs, ra)
-		}
-	}
+	state.AdoptPrior(priorValues, priorAttrs)
 	return state, cloneDir, sha, nil
 }
 
@@ -590,6 +575,37 @@ func FreshWrapper(ctx context.Context, opts InitOptions) (*FreshResult, error) {
 		return nil, err
 	}
 	return &FreshResult{Result: res, Release: release}, nil
+}
+
+// ReconcileSession rewrites the wrapper's session.json so it agrees with the
+// module block an `apply` just rewrote in place — a re-pointed ref, or a merged
+// --var. main.tf is the artifact; the session is the internal record of which
+// revision it names, and a caller that trusts it (LoadExisting) would otherwise
+// reopen the wrapper on the previous ref and write that ref back.
+//
+// Only the block the session already tracks is reconciled, and only when a
+// session exists: a wrapper Atelier has never opened has none to correct, and
+// apply does not start inventing them. Session state is cheap to lose and
+// expensive to be wrong about, so a failure here is the caller's to report, not
+// to abort a deploy over.
+func ReconcileSession(dir, blockName string, state *wrapper.State, resolvedSHA string) error {
+	prev, err := session.Load(dir)
+	if err != nil {
+		return fmt.Errorf("read session: %w", err)
+	}
+	if prev == nil || prev.ModuleBlockName != blockName {
+		return nil
+	}
+	remote, ref := modulesource.Decompose(state.Source)
+	prev.SourceURL = remote
+	prev.LiteralRef = ref
+	prev.ResolvedSHA = resolvedSHA
+	prev.ModuleCandidatePath = modulesource.ModulePath(state.Source)
+	prev.LastOpened = time.Now().UTC()
+	if err := session.Save(dir, prev); err != nil {
+		return fmt.Errorf("save session: %w", err)
+	}
+	return nil
 }
 
 // LoadExisting opens an existing wrapper directory. It re-reads session.json

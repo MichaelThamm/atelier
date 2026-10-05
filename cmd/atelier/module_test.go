@@ -305,11 +305,17 @@ func TestUnsetRequiredVars(t *testing.T) {
 			{Name: "required_unset"},
 			{Name: "required_set"},
 			{Name: "required_null"},
+			{Name: "required_wired"},
 			{Name: "optional", HasDefault: true, Default: cty.StringVal("x")},
 		},
 		Values: map[string]cty.Value{
 			"required_set":  cty.StringVal("v"),
 			"required_null": cty.NullVal(cty.String),
+		},
+		// A wired reference is an input Terraform can resolve and Atelier
+		// cannot, so it must not be reported as missing.
+		UnknownAttrs: []wrapper.RawAttr{
+			{Name: "required_wired", RawExpr: []byte("module.loki.endpoint")},
 		},
 	}
 	got := unsetRequiredVars(state)

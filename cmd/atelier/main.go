@@ -89,9 +89,15 @@ Usage:
                                                root; otherwise scaffold a wrapper in a new directory
                                                and run 'terraform init' and 'terraform apply'. A new
                                                directory is named after the module candidate unless
-                                               --as or --dir says otherwise. At a terminal you
-                                               confirm the plan at Terraform's prompt; with no
-                                               terminal it applies with -auto-approve.
+                                               --as or --dir says otherwise. When the wrapper already
+                                               declares the module, its block is updated rather than
+                                               duplicated: --var merges into the values it holds and a
+                                               changed --ref re-points it. --as names the block to
+                                               update when the wrapper declares the module more than
+                                               once, and a name matching no block falls back to the
+                                               one that does. At a terminal you confirm the plan at
+                                               Terraform's prompt; with no terminal it applies with
+                                               -auto-approve.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
   atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
                                                Dry-run by default; --write applies it (backs up main.tf first).

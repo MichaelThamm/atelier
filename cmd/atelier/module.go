@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -16,6 +19,7 @@ import (
 	"github.com/MichaelThamm/atelier/internal/candidate"
 	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/tfexec"
+	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -388,7 +392,7 @@ func describeAdd(dir, blockName string) (addOutcome, error) {
 }
 
 func addModuleToWrapper(cwd, dir string, opts moduleOpts) (addOutcome, error) {
-	state, err := appendModuleBlock(cwd, dir, opts, opts.Yes)
+	state, err := composeModuleBlock(cwd, dir, opts, composeAdd, opts.Yes)
 	if err != nil {
 		return addOutcome{}, err
 	}
@@ -400,10 +404,124 @@ func addModuleToWrapper(cwd, dir string, opts moduleOpts) (addOutcome, error) {
 	return addOutcome{}, openWrapper(dir)
 }
 
-// appendModuleBlock appends a module block for opts to the existing wrapper in
-// dir and returns the state it wrote. `add` then opens the editor on it and
-// `apply` then deploys that root, so both compose through one implementation
-// (ADR-0044).
+// composeMode selects what a compose does when the target wrapper already
+// declares the module being written.
+type composeMode int
+
+const (
+	// composeAdd never writes into an existing block. `add` authors a wrapper,
+	// and a module already in it is a duplicate to be refused, not silently
+	// updated behind the user's back.
+	composeAdd composeMode = iota
+
+	// composeApply writes the requested declaration into the wrapper's block
+	// for that module — re-pointing its ref, merging --var into the values it
+	// already holds, and deploying the result (ADR-0050).
+	composeApply
+)
+
+// composeRequest is what the fresh clone tells a compose about the module:
+// the `source =` value it resolved to, the block name it implies, and the
+// block name the user asked for.
+type composeRequest struct {
+	// source is the composed source — sub-path and ref included — which is both
+	// what the block will record and what existing blocks are matched against.
+	source string
+	// requested is the URL or gallery name as typed, for a remedy line.
+	requested string
+	// derivedName is the block name the module implies, before --as.
+	derivedName string
+	// as is the sanitised --as, or "" when the flag was not given.
+	as string
+}
+
+// composePlan is where a compose writes: an existing block to update in place,
+// or a fresh name to append under.
+type composePlan struct {
+	update    wrapper.ModuleBlockInfo // non-empty Name: update this block in place
+	blockName string                  // set when appending
+	// ignoredAs is an --as that named no block, so the compose fell back to the
+	// one block already declaring the module. Reported rather than silently
+	// dropped: a gallery entry supplies the name without the user typing it.
+	ignoredAs string
+}
+
+// planCompose decides which module block a compose writes, given the blocks the
+// wrapper already declares.
+//
+// A wrapper's own declaration is the unit of identity: a block *is* the module
+// the user asked for when its repository and sub-directory match, whatever ref
+// it is pinned at. Refs are what a compose changes, not what makes a block a
+// different module — that is what makes re-running a command converge instead
+// of appending a second copy (ADR-0050).
+//
+// --as selects the block to write, and never declares a second copy of a module
+// the wrapper already has: two copies of one module means Terraform tries to
+// create the same resources twice, which usually collides at apply rather than
+// here. A name that matches no block falls back to the block that does, so a
+// name the user did not type — a gallery entry's — cannot dead-end the command.
+func planCompose(mode composeMode, existing []wrapper.ModuleBlockInfo, req composeRequest) (composePlan, error) {
+	// A block declaring this module at the same ref and one declaring it at a
+	// different ref are one question to a compose: which blocks already declare
+	// it, since the ref is what the compose may change.
+	same, otherRef := findExistingInstances(existing, req.source)
+	instances := slices.Concat(same, otherRef)
+
+	if mode == composeAdd {
+		if len(instances) > 0 {
+			return composePlan{}, duplicateModuleError(instances, req)
+		}
+		return composePlan{blockName: firstNonEmpty(req.as, req.derivedName)}, nil
+	}
+
+	if req.as != "" {
+		// --as names an existing block: that is the one to write, provided it is
+		// this module's.
+		if named := blockByName(existing, req.as); named != nil {
+			if !slices.ContainsFunc(instances, func(b wrapper.ModuleBlockInfo) bool { return b.Name == named.Name }) {
+				return composePlan{}, asMismatchError(*named, req)
+			}
+			return composePlan{update: *named}, nil
+		}
+		// --as names no block. It can still mean "this module": a gallery entry
+		// supplies the name from its own entry, and the wrapper may well hold
+		// the module under a different one. So when the module is declared
+		// exactly once, that block is what was meant — the name is reported
+		// rather than obeyed, and never used to declare a second copy.
+		switch len(instances) {
+		case 0:
+			return composePlan{blockName: req.as}, nil
+		case 1:
+			return composePlan{update: instances[0], ignoredAs: req.as}, nil
+		default:
+			return composePlan{}, ambiguousModuleError(instances, req)
+		}
+	}
+
+	switch len(instances) {
+	case 0:
+		return composePlan{blockName: req.derivedName}, nil
+	case 1:
+		return composePlan{update: instances[0]}, nil
+	default:
+		return composePlan{}, ambiguousModuleError(instances, req)
+	}
+}
+
+// blockByName returns the named block, or nil when the wrapper has none.
+func blockByName(blocks []wrapper.ModuleBlockInfo, name string) *wrapper.ModuleBlockInfo {
+	for i := range blocks {
+		if blocks[i].Name == name {
+			return &blocks[i]
+		}
+	}
+	return nil
+}
+
+// composeModuleBlock writes opts.Source's module into the wrapper in dir: it
+// updates the block already declaring that module, or appends a new one, then
+// returns the state it wrote. `add` then opens the editor on it and `apply` then
+// deploys that root, so both compose through one implementation (ADR-0044).
 //
 // cwd is the invocation directory, which a relative local `source` resolves
 // against. It differs from dir whenever `--dir` named the wrapper, and without
@@ -413,7 +531,7 @@ func addModuleToWrapper(cwd, dir string, opts moduleOpts) (addOutcome, error) {
 // prompt answers the target-directory preflight. `add` asks, with --yes as its
 // escape hatch; `apply` does not, because Terraform's plan prompt is that
 // command's confirmation and it rejects --yes (ADR-0034).
-func appendModuleBlock(cwd, dir string, opts moduleOpts, prompt bool) (*wrapper.State, error) {
+func composeModuleBlock(cwd, dir string, opts moduleOpts, mode composeMode, prompt bool) (*wrapper.State, error) {
 	ctx, cancel := interruptContext()
 	defer cancel()
 
@@ -465,57 +583,34 @@ func appendModuleBlock(cwd, dir string, opts moduleOpts, prompt bool) (*wrapper.
 	}
 	state := prep.State
 
-	existingBlocks, _ := wrapper.ReadModuleBlocks(dir)
-
-	// Refuse to add a module the wrapper already has at the same ref.
-	//
-	// Without this, uniqueBlockName silently renamed the collision to
-	// `mimir_2` and appended a second block with an identical source, so
-	// running the same `add` twice quietly declared two copies of the
-	// module. Terraform accepts that config and fails much later, at apply,
-	// with colliding resource names.
-	//
-	// This is an error rather than a prompt because there is a precise way to
-	// say "yes, I really want another instance" — naming it with --as — and
-	// that is better than a yes/no on an ambiguous question. --yes does not
-	// bypass it: the flag means "don't ask me", not "let me build a wrapper
-	// that cannot apply".
-	sameModule, otherRef := findExistingInstances(existingBlocks, state.Source)
-
-	// Determine the block name. An explicit --as that does not collide is the
-	// user distinguishing this instance from the existing one, which is exactly
-	// the signal needed to allow a second copy.
-	blockName := state.ModuleBlockName
-	namedDistinctly := false
-	if opts.As != "" {
-		blockName = sanitizeBlockName(opts.As)
-		namedDistinctly = !blockNameTaken(blockName, existingBlocks)
+	existing, err := wrapper.ReadModuleBlocks(dir)
+	if err != nil {
+		return nil, fmt.Errorf("reading main.tf: %w", err)
 	}
 
-	if len(sameModule) > 0 && !namedDistinctly {
-		return nil, duplicateModuleError(sameModule, state.Source, opts.Source)
-	}
-	if len(sameModule) > 0 {
-		fmt.Fprintf(os.Stderr,
-			"warning: %q already references this module at the same ref; adding %q as a second instance.\n"+
-				"         Both blocks must be configured so their resources do not collide.\n",
-			sameModule[0].Name, blockName)
-	}
-	// The same module at a different ref is a supported configuration, but it is
-	// worth saying out loud — an accidental re-add with a different --ref looks
-	// identical to a deliberate two-revision setup.
-	if len(otherRef) > 0 && len(sameModule) == 0 {
-		fmt.Fprintf(os.Stderr, "note: %q already references this module at a different ref (%s).\n",
-			otherRef[0].Name, otherRef[0].Source)
+	plan, err := planCompose(mode, existing, composeRequest{
+		source:      state.Source,
+		requested:   opts.Source,
+		derivedName: state.ModuleBlockName,
+		as:          sanitizedAs(opts.As),
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	// Ensure uniqueness against existing blocks.
-	if taken := blockNameTaken(blockName, existingBlocks); taken {
-		unique := uniqueBlockName(blockName, existingBlocks)
-		fmt.Fprintf(os.Stderr, "note: block name %q is taken; using %q.\n", blockName, unique)
-		blockName = unique
+	if plan.update.Name != "" {
+		if err := updateModuleBlock(dir, plan, state, prep, opts); err != nil {
+			return nil, err
+		}
+		return state, nil
 	}
-	state.ModuleBlockName = blockName
+
+	state.ModuleBlockName = plan.blockName
+	if taken := blockNameTaken(state.ModuleBlockName, existing); taken {
+		unique := uniqueBlockName(state.ModuleBlockName, existing)
+		fmt.Fprintf(os.Stderr, "note: block name %q is taken; using %q.\n", plan.blockName, unique)
+		state.ModuleBlockName = unique
+	}
 
 	// Apply --var-file values to the module being added, before writing it,
 	// then --var overrides on top.
@@ -528,9 +623,186 @@ func appendModuleBlock(cwd, dir string, opts moduleOpts, prompt bool) (*wrapper.
 		return nil, err
 	}
 
-	fmt.Fprintf(os.Stderr, "Added module %q from %s\n", blockName, opts.Source)
+	fmt.Fprintf(os.Stderr, "Added module %q from %s\n", state.ModuleBlockName, opts.Source)
 
 	return state, nil
+}
+
+// updateModuleBlock rewrites the block a wrapper already declares for this
+// module, in place. It carries that block's current declaration onto the schema
+// just cloned, layers --var-file then --var on top, and writes it back under
+// its existing name — which is what makes RenderMain update the block rather
+// than append a second one (ADR-0050).
+//
+// Carrying the old declaration over first is the whole point. The freshly
+// cloned state carries the module's defaults, not the values the wrapper
+// already holds, so writing it as it stands would revert every input the flags
+// do not mention back to its default.
+func updateModuleBlock(dir string, plan composePlan, state *wrapper.State, prep *bootstrap.ModulePrep, opts moduleOpts) error {
+	block := plan.update
+	// Read against the *new* schema, so a value that survived the revision is
+	// typed and can be merged, and a meta-argument or wired expression is
+	// recognised as something other than an input.
+	prior, err := wrapper.ReadMainForBlock(dir, block.Name, state.Vars)
+	if err != nil {
+		return fmt.Errorf("reading the current block %q: %w", block.Name, err)
+	}
+	priorNames := priorAttrNames(prior)
+
+	state.ModuleBlockName = block.Name
+	state.AdoptPrior(prior.Values, prior.UnknownAttrs)
+
+	if plan.ignoredAs != "" {
+		fmt.Fprintf(os.Stderr,
+			"note: --as %s names no block in this wrapper; updating %q, which already declares this module.\n",
+			plan.ignoredAs, block.Name)
+	}
+	reportRefTransition(block, state, priorNames)
+
+	if err := applyVarFlags(state, dir, prep.CloneDir, prep.ModulePath, opts.VarFiles, opts.Vars, opts.Strict); err != nil {
+		return err
+	}
+	if pruned := prunedArgs(state, priorNames); len(pruned) > 0 {
+		verb := "match the module default and were pruned"
+		if len(pruned) == 1 {
+			verb = "matches the module default and was pruned"
+		}
+		fmt.Fprintf(os.Stderr, "note: %s %s: %s\n",
+			plural(len(pruned), "argument", "arguments"), verb, strings.Join(pruned, ", "))
+	}
+
+	if err := state.Write(); err != nil {
+		return err
+	}
+	// .atelier/session.json records which module the wrapper is pinned at. Left
+	// stale it would reopen the TUI on the previous ref, and the next save from
+	// there would write that ref back over this one.
+	if err := bootstrap.ReconcileSession(dir, block.Name, state, prep.ResolvedSHA); err != nil {
+		fmt.Fprintln(os.Stderr, "warning:", err)
+	}
+	fmt.Fprintf(os.Stderr, "Updated module %q in %s\n", block.Name, dir)
+	return nil
+}
+
+// priorAttrNames is the set of attribute names the block carried, whether it
+// held a value or an expression Atelier preserves verbatim.
+func priorAttrNames(prior *wrapper.ParsedMain) map[string]bool {
+	names := make(map[string]bool, len(prior.Values)+len(prior.UnknownAttrs))
+	for name := range prior.Values {
+		names[name] = true
+	}
+	for _, ra := range prior.UnknownAttrs {
+		names[ra.Name] = true
+	}
+	return names
+}
+
+// reportRefTransition says what the update changed, because a block rewritten
+// under the same name looks like a second command doing nothing. It stays quiet
+// when there is nothing worth a line.
+func reportRefTransition(block wrapper.ModuleBlockInfo, state *wrapper.State, priorNames map[string]bool) {
+	if block.Source == state.Source {
+		fmt.Fprintf(os.Stderr, "note: %q already declares this module; updating it in place.\n", block.Name)
+	} else {
+		fmt.Fprintf(os.Stderr, "note: re-pointing %q from ref %s to ref %s.\n",
+			block.Name, refOrHead(block.Source), refOrHead(state.Source))
+	}
+	orphaned, added := diffVarNames(priorNames, state.Vars)
+	if len(orphaned) > 0 {
+		fmt.Fprintf(os.Stderr, "note: dropped %s the new revision no longer declares: %s\n",
+			plural(len(orphaned), "argument", "arguments"), strings.Join(orphaned, ", "))
+	}
+	if len(added) > 0 {
+		var required int
+		names := make([]string, 0, len(added))
+		for _, v := range added {
+			names = append(names, v.Name)
+			if !v.HasDefault {
+				required++
+			}
+		}
+		note := fmt.Sprintf("note: %s this revision adds: %s", plural(len(added), "new input", "new inputs"), strings.Join(names, ", "))
+		if required > 0 {
+			note += fmt.Sprintf(" (%d required)", required)
+		}
+		fmt.Fprintln(os.Stderr, note)
+	}
+}
+
+// refOrHead renders a source's ref for a message, naming the unpinned case
+// rather than showing an empty string.
+func refOrHead(source string) string {
+	if _, ref := modulesource.Decompose(source); ref != "" {
+		return ref
+	}
+	return "HEAD (unpinned)"
+}
+
+// prunedArgs names the arguments the sparse rule is about to drop from the
+// block: inputs the wrapper already carried that now hold their declared
+// default. They are reported rather than silently removed, so an argument
+// disappearing from the user's file is never a surprise (ADR-0007).
+func prunedArgs(state *wrapper.State, priorNames map[string]bool) []string {
+	var out []string
+	for _, name := range slices.Sorted(maps.Keys(priorNames)) {
+		v := state.FindVar(name)
+		if v == nil {
+			continue
+		}
+		if _, wired := state.WiredExpression(name); wired {
+			continue
+		}
+		current, _ := state.VariableValue(name)
+		if !wrapper.ShouldEmit(v, current) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// diffVarNames compares the inputs a block carried with the schema of the
+// revision being written, naming the ones that revision no longer declares and
+// the ones it introduces. A dropped input silently loses the user's value, so
+// both directions are worth a line.
+func diffVarNames(priorNames map[string]bool, vars []tfvars.Variable) (orphaned []string, added []tfvars.Variable) {
+	declared := make(map[string]bool, len(vars))
+	for _, v := range vars {
+		declared[v.Name] = true
+		if !priorNames[v.Name] {
+			added = append(added, v)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(priorNames)) {
+		if !declared[name] && !wrapper.IsMetaArgument(name) {
+			orphaned = append(orphaned, name)
+		}
+	}
+	return orphaned, added
+}
+
+// sanitizedAs is the block name --as asks for, or "" when it was not given.
+func sanitizedAs(as string) string {
+	if as == "" {
+		return ""
+	}
+	return sanitizeBlockName(as)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// plural picks the noun form for a count, so a message never reads "1 arguments".
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 // addModuleInNewDir scaffolds a wrapper into a fresh directory — named after the
@@ -704,18 +976,20 @@ func runModuleApply(args []string) error {
 		return err
 	}
 
-	// A target that already holds a wrapper composes: append the module block
-	// and deploy that root, so `--dir` composes and running `apply` inside a
-	// wrapper deploys it rather than nesting a second root inside it (ADR-0044).
+	// A target that already holds a wrapper composes: the module block is
+	// written into that wrapper and the root is deployed, so `--dir` composes
+	// and running `apply` inside a wrapper deploys it rather than nesting a
+	// second root inside it (ADR-0044). What the block already declares decides
+	// whether it is updated or a new one appended (ADR-0050).
 	if target := existingWrapperTarget(cwd, opts.Dir); target != "" {
 		// prompt=false: --yes is rejected above, so there is no escape hatch
 		// from a preflight question here — Terraform's plan prompt is the gate.
-		state, err := appendModuleBlock(cwd, target, opts, false)
+		state, err := composeModuleBlock(cwd, target, opts, composeApply, false)
 		if err != nil || state == nil {
 			return err
 		}
 		if err := requireNoUnsetRequiredVars(state, target,
-			"set them in that directory (with 'atelier', or by editing main.tf) and apply again"); err != nil {
+			"pass --var NAME=VALUE (or --var-file) and re-run"); err != nil {
 			return err
 		}
 		return applyWrapper(target, !interactive)
@@ -793,10 +1067,18 @@ func checkApplyTarget(target, remedy string) error {
 // unsetRequiredVars lists required module variables (declared without a
 // default) that have no value. `apply` checks this before running
 // Terraform, which would otherwise reject the run with a less direct message.
+//
+// A variable wired to an expression counts as set: Atelier cannot evaluate
+// `model_uuid = module.loki.endpoint` to a value, but Terraform can, so
+// reporting it missing would refuse a wrapper that deploys. This matches the
+// TUI's own required-unset test.
 func unsetRequiredVars(state *wrapper.State) []string {
 	var missing []string
 	for _, v := range state.Vars {
 		if !v.VarIsRequired() {
+			continue
+		}
+		if _, wired := state.WiredExpression(v.Name); wired {
 			continue
 		}
 		val, ok := state.Values[v.Name]
@@ -1113,18 +1395,18 @@ func normaliseRemote(remote string) string {
 	return strings.TrimSuffix(s, "/")
 }
 
+// sameRepository reports whether two identities name the same module in the
+// same repository sub-directory, at any ref. That is the unit of identity a
+// compose matches on: a ref is what it changes, not what makes a block a
+// different module.
+func (a moduleSourceIdentity) sameRepository(b moduleSourceIdentity) bool {
+	return a.remote == b.remote && a.path == b.path
+}
+
 // sameModule reports whether two identities name the same module at the same
 // revision.
 func (a moduleSourceIdentity) sameModule(b moduleSourceIdentity) bool {
-	return a.remote == b.remote && a.path == b.path && a.ref == b.ref
-}
-
-// sameModuleDifferentRef reports whether two identities name the same module in
-// the same repository sub-directory, but pinned at different refs. That is a
-// supported configuration — two blocks of one module at two revisions — so it is
-// reported rather than refused.
-func (a moduleSourceIdentity) sameModuleDifferentRef(b moduleSourceIdentity) bool {
-	return a.remote == b.remote && a.path == b.path && a.ref != b.ref
+	return a.sameRepository(b) && a.ref == b.ref
 }
 
 // findExistingInstances splits the wrapper's module blocks into those that
@@ -1146,7 +1428,7 @@ func findExistingInstances(existing []wrapper.ModuleBlockInfo, source string) (s
 		switch {
 		case want.sameModule(got):
 			same = append(same, blk)
-		case want.sameModuleDifferentRef(got):
+		case want.sameRepository(got):
 			otherRef = append(otherRef, blk)
 		}
 	}
@@ -1154,17 +1436,12 @@ func findExistingInstances(existing []wrapper.ModuleBlockInfo, source string) (s
 }
 
 // duplicateModuleError explains why an add was refused and how to get what the
-// user probably wanted.
-func duplicateModuleError(dups []wrapper.ModuleBlockInfo, source, sourceArg string) error {
-	names := make([]string, len(dups))
-	for i, blk := range dups {
-		names[i] = fmt.Sprintf("%q", blk.Name)
-	}
-	subject := "module " + names[0]
-	if len(names) > 1 {
-		subject = "modules " + strings.Join(names, ", ")
-	}
-	return fmt.Errorf(`%s already references this module at the same ref:
+// user probably wanted. `add` authors a wrapper, so a module already in one is
+// refused outright; only `apply`, whose job is to converge and deploy, updates a
+// block instead.
+func duplicateModuleError(dups []wrapper.ModuleBlockInfo, req composeRequest) error {
+	subject := subjectOf(dups)
+	return fmt.Errorf(`%s already references this module:
   %s
 
 Adding it again would declare a second copy of the same resources, which
@@ -1172,9 +1449,47 @@ Terraform will try to create alongside the first — usually failing at apply
 with name collisions rather than here.
 
   configure the existing one:  atelier
-  add a genuinely separate instance:
-                               atelier add %s --as <name>
-  add it at a different revision:
-                               atelier add %s --ref <ref>`,
-		subject, source, sourceArg, sourceArg)
+  deploy a different revision:  atelier apply %s --ref <ref>
+  keep a genuinely separate module:  add the block to main.tf by hand`,
+		subject, req.source, req.requested)
+}
+
+// ambiguousModuleError reports that the wrapper declares the module more than
+// once, so `apply` cannot tell which block the request is about. This is a state
+// an earlier version of the command produced by appending rather than updating.
+func ambiguousModuleError(dups []wrapper.ModuleBlockInfo, req composeRequest) error {
+	var blocks strings.Builder
+	for _, blk := range dups {
+		fmt.Fprintf(&blocks, "  %-16s %s\n", blk.Name, blk.Source)
+	}
+	return fmt.Errorf(`this wrapper references this module more than once:
+%s
+atelier apply updates the block you name, rather than guessing which one you
+meant.
+
+  name the block to update:  atelier apply %s --as <name>
+  drop the one you don't want:  atelier rm <name>`,
+		strings.TrimRight(blocks.String(), "\n"), req.requested)
+}
+
+// asMismatchError reports that --as named a block which is a different module.
+func asMismatchError(named wrapper.ModuleBlockInfo, req composeRequest) error {
+	return fmt.Errorf(`--as %s names module %q, which references a different module:
+  %s
+
+--as selects the block to update, so it has to name this module's block. Drop
+it to update the block %q, or name that one instead.`,
+		req.as, named.Name, named.Source, firstNonEmpty(req.derivedName, named.Name))
+}
+
+// subjectOf names the modules a duplicate refers to, for an error message.
+func subjectOf(dups []wrapper.ModuleBlockInfo) string {
+	names := make([]string, len(dups))
+	for i, blk := range dups {
+		names[i] = strconv.Quote(blk.Name)
+	}
+	if len(names) == 1 {
+		return "module " + names[0]
+	}
+	return "modules " + strings.Join(names, ", ")
 }
