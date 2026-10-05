@@ -156,7 +156,8 @@ var version = "dev"
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "atelier:", err)
-		os.Exit(1)
+		// The code says which side failed: Atelier's, or Terraform's (exit.go).
+		os.Exit(exitCodeFor(err))
 	}
 }
 

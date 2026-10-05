@@ -57,6 +57,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0048 | [Machine-readable output behind `--json`](0048-machine-readable-output.md) | Accepted |
 | 0049 | [The Juju page reads the model from the environment](0049-juju-page-model-from-environment.md) | Accepted |
 | 0050 | [`atelier apply` converges on the block it finds](0050-tolerant-apply-converges.md) | Accepted |
+| 0051 | [`atelier apply` exits 2 when Terraform failed](0051-apply-exit-codes.md) | Accepted |
 
 ## Conventions
 

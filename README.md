@@ -455,6 +455,12 @@ run("apply", COS_REPO, "--module", "terraform/cos-lite",
 print(Path("stack/main.tf").read_text())   # the wrapper is yours to read
 ```
 
+`atelier apply` exits `2` rather than `1` when Terraform ran and failed, so a job
+can branch without reading stderr: `2` means look at the infrastructure (the
+wrapper is current, and the deployment may be partly applied), `1` means fix the
+command line or the wrapper. Everything else exits `0` or `1`. See
+[ADR-0051](docs/adr/0051-apply-exit-codes.md).
+
 To assert on what Terraform actually did — state, plan changes — reach for
 `terraform` directly: no Atelier command reports state.
 [`tests/integration/helpers.py`](tests/integration/helpers.py) is a working
