@@ -25,11 +25,14 @@ const wrappersUsage = `Usage:
 // directory); it does not address or operate on them (ADR-0036).
 func runWrappers(args []string) error {
 	var target string
+	asJSON := false
 	for _, a := range args {
 		switch {
 		case a == "--help" || a == "-h":
 			fmt.Print(wrappersUsage)
 			return nil
+		case a == "--json":
+			asJSON = true
 		case strings.HasPrefix(a, "-"):
 			return fmt.Errorf("unknown flag %q for wrappers", a)
 		default:
@@ -59,8 +62,15 @@ func runWrappers(args []string) error {
 		return err
 	}
 	if len(found) == 0 {
+		if asJSON {
+			return renderJSON(os.Stdout, "wrappers", wrappersPayload(nil, target))
+		}
 		fmt.Printf("No wrappers found under %s.\n", target)
 		return nil
+	}
+
+	if asJSON {
+		return renderJSON(os.Stdout, "wrappers", wrappersPayload(found, target))
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)

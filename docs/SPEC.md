@@ -248,9 +248,10 @@ atelier add <git-url> --yes         # skip the target-directory confirmation (§
 atelier add <git-url> --var-file <path|name>  # seed values from a .tfvars file (local path or repo-local name; repeatable/comma-separated)
 atelier add <git-url> --var <K=V>   # set a single module input (repeatable; wins over --var-file)
 atelier add <git-url> --list-var-files  # print the .tfvars bundles available (local + module repo)
+atelier add <git-url> --json      # report where the wrapper went and what was added, as JSON (§6.11)
 atelier rm <name> [--force]         # remove a module from the wrapper
-atelier ls                          # list modules in the wrapper
-atelier wrappers [PATH]                    # list wrappers directly under PATH (default: CWD)
+atelier ls [--json]                 # list modules in the wrapper
+atelier wrappers [PATH] [--json]    # list wrappers directly under PATH (default: CWD)
 atelier apply <git-url>             # scaffold a wrapper in a new dir, init, then apply interactively
 atelier apply <git-url> --module <subdir>  # skip the candidate picker
 atelier apply <git-url> --ref <ref>  # pin a ref
@@ -259,6 +260,7 @@ atelier apply <git-url> --dir <path> # target directory; compose into and deploy
 atelier apply <git-url> --var <K=V>  # set a module input (repeatable; wins over --var-file)
 atelier tidy [PATH] [--write]              # prune module arguments left at their default value
 atelier import [PROVIDER] [flags]          # import live resources into Terraform state
+atelier import [PROVIDER] --json           # report the run as JSON (§6.11)
 atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ directories
 atelier gallery list [--commands]          # list the bundled gallery quick starts
 atelier gallery lint                      # check each entry covers its module's required inputs
@@ -269,8 +271,9 @@ atelier --help                             # print usage
 See [ADR-0038](adr/0038-flat-cli-surface.md) for the flat top-level command
 surface (which supersedes [ADR-0018](adr/0018-additive-module-command.md)'s
 `module` namespace), [ADR-0027](adr/0027-atelier-import.md) for the `import`
-subcommand design, and [ADR-0034](adr/0034-module-apply-one-liner.md) for
-`atelier apply`.
+subcommand design, [ADR-0034](adr/0034-module-apply-one-liner.md) for
+`atelier apply`, and [ADR-0048](adr/0048-machine-readable-output.md) for
+`--json`.
 
 There is no `atelier init`. A wrapper is created and modules are added through
 `atelier add <url>`.
@@ -742,6 +745,65 @@ otherwise address a child, and it does not recurse. It exists because
 `atelier add`/`atelier apply` create sibling wrappers under a shared parent (e.g.
 `tf-testing/`), and `atelier ls` is scoped to the current wrapper. See
 [ADR-0036](adr/0036-wrapper-discovery.md).
+
+### 6.11 Machine-readable output
+
+`atelier add`, `ls`, `wrappers` and `import` accept `--json`, which writes the
+command's result to stdout as JSON. What happens to the text depends on which
+kind of output it is. Where the text is a report — what `add` and `import` print
+about what they did — it still goes to stderr, so a run that went wrong still
+explains itself. Where the text *is* the result — the table `ls` and `wrappers`
+print — the payload replaces it, because both cannot share stdout. See
+[ADR-0048](adr/0048-machine-readable-output.md).
+
+`atelier add --json` exits `1` and lists the candidates on stderr when the
+source matches several modules, since `--json` has to re-run to get a result.
+
+Every payload is wrapped in one envelope:
+
+```json
+{
+  "schema": 1,
+  "command": "ls",
+  "data": { }
+}
+```
+
+`schema` is the revision of the payload shape. It changes when a field is
+removed or its meaning changes; adding a field is not a change, so a consumer can
+ignore what it does not recognise. A command that fails writes
+`atelier: <error>` to stderr and exits `1`, with no payload.
+
+Conventions:
+
+- An absent optional value is `null`; an empty collection is `[]`, never `null`.
+- A module block is reported as `source` (the repository or local path),
+  `modulePath` (the `//subdir`) and `ref` — the three values `atelier add`
+  takes. `atelier ls` prints the repository and the ref and drops the subdir;
+  the payload keeps it, so the fields can be handed straight back to a command.
+- `--json` loses nothing the text report has. `import --json` reports every
+  unmatched live object's name, where the text report shows three per resource
+  type and abbreviates long ones.
+- `atelier apply` rejects `--json`: it reports Terraform's own output, which
+  Atelier does not control, and a silent no-op would read as success.
+
+| Command | `data` |
+| --- | --- |
+| `add` | `wrapper`, `added` (a module), `blocks` (every block in the wrapper afterwards) |
+| `add --list-var-files` | `bundles`: each bundle's `name`, `path`, `source` (`local`/`repo`/`gallery`), `display`, `description`. `path` for a `repo` bundle points into the scratch clone, which is removed when the command exits; `name` is what to pass to `--var-file`. |
+| `ls` | `isWrapper` (false when the directory holds no `main.tf`), `modules` |
+| `wrappers` | `wrappers`: each `name`, absolute `path`, `modules` (block names) |
+| `import` | `matched` (address → import ID), `imported`, `alreadyInState`, `matchedNothing`, `unresolved`, `unmatchedModule`, `unmatchedLive`, `queriedTypes`, `skippedTypes`, `dryRun`, `preview`, `importsFile`, `queryFile`, `terraformVersion` |
+| `import --list` | `terraformVersion`, `available`: each list resource's `type`, `providerKey`, `providerLocal`, `configAttrs` |
+
+`alreadyInState` and `matchedNothing` are the point of the `import` payload.
+A successful import that imported nothing is one of three states, and the
+counts alone cannot tell them apart: resources were imported; every matched
+resource was already in state (a re-run); or nothing matched anything the module
+wants (usually a wrong model UUID or a `--query-var` that never reached the
+query). `unresolved` is the fourth worth asserting on — resources that matched a
+live object but whose import ID could not be built, which a later apply would
+*create*, duplicating live infrastructure.
 
 ## 7. TUI layout
 

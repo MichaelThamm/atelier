@@ -54,7 +54,7 @@ Usage:
   atelier                                      Open the wrapper in the current directory.
   atelier add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR]
                                 [--dir PATH] [--var-file PATH|NAME] [--var KEY=VALUE]
-                                [--list-var-files] [--strict] [--yes]
+                                [--list-var-files] [--strict] [--yes] [--json]
                                                Add a module and open the editor on it. If the target
                                                (--dir, else the current directory) already holds a
                                                wrapper, appends a module block to it; otherwise creates
@@ -70,11 +70,14 @@ Usage:
                                                --var-file.
                                                --list-var-files prints the local and repo .tfvars bundles available.
                                                --strict makes var-file binding warnings fatal.
+                                               --json writes the result to stdout as JSON: where the wrapper
+                                               went, the block as written, and every block in it.
                                                A gallery name (see 'atelier gallery list') may be given instead
                                                of a URL; it resolves to the module, ref, block, and preset.
   atelier rm <name> [--force]                  Remove a module from the wrapper.
-  atelier ls                                   List modules in the wrapper.
-  atelier wrappers [PATH]                      List the wrappers directly under PATH (default: the
+  atelier ls [--json]                          List modules in the wrapper. --json writes them to
+                                               stdout instead of a table.
+  atelier wrappers [PATH] [--json]             List the wrappers directly under PATH (default: the
                                                current directory): each child directory holding a
                                                main.tf or .atelier/, with the modules it declares.
                                                Read-only and one level only.
@@ -94,7 +97,7 @@ Usage:
                                                Dry-run by default; --write applies it (backs up main.tf first).
   atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
         [--dir PATH] [--type T] [--var K=V] [--var-file PATH|NAME]
-        [--list-var-files] [--query-var K=V] [--dry-run] [--list] [--yes]
+        [--list-var-files] [--query-var K=V] [--dry-run] [--list] [--yes] [--json]
                                                 Import a running deployment into Terraform state. With --source,
                                                 clones a remote module, writes an Atelier wrapper, and imports
                                                 live resources into it. --source takes a gallery name (see
@@ -117,6 +120,9 @@ Usage:
                                                 available (requires --source) and exits without importing.
                                                 --dry-run writes an imports.tf artifact and previews the plan
                                                 without touching state.
+                                                --json writes the report to stdout as JSON: what matched,
+                                                what was imported, and what a later apply would create.
+                                                The human report still goes to stderr.
   atelier gallery list [--commands]            List Atelier's bundled gallery of module quick starts:
                                                 module, pinned ref, preset, and the command to deploy them.
                                                 --commands prints the non-applying scaffold command per entry.
