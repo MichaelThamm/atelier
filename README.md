@@ -370,7 +370,7 @@ safe to re-run, so a CI retry needs no `git diff` check first.
 import json, subprocess
 from pathlib import Path
 
-def run(*args, cwd="."):
+def atelier(*args, cwd="."):
     """Run Atelier non-interactively, with stdin closed and output separated.
 
     stdin is /dev/null so nothing waits on a prompt, and Atelier's own report
@@ -385,12 +385,12 @@ def run(*args, cwd="."):
     return json.loads(done.stdout)["data"]
 
 # Declare the wrapper once.
-run("add", COS_REPO, "--module", "terraform/cos-lite",
+atelier("add", COS_REPO, "--module", "terraform/cos-lite",
     "--dir", "stack", "--yes", "--json")
 
 # Deploy it, and deploy it again on every later run of the job. Both converge on
 # the same block; --var merges into whatever the wrapper already holds.
-run("apply", COS_REPO, "--module", "terraform/cos-lite",
+atelier("apply", COS_REPO, "--module", "terraform/cos-lite",
     "--dir", "stack", "--var", "model_uuid=...")
 
 print(Path("stack/main.tf").read_text())   # the wrapper is yours to read
