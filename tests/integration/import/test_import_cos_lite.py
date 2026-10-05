@@ -1,42 +1,22 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
-"""`atelier import` round-trip against a live COS-Lite deployment.
+"""`atelier import` round-trip: deploy COS-Lite, delete its state, recover it.
 
-Flow under test — the end-to-end value of the provider registry
-(internal/importer/providers), exercised with non-default module inputs:
+This is a user's disaster-recovery flow — `add` to author the wrapper,
+`atelier apply` to deploy, then `import` to rebuild state from what is still
+running. Everything in between runs through the registered Juju provider:
+detection, discovery, matching, and import-ID construction.
 
-1. Create a temporary Juju model (Jubilant).
-2. Bootstrap a COS-Lite wrapper pinned to ``--ref``, non-interactively, from two
-   ``.tfvars`` bundles: a local ``ci`` file pinning the model and
-   ``internal_tls = false`` explicitly, then the module's own ``no-ingress``
-   preset, resolved by name from the clone, which disables every ingress
-   integration (so no Traefik). Later files win.
-3. ``terraform init`` + ``apply`` to deploy COS-Lite into the model.
-4. Delete the Terraform state, leaving the live deployment orphaned.
-5. Run ``atelier import`` with the *same* ``--ref`` and ``--var-file``, letting it
-   rebuild the state from live resources — detection, discovery, matching,
-   import-ID construction and the post-import steps all run through the
-   registered Juju provider.
-6. Assert the run reported matches and imports, that the state file was
-   repopulated, and — the strongest check — that a following ``terraform plan``
-   finds nothing to change for the core resources the module manages
-   (applications, integrations, offers). Drift in other types
-   (``terraform_data``, secrets) is tolerated; see ``PRESERVED_TYPES``.
-
-``--query-var model_uuid`` is required: the Juju list resources for
-applications and integrations carry a required ``model_uuid`` config block, so
-without it only ``juju_model``/``juju_offer`` are queryable.
-
-The ``ci`` bundle is a local path; the ``no-ingress`` bundle is the module's own
-preset, committed to the upstream repo, so a preset by name exercises resolution
-against the clone.
-
-This is deliberately the same recipe as a user's disaster-recovery flow:
-``add`` to author the wrapper, then ``import`` to recover state from a live
-model.
+Two things keep it from being a happy path. The module is configured from the
+upstream ``no-ingress`` preset as well as a local bundle, so a preset resolved
+from the clone is exercised too. And the final check is a ``terraform plan``
+rather than Atelier's own report: the state must match reality, not merely be
+non-empty. Drift in ``terraform_data`` and secrets is expected — see
+``PRESERVED_TYPES`` for why it is tolerated.
 """
 
 import json
+from pathlib import Path
 
 import jubilant
 import pytest
@@ -58,18 +38,14 @@ COS_PRESET = "no-ingress"
 # The core resources `atelier import` must recover and reproduce exactly: the
 # applications, the relations between them, and the offers they expose.
 #
-# Other types are allowed to drift without failing the test. `terraform_data`
-# has no live object to import at all (Atelier excludes it from import
-# candidates for that reason), and provider-generated resources such as
-# `juju_secret` carry identifiers that a plan can never satisfy from imported
-# state. Asserting on the core set keeps the check meaningful without turning
-# every benign re-creation into a failure.
+# Other types may drift without failing. `terraform_data` has no live object to
+# import at all, and `juju_secret` carries an identifier no plan can satisfy from
+# imported state — so demanding they match would fail on correct behaviour.
 PRESERVED_TYPES = frozenset({"juju_application", "juju_integration", "juju_offer"})
 
-# Types COS-Lite may create that the test deliberately does not require to
-# round-trip. Classifying them explicitly means the completeness check below
-# fails — rather than silently passing — if COS-Lite ever starts creating a
-# type nobody has decided about.
+# Types COS-Lite may create that need not round-trip. Naming them means the
+# completeness check below fails, rather than silently passing, if COS-Lite ever
+# creates a type nobody has decided about.
 DRIFT_TYPES = frozenset({"terraform_data", "juju_secret", "juju_access_secret"})
 
 
@@ -139,9 +115,9 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # THEN the wrapper went where the test prepared it, at the subdirectory the
     # repository puts the module in, and main.tf has the bundle values written
     # through with every ingress component switched off
-    assert added.wrapper == wrapper_dir
-    assert added.module.module_path == COS_MODULE
-    assert added.module.ref == COS_REF
+    assert Path(added["wrapper"]) == wrapper_dir
+    assert added["added"]["modulePath"] == COS_MODULE
+    assert added["added"]["ref"] == COS_REF
     main_tf = (wrapper_dir / "main.tf").read_text()
     assert f'uuid = "{model_uuid}"' in main_tf
     assert "internal_tls = false" in main_tf
@@ -197,8 +173,8 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     )
 
     # THEN live objects were matched to module addresses and imported
-    assert result.matched, "nothing matched the module's resources"
-    assert result.imported, f"nothing was imported: {result.unresolved}"
+    assert result["matched"], "nothing matched the module's resources"
+    assert result["imported"], f"nothing was imported: {result['unresolved']}"
     assert state_file.exists(), "import should have repopulated terraform.tfstate"
 
     # AND the core resource types really were recovered (guards against a

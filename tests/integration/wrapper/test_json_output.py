@@ -9,7 +9,6 @@ buffer cannot show.
 """
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -27,28 +26,19 @@ PROM_BLOCK = "prometheus_k8s_operator"
 def _two_candidate_repo(base: Path) -> str:
     """Commit a local repository holding two candidate modules; return its path.
 
-    A candidate is a directory declaring a `variable` with a type constraint
-    (internal/candidate), so each of these two directories is one. A local repo
-    keeps this in the fast tier; the alternative is cloning a real multi-module
-    repository to reach the same branch.
+    A candidate is a directory declaring a `variable` with a type constraint, so
+    each of these two is one. Local rather than a real multi-module repository,
+    which keeps the case in the fast tier.
     """
     repo = base / "two-candidates"
     for name in ("alpha", "beta"):
-        module = repo / name
-        module.mkdir(parents=True)
-        (module / "main.tf").write_text(
-            'variable "token" {\n  type = string\n}\n'
-        )
-    env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "t",
-        "GIT_AUTHOR_EMAIL": "t@example.com",
-        "GIT_COMMITTER_NAME": "t",
-        "GIT_COMMITTER_EMAIL": "t@example.com",
-    }
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True, env=env)
-    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, env=env)
-    subprocess.run(["git", "commit", "-qm", "two modules"], cwd=repo, check=True, env=env)
+        (repo / name).mkdir(parents=True)
+        (repo / name / "main.tf").write_text('variable "token" {\n  type = string\n}\n')
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    # Identity from flags, not config: the repo this runs in may have none set.
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                    "commit", "-qm", "two modules"], cwd=repo, check=True)
     return str(repo)
 
 
@@ -60,12 +50,16 @@ def _empty_dir(base: Path, name: str) -> Path:
 
 
 def _json_atelier(cwd, *args: str) -> dict:
-    """Run Atelier with ``--json`` and return the parsed payload's ``data``."""
-    payload = json.loads(run_atelier(*args, "--json", cwd=cwd).stdout)
-    # The envelope is the same for every command; see ADR-0048.
-    assert payload["schema"] == 1
-    assert payload["command"] == args[0]
-    return payload["data"]
+    """Run Atelier with ``--json`` and return the payload's ``data``.
+
+    Reads the envelope rather than :func:`~helpers.payload`, because asserting on
+    it is half the point: every command reports the same shape, and ``command``
+    must name the one that ran (ADR-0048).
+    """
+    envelope = json.loads(run_atelier(*args, "--json", cwd=cwd).stdout)
+    assert envelope["schema"] == 1
+    assert envelope["command"] == args[0]
+    return envelope["data"]
 
 
 def _add_prom(base: Path, name: str, *extra: str) -> dict:

@@ -52,7 +52,7 @@ def test_deploy_prometheus_k8s(juju: jubilant.Juju, tmp_path):
     # THEN the wrapper went where the test prepared it and declares the module
     # at the subdirectory the repository puts it in, with the bundle values
     # written through
-    assert [m.name for m in atelier_ls(cwd=wrapper_dir)] == ["prometheus_k8s_operator"]
+    assert [m["name"] for m in atelier_ls(cwd=wrapper_dir)] == ["prometheus_k8s_operator"]
     main_tf = (wrapper_dir / "main.tf").read_text()
     assert "//terraform" in main_tf
     assert model_uuid in main_tf

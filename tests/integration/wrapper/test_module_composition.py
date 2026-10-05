@@ -73,7 +73,7 @@ def test_add_composes_a_second_module_by_dir(tmp_path):
     assert module_blocks(main_tf) == ["cos_lite", "charmed_spark"], main_tf
     # AND the payload says so, so the file read above is confirmation rather
     # than the only evidence
-    assert added.blocks == ("cos_lite", "charmed_spark")
+    assert added["blocks"] == ["cos_lite", "charmed_spark"]
 
 
 def test_add_composes_into_a_nested_wrapper(tmp_path):
@@ -109,7 +109,7 @@ def test_composed_wrapper_is_one_valid_terraform_root(tmp_path):
 
     # AND both modules are addressable from the wrapper
     listed = atelier_ls(cwd=tmp_path / "wrapper")
-    assert [m.name for m in listed] == ["cos_lite", "charmed_spark"]
+    assert [m["name"] for m in listed] == ["cos_lite", "charmed_spark"]
 
 
 def test_composed_modules_are_wired_by_reference(tmp_path):

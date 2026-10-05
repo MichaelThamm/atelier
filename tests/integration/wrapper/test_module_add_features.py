@@ -12,6 +12,7 @@ The target is canonical/prometheus-k8s-operator, whose Terraform lives in the
 
 import re
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -54,8 +55,8 @@ def test_add_writes_module_block_with_subdir_source(tmp_path):
     assert re.search(rf'module\s+"{PROM_BLOCK}"', main_tf), main_tf
     assert _source(main_tf) == PROM_SOURCE
     # AND the payload reports where the wrapper went, so the test need not guess
-    assert added.wrapper == tmp_path / WRAPPER_DIR
-    assert added.module.name == PROM_BLOCK
+    assert Path(added["wrapper"]) == tmp_path / WRAPPER_DIR
+    assert added["added"]["name"] == PROM_BLOCK
 
 
 def test_ref_is_pinned_in_the_source(tmp_path):
@@ -64,7 +65,7 @@ def test_ref_is_pinned_in_the_source(tmp_path):
 
     # THEN the git source pins that ref
     assert _source(_main_tf(tmp_path)) == f"{PROM_SOURCE}?ref={PROM_REF}"
-    assert added.module.ref == PROM_REF
+    assert added["added"]["ref"] == PROM_REF
 
 
 def test_var_file_applies_typed_values(tmp_path):
@@ -111,7 +112,7 @@ def test_as_names_the_module_block(tmp_path):
     assert len(re.findall(r'^module\s+"', main_tf, re.M)) == 1, main_tf
     assert not re.search(rf'module\s+"{PROM_BLOCK}"', main_tf), main_tf
     # the payload reports the name that reached main.tf, not the one requested
-    assert added.module.name == "prom"
+    assert added["added"]["name"] == "prom"
 
 
 def test_module_list_reports_the_block(tmp_path):
@@ -129,11 +130,11 @@ def test_module_list_reports_the_block(tmp_path):
     listed = atelier_ls(cwd=tmp_path / WRAPPER_DIR)
 
     # THEN the module, its source and its ref are reported
-    assert [m.name for m in listed] == ["prom"]
-    assert listed[0].source == "https://github.com/canonical/prometheus-k8s-operator.git"
-    assert listed[0].ref == PROM_REF
+    assert [m["name"] for m in listed] == ["prom"]
+    assert listed[0]["source"] == "https://github.com/canonical/prometheus-k8s-operator.git"
+    assert listed[0]["ref"] == PROM_REF
     # The payload carries the subdirectory, which the human report drops.
-    assert listed[0].module_path == PROM_MODULE
+    assert listed[0]["modulePath"] == PROM_MODULE
 
 
 def test_apply_as_names_the_module_block(tmp_path):
