@@ -7,7 +7,7 @@ This exercises resolution by name against a shared walk-up directory rather than
 a path. Classic wrapper shape; runs in the fast tier (no Juju model).
 """
 
-from helpers import atelier_add, write_tfvars
+from helpers import run, write_tfvars
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 PROM_MODULE = "terraform"
@@ -26,7 +26,8 @@ def test_walk_up_preset_bundle_resolves_by_name(tmp_path):
     wrapper.mkdir()
 
     # WHEN the bundle is applied by name (walk-up, not a path)
-    atelier_add(PROM_REPO, module=PROM_MODULE, dir=".", cwd=wrapper, var_file=["ci"])
+    run("add", PROM_REPO, "--module", PROM_MODULE, "--dir", ".",
+        "--var-file", "ci", "--strict", "--yes", "--json", cwd=wrapper)
 
     # THEN it is found and written as module arguments
     main_tf = (wrapper / "main.tf").read_text()

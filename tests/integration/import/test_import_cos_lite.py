@@ -21,13 +21,7 @@ from pathlib import Path
 import jubilant
 import pytest
 
-from helpers import (
-    atelier_add,
-    atelier_apply,
-    atelier_import,
-    wait_for_active_idle_without_error,
-    write_tfvars,
-)
+from helpers import run, wait_for_active_idle_without_error, write_tfvars
 
 COS_REPO = "https://github.com/canonical/observability-stack.git"
 COS_MODULE = "terraform/cos-lite"
@@ -103,14 +97,9 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # WHEN Atelier bootstraps the module, non-interactively, pinned to --ref
     # and configured from both bundles: the explicit ci values, then the
     # module's own no-ingress preset.
-    added = atelier_add(
-        COS_REPO,
-        module=COS_MODULE,
-        ref=COS_REF,
-        dir=".",
-        cwd=wrapper_dir,
-        var_file=[bundle, COS_PRESET],
-    )
+    added = json.loads(run("add", COS_REPO, "--module", COS_MODULE, "--ref", COS_REF,
+                           "--dir", ".", "--var-file", str(bundle), "--var-file", COS_PRESET,
+                           "--strict", "--yes", "--json", cwd=wrapper_dir).stdout)["data"]
 
     # THEN the wrapper went where the test prepared it, at the subdirectory the
     # repository puts the module in, and main.tf has the bundle values written
@@ -127,14 +116,8 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
 
     # AND the module is deployed. `apply` is `add` plus `terraform init` and
     # `apply`, so Terraform needs no separate invocation here.
-    atelier_apply(
-        COS_REPO,
-        module=COS_MODULE,
-        ref=COS_REF,
-        dir=".",
-        cwd=wrapper_dir,
-        var_file=[bundle, COS_PRESET],
-    )
+    run("apply", COS_REPO, "--module", COS_MODULE, "--ref", COS_REF, "--dir", ".",
+        "--var-file", str(bundle), "--var-file", COS_PRESET, "--strict", cwd=wrapper_dir)
 
     # THEN the model settles active and idle
     wait_for_active_idle_without_error(juju)
@@ -161,16 +144,11 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
 
     # WHEN Atelier imports the live deployment back into a fresh state, with
     # the same --ref/--var-file bundles and the model UUID as a query variable
-    result = atelier_import(
-        "juju",
-        cwd=wrapper_dir,
-        source=COS_REPO,
-        module=COS_MODULE,
-        ref=COS_REF,
-        dir=".",
-        var_file=[bundle, COS_PRESET],
-        query_var={"model_uuid": model_uuid},
-    )
+    result = json.loads(run("import", "juju", "--source", COS_REPO, "--module", COS_MODULE,
+                            "--ref", COS_REF, "--dir", ".", "--var-file", str(bundle),
+                            "--var-file", COS_PRESET,
+                            "--query-var", f"model_uuid={model_uuid}",
+                            "--yes", "--json", cwd=wrapper_dir).stdout)["data"]
 
     # THEN live objects were matched to module addresses and imported
     assert result["matched"], "nothing matched the module's resources"

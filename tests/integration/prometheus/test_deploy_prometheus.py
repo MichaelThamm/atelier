@@ -13,10 +13,12 @@ Whether the charm then settles active is the charm repository's concern, not
 Atelier's; this test ends at a successful apply.
 """
 
+import json
+
 import jubilant
 import pytest
 
-from helpers import atelier_apply, atelier_ls, write_tfvars
+from helpers import run, write_tfvars
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 PROM_MODULE = "terraform"
@@ -39,20 +41,17 @@ def test_deploy_prometheus_k8s(juju: jubilant.Juju, tmp_path):
     )
 
     # WHEN Atelier deploys it, non-interactively, from the bundle. `apply` is
-    # `add` plus `terraform init` and `apply`, so this test needs no Terraform
-    # of its own.
-    atelier_apply(
-        PROM_REPO,
-        module=PROM_MODULE,
-        dir=".",
-        cwd=wrapper_dir,
-        var_file=[bundle],
-    )
+    # `add` plus `terraform init` and `apply`, so this test needs no Terraform of
+    # its own — and no --yes, which the CLI rejects here because Terraform's own
+    # plan prompt is the confirmation.
+    run("apply", PROM_REPO, "--module", PROM_MODULE, "--dir", ".",
+        "--var-file", str(bundle), "--strict", cwd=wrapper_dir)
 
     # THEN the wrapper went where the test prepared it and declares the module
     # at the subdirectory the repository puts it in, with the bundle values
     # written through
-    assert [m["name"] for m in atelier_ls(cwd=wrapper_dir)] == ["prometheus_k8s_operator"]
+    modules = json.loads(run("ls", "--json", cwd=wrapper_dir).stdout)["data"]["modules"]
+    assert [m["name"] for m in modules] == ["prometheus_k8s_operator"]
     main_tf = (wrapper_dir / "main.tf").read_text()
     assert "//terraform" in main_tf
     assert model_uuid in main_tf

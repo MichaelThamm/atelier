@@ -3,15 +3,18 @@
 """Helpers for Atelier's Juju + Terraform integration tests.
 
 Atelier authors the wrapper and deploys it; a test's job is to ask what happened.
-:func:`atelier_add` and friends ask Atelier and decode the answer,
-:class:`TfDirManager` asks Terraform, and :func:`write_tfvars` writes the input
-bundle they configure it from.
+:func:`run` and :func:`write_tfvars` cover the two things that are fiddly to get
+right — running Atelier without a terminal, and writing an input bundle — and
+:class:`TfDirManager` asks Terraform what became of the wrapper.
+
+Atelier's own commands are called as :func:`run` spells them out, because that is
+what anyone scripting Atelier has to write: they cannot import from here. Read the
+flags in a test and you can see the command it runs.
 """
 
 import json
 import logging
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -19,14 +22,8 @@ from functools import lru_cache
 from pathlib import Path
 
 import jubilant
-import pytest
-
-from atelier_json import payload
 
 logger = logging.getLogger(__name__)
-
-#: The oldest Atelier that reports ``--json``, as ``(major, minor)``.
-MINIMUM_ATELIER = (0, 20)
 
 # Flags whose value is a module input, and may be a secret.
 SECRET_FLAGS = ("--var", "--query-var")
@@ -36,44 +33,12 @@ SECRET_FLAGS = ("--var", "--query-var")
 def atelier_bin() -> str:
     """The Atelier under test: ``ATELIER_BIN``, else ``atelier`` on ``PATH``.
 
-    Absolute, because every command below runs *inside* the wrapper it is testing,
-    where a relative path would be looked for instead of where the test started.
+    Absolute, because :func:`run` executes inside the wrapper under test, where a
+    relative path would be looked for instead of where the test started.
     """
     configured = os.environ.get("ATELIER_BIN") or "atelier"
     # which() expands a PATH name but returns a path-like argument unchanged.
     return os.path.abspath(shutil.which(configured) or configured)
-
-
-@lru_cache(maxsize=None)
-def supports_json(binary: str) -> bool:
-    """Whether this Atelier has ``--json``. An unreadable version — a ``dev``
-    build from ``go build`` — counts as new, so working on Atelier is not blocked.
-    """
-    version = subprocess.run([binary, "--version"], capture_output=True, text=True).stdout
-    found = re.search(r"(\d+)\.(\d+)", version)
-    return found is None or (int(found[1]), int(found[2])) >= MINIMUM_ATELIER
-
-
-def run_atelier(*args: str, cwd: Path | str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    """Run an Atelier command in ``cwd`` and return the finished process.
-
-    Two details make this work from CI. Standard input is ``/dev/null``, which is
-    how Atelier knows there is no terminal and declines to open its editor instead
-    of hanging. And stdout and stderr are captured separately, so the ``--json``
-    payload can be read without the progress chatter mixed into it.
-    """
-    binary = atelier_bin()
-    if not supports_json(binary):
-        pytest.skip(f"{binary} predates {MINIMUM_ATELIER[0]}.{MINIMUM_ATELIER[1]}, when --json was added")
-    cmd = [binary, *args]
-    logger.info("running: %s (in %s)", shlex.join(_redact(cmd)), cwd)
-    result = subprocess.run(cmd, cwd=cwd, stdin=subprocess.DEVNULL,
-                            capture_output=True, text=True, timeout=3600, check=False)
-    logger.debug("exit %d\nstdout:\n%s\nstderr:\n%s", result.returncode, result.stdout, result.stderr)
-    if check and result.returncode != 0:
-        raise subprocess.CalledProcessError(result.returncode, cmd,
-                                            output=result.stdout, stderr=result.stderr)
-    return result
 
 
 def _redact(argv: list[str]) -> list[str]:
@@ -89,89 +54,35 @@ def _redact(argv: list[str]) -> list[str]:
     return out
 
 
-def _as_list(value) -> list:
-    """Normalise a var-file argument. One bundle reads as a scalar at the call site."""
-    if value is None:
-        return []
-    return [value] if isinstance(value, (str, Path)) else list(value)
+def run(*args: str, cwd: Path | str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run ``atelier <args>`` in ``cwd`` and return the finished process.
 
+    Two details are what make this work from CI. Standard input is
+    ``/dev/null``, which is how Atelier knows there is no terminal and declines to
+    open its editor instead of hanging. And stdout is captured on its own, so the
+    ``--json`` payload can be read with ``json.loads(result.stdout)["data"]``
+    without progress chatter mixed in.
 
-def _input_flags(module: str | None = None, ref: str | None = None, dir: Path | str | None = None,
-                 var_file=None, var: dict | None = None, as_: str | None = None) -> list[str]:
-    """The flags that choose a module and give it values, for add and apply alike.
-
-    ``--strict`` is always on: an unknown key or type mismatch in a bundle is a
-    typo, and without it the typo surfaces much later as a missing required input.
+    With ``check`` (the default) a non-zero exit raises ``CalledProcessError``;
+    pass ``check=False`` to assert on the exit instead.
     """
-    flags: list[str] = []
-    for flag, value in (("--as", as_), ("--module", module), ("--ref", ref), ("--dir", dir)):
-        if value is not None:
-            flags += [flag, str(value)]
-    for bundle in _as_list(var_file):
-        flags += ["--var-file", str(bundle)]
-    for key, value in (var or {}).items():
-        flags += ["--var", f"{key}={value}"]
-    return flags + ["--strict"]
-
-
-def atelier_add(source: str, *, cwd: Path | str, as_: str | None = None, ref: str | None = None,
-                module: str | None = None, dir: Path | str | None = None,
-                var_file=None, var: dict | None = None) -> dict:
-    """Write a wrapper for ``source`` without running Terraform; return the payload.
-
-    ``--as`` is sanitised into a valid HCL identifier, so ``cos-lite`` arrives as
-    ``cos_lite`` — read the name off ``added["added"]["name"]``, not off ``as_``.
-    """
-    flags = _input_flags(module, ref, dir, var_file, var, as_)
-    return payload(run_atelier("add", source, *flags, "--yes", "--json", cwd=cwd).stdout)
-
-
-def atelier_apply(source: str, *, cwd: Path | str, as_: str | None = None, ref: str | None = None,
-                  module: str | None = None, dir: Path | str | None = None,
-                  var_file=None, var: dict | None = None) -> subprocess.CompletedProcess[str]:
-    """Write the wrapper, then ``terraform init`` and ``apply`` — the one-call deploy.
-
-    No ``--yes``: Atelier rejects it here, because Terraform's own plan prompt is
-    the confirmation. Returns the process, not a payload; this reports Terraform's
-    output, which is why ``atelier apply`` has no ``--json``.
-    """
-    return run_atelier("apply", source, *_input_flags(module, ref, dir, var_file, var, as_), cwd=cwd)
-
-
-def atelier_import(provider: str, *, cwd: Path | str, source: str, ref: str | None = None,
-                   module: str | None = None, dir: Path | str | None = None,
-                   var_file=None, query_var: dict | None = None) -> dict:
-    """Rebuild Terraform state from what is already running; return the payload.
-
-    State-only: this cannot change infrastructure. It exits ``0`` even when nothing
-    matched, so read ``matchedNothing`` or ``imported`` rather than the exit code.
-
-    ``query_var`` feeds the *query* — the model UUID, typically — and must stay
-    separate from ``var_file``, which feeds the module. Conflating them is how a
-    model UUID ends up written into ``main.tf``.
-    """
-    flags = ["--source", source, "--yes", "--json"]
-    for flag, value in (("--module", module), ("--ref", ref), ("--dir", dir)):
-        if value is not None:
-            flags += [flag, str(value)]
-    for bundle in _as_list(var_file):
-        flags += ["--var-file", str(bundle)]
-    for key, value in (query_var or {}).items():
-        flags += ["--query-var", f"{key}={value}"]
-    return payload(run_atelier("import", provider, *flags, cwd=cwd).stdout)
-
-
-def atelier_ls(*, cwd: Path | str) -> list[dict]:
-    """The module blocks a wrapper declares. Empty when ``cwd`` holds no wrapper."""
-    return payload(run_atelier("ls", "--json", cwd=cwd).stdout)["modules"]
+    cmd = [atelier_bin(), *args]
+    logger.info("running: %s (in %s)", shlex.join(_redact(cmd)), cwd)
+    result = subprocess.run(cmd, cwd=cwd, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=3600, check=False)
+    logger.debug("exit %d\nstdout:\n%s\nstderr:\n%s", result.returncode, result.stdout, result.stderr)
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, cmd,
+                                            output=result.stdout, stderr=result.stderr)
+    return result
 
 
 def write_tfvars(directory: Path | str, name: str, values: dict) -> Path:
-    """Write a ``.tfvars`` input bundle and return its path, ready to pass to ``var_file``.
+    """Write a ``.tfvars`` input bundle and return its path.
 
-    Returns a path rather than a name on purpose: ``--var-file`` also accepts a
-    preset name, and one that resolves to nothing is only a warning — so a name
-    here would drop the whole bundle without failing.
+    Returns a path rather than a name on purpose. ``--var-file`` also accepts a
+    preset name, and one that resolves to nothing is only a warning — so passing
+    the name drops the bundle without failing.
     """
     path = Path(directory) / f"{name}.tfvars"
     path.write_text("".join(f"{k} = {_hcl(v)}\n" for k, v in values.items()))

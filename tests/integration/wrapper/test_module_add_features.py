@@ -10,13 +10,14 @@ The target is canonical/prometheus-k8s-operator, whose Terraform lives in the
 ``terraform/`` sub-directory.
 """
 
+import json
 import re
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from helpers import TfDirManager, atelier_add, atelier_apply, atelier_ls, write_tfvars
+from helpers import TfDirManager, run, write_tfvars
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 PROM_MODULE = "terraform"
@@ -48,8 +49,8 @@ def _source(main_tf: str) -> str:
 
 def test_add_writes_module_block_with_subdir_source(tmp_path):
     # WHEN a module is added from a repository whose Terraform is in a subdir
-    added = atelier_add(PROM_REPO, module=PROM_MODULE, dir=WRAPPER_DIR, cwd=tmp_path)
-
+    added = json.loads(run("add", PROM_REPO, "--module", PROM_MODULE, "--dir", WRAPPER_DIR,
+                           "--strict", "--yes", "--json", cwd=tmp_path).stdout)["data"]
     # THEN the block is named after the repo, at //terraform
     main_tf = _main_tf(tmp_path)
     assert re.search(rf'module\s+"{PROM_BLOCK}"', main_tf), main_tf
@@ -61,8 +62,8 @@ def test_add_writes_module_block_with_subdir_source(tmp_path):
 
 def test_ref_is_pinned_in_the_source(tmp_path):
     # WHEN the module is added at a specific tag
-    added = atelier_add(PROM_REPO, module=PROM_MODULE, ref=PROM_REF, dir=WRAPPER_DIR, cwd=tmp_path)
-
+    added = json.loads(run("add", PROM_REPO, "--module", PROM_MODULE, "--ref", PROM_REF,
+                           "--dir", WRAPPER_DIR, "--strict", "--yes", "--json", cwd=tmp_path).stdout)["data"]
     # THEN the git source pins that ref
     assert _source(_main_tf(tmp_path)) == f"{PROM_SOURCE}?ref={PROM_REF}"
     assert added["added"]["ref"] == PROM_REF
@@ -83,13 +84,8 @@ def test_var_file_applies_typed_values(tmp_path):
     )
 
     # WHEN the module is configured from it
-    atelier_add(
-        PROM_REPO,
-        module=PROM_MODULE,
-        dir=WRAPPER_DIR,
-        cwd=tmp_path,
-        var_file=[var_file],
-    )
+    run("add", PROM_REPO, "--module", PROM_MODULE, "--dir", WRAPPER_DIR,
+        "--var-file", str(var_file), "--strict", "--yes", "--json", cwd=tmp_path)
 
     # THEN the values are written as typed HCL arguments
     main_tf = _main_tf(tmp_path)
@@ -102,8 +98,8 @@ def test_var_file_applies_typed_values(tmp_path):
 
 def test_as_names_the_module_block(tmp_path):
     # WHEN an explicit block name is given
-    added = atelier_add(PROM_REPO, module=PROM_MODULE, as_="prom", dir=WRAPPER_DIR, cwd=tmp_path)
-
+    added = json.loads(run("add", PROM_REPO, "--module", PROM_MODULE, "--as", "prom",
+                           "--dir", WRAPPER_DIR, "--strict", "--yes", "--json", cwd=tmp_path).stdout)["data"]
     # THEN exactly one module block uses it, and the candidate-derived name is
     # gone. A rename that left the derived block behind would declare the module
     # twice and fail later at apply, on colliding resource names.
@@ -117,17 +113,11 @@ def test_as_names_the_module_block(tmp_path):
 
 def test_module_list_reports_the_block(tmp_path):
     # GIVEN a named, ref-pinned module
-    atelier_add(
-        PROM_REPO,
-        module=PROM_MODULE,
-        as_="prom",
-        ref=PROM_REF,
-        dir=WRAPPER_DIR,
-        cwd=tmp_path,
-    )
+    run("add", PROM_REPO, "--module", PROM_MODULE, "--as", "prom", "--ref", PROM_REF,
+        "--dir", WRAPPER_DIR, "--strict", "--yes", "--json", cwd=tmp_path)
 
     # WHEN listing the wrapper
-    listed = atelier_ls(cwd=tmp_path / WRAPPER_DIR)
+    listed = json.loads(run("ls", "--json", cwd=tmp_path / WRAPPER_DIR).stdout)["data"]["modules"]
 
     # THEN the module, its source and its ref are reported
     assert [m["name"] for m in listed] == ["prom"]
@@ -144,7 +134,8 @@ def test_apply_as_names_the_module_block(tmp_path):
     with pytest.raises(subprocess.CalledProcessError):
         # Exits non-zero on purpose: the required variables are unset, so it
         # writes the wrapper and stops before applying.
-        atelier_apply(PROM_REPO, module=PROM_MODULE, as_="prom", dir=".", cwd=tmp_path)
+        run("apply", PROM_REPO, "--module", PROM_MODULE, "--as", "prom",
+            "--dir", ".", "--strict", cwd=tmp_path)
 
     # THEN the wrapper is the directory the caller prepared, and main.tf declares
     # exactly one module block under the requested name. Renaming into an existing
@@ -158,12 +149,16 @@ def test_apply_as_names_the_module_block(tmp_path):
 
 def test_duplicate_add_is_refused(tmp_path):
     # GIVEN the module is already present
-    atelier_add(PROM_REPO, module=PROM_MODULE, dir=WRAPPER_DIR, cwd=tmp_path)
+    def add() -> None:
+        run("add", PROM_REPO, "--module", PROM_MODULE, "--dir", WRAPPER_DIR,
+            "--strict", "--yes", "--json", cwd=tmp_path)
+
+    add()
 
     # WHEN adding the same module at the same ref again, into the same wrapper.
     # THEN it is refused rather than declaring a second copy.
     with pytest.raises(subprocess.CalledProcessError):
-        atelier_add(PROM_REPO, module=PROM_MODULE, dir=WRAPPER_DIR, cwd=tmp_path)
+        add()
 
     # AND the wrapper still declares exactly one module
     assert len(re.findall(r'^module\s+"', _main_tf(tmp_path), re.M)) == 1
@@ -172,13 +167,8 @@ def test_duplicate_add_is_refused(tmp_path):
 def test_wrapper_initialises_and_validates(tmp_path):
     # GIVEN a wrapper Atelier authored from a bundle
     var_file = write_tfvars(tmp_path, "ci", DEFAULT_VALUES)
-    atelier_add(
-        PROM_REPO,
-        module=PROM_MODULE,
-        dir=WRAPPER_DIR,
-        cwd=tmp_path,
-        var_file=[var_file],
-    )
+    run("add", PROM_REPO, "--module", PROM_MODULE, "--dir", WRAPPER_DIR,
+        "--var-file", str(var_file), "--strict", "--yes", "--json", cwd=tmp_path)
 
     # WHEN Terraform initialises it (fetching the module and provider)
     tf = TfDirManager()

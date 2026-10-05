@@ -12,7 +12,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from helpers import run_atelier
+from helpers import run
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 LOKI_REPO = "https://github.com/canonical/loki-operators.git"
@@ -52,11 +52,11 @@ def _empty_dir(base: Path, name: str) -> Path:
 def _json_atelier(cwd, *args: str) -> dict:
     """Run Atelier with ``--json`` and return the payload's ``data``.
 
-    Reads the envelope rather than :func:`~helpers.payload`, because asserting on
-    it is half the point: every command reports the same shape, and ``command``
+    Reads the envelope itself rather than :func:`~helpers.data`, because asserting
+    on it is half the point: every command reports the same shape, and ``command``
     must name the one that ran (ADR-0048).
     """
-    envelope = json.loads(run_atelier(*args, "--json", cwd=cwd).stdout)
+    envelope = json.loads(run(*args, "--json", cwd=cwd).stdout)
     assert envelope["schema"] == 1
     assert envelope["command"] == args[0]
     return envelope["data"]
@@ -147,7 +147,7 @@ def test_ls_json_matches_ls(tmp_path):
 
     # WHEN the modules are listed both ways
     data = _json_atelier(wrapper, "ls")
-    text = run_atelier("ls", cwd=wrapper).stdout
+    text = run("ls", cwd=wrapper).stdout
 
     # THEN the payload carries what the table prints, and the //subdir the table
     # drops
@@ -223,7 +223,7 @@ def test_json_does_not_suppress_the_human_report(tmp_path):
     _add_prom(tmp_path, "json-streams")
 
     # WHEN a second module is added with --json
-    result = run_atelier(
+    result = run(
         "add",
         LOKI_REPO,
         "--module",
@@ -249,7 +249,7 @@ def test_apply_rejects_json(tmp_path):
     target = _empty_dir(tmp_path, "json-apply")
 
     # WHEN --json is passed to a command that has no report of its own
-    result = run_atelier(
+    result = run(
         "apply",
         PROM_REPO,
         "--module",
@@ -272,7 +272,7 @@ def test_add_json_reports_an_ambiguous_source_as_a_failure(tmp_path):
     wrapper = _empty_dir(tmp_path, "json-ambiguous")
 
     # WHEN it is added with --json and no --module to disambiguate
-    result = run_atelier(
+    result = run(
         "add",
         repo,
         "--dir",
