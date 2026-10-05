@@ -98,7 +98,6 @@ Usage:
                                                Terraform's prompt; with no terminal it applies with
                                                -auto-approve.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
-  
   atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
         [--dir PATH] [--type T] [--var K=V] [--var-file PATH|NAME]
         [--list-var-files] [--query-var K=V] [--dry-run] [--list] [--yes] [--json]

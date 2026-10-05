@@ -264,7 +264,6 @@ atelier apply <git-url> --ref <ref>  # pin a ref; re-points the block when the w
 atelier apply <git-url> --as <name>  # target directory / HCL block name; selects the block to update
 atelier apply <git-url> --dir <path> # target directory; compose into and deploy it when it holds a wrapper (§6.9)
 atelier apply <git-url> --var <K=V>  # set a module input (repeatable; wins over --var-file)
-atelier tidy [PATH] [--write]              # prune module arguments left at their default value
 atelier import [PROVIDER] [flags]          # import live resources into Terraform state
 atelier import [PROVIDER] --json           # report the run as JSON (§6.11)
 atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ directories
@@ -778,9 +777,9 @@ revision dropped, which inputs it adds, and which arguments the sparse rule
 pruned for now matching their module default.
 
 Rewriting a block normalises it, so `atelier apply` is not a way to *inspect* a
-prune before it happens. `atelier tidy` is: it previews the diff, requires
-`--write`, backs `main.tf` up, warns when the ref is unpinned, and prunes every
-module in the wrapper rather than the one being deployed.
+prune before it happens. To see what the sparse rule would remove, open the
+wrapper in the TUI and save; `RenderMain` renders the sparse form without
+touching disk, so a diff of the file against that render is the prune.
 
 The apply is **not auto-approved when a terminal is present**: Terraform prints
 the plan and asks `Do you want to perform these actions?`, and the user answers.

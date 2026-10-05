@@ -27,7 +27,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0018 | [Additive `atelier module` command](0018-additive-module-command.md)                       | Superseded by ADR-0038 |
 | 0019 | [Unified module version display](0019-unified-module-version-display.md)                    | Proposed |
 | 0020 | [Readline-style text editing in variable editors](0020-readline-style-text-editing.md)      | Proposed |
-| 0021 | [`atelier tidy` — on-demand prune to sparse form](0021-tidy-command.md)                      | Proposed |
+
 | 0022 | [Local presets: `atelier.local.yaml`](0022-local-presets.md)                                | Superseded by ADR-0031 |
 | 0023 | [Map / map(object) row editing lifecycle](0023-map-row-editing-lifecycle.md)                | Proposed |
 | 0024 | [Surfacing Terraform `check` block warnings](0024-check-block-warnings.md)                   | Accepted |
