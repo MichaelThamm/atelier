@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -406,7 +407,7 @@ func runImport(args []string) error {
 
 	if res.Preview != nil {
 		reportDryRun(res)
-		return renderImportJSON(asJSON, res, dryRun)
+		return finishImport(asJSON, res, dryRun)
 	}
 
 	if len(res.Imported) > 0 {
@@ -416,18 +417,36 @@ func runImport(args []string) error {
 		}
 	}
 
-	return renderImportJSON(asJSON, res, dryRun)
+	return finishImport(asJSON, res, dryRun)
 }
 
-// renderImportJSON adds the machine-readable payload when --json was asked for.
-// It runs after the text report rather than instead of it: both renderings come
-// from the same Result, and the explanation on stderr is what a user needs when
-// a run went the way it did (ADR-0048).
-func renderImportJSON(asJSON bool, res *importer.Result, dryRun bool) error {
-	if !asJSON {
-		return nil
+// errNothingMatched reports an import that matched no live resource at all. The
+// report above already explains the run; this carries it to the exit code.
+var errNothingMatched = errors.New("no live resources matched; nothing was imported")
+
+// finishImport writes the payload when --json was asked for, then turns a run
+// that matched nothing into a failure.
+//
+// The payload is written first so a --json consumer can read why. Matching
+// nothing is a failure because it means the running deployment is not the one
+// this module describes — a wrong model, or a --query-var that never reached the
+// query. A recovery job reading only the exit code would otherwise pass having
+// recovered nothing, which is the one outcome it exists to rule out. Resources
+// that *were* matched but are already in state stay a success: that is the same
+// command run twice.
+func finishImport(asJSON bool, res *importer.Result, dryRun bool) error {
+	// Added after the text report rather than instead of it: both come from the
+	// same Result, and the explanation on stderr is what a user needs when a run
+	// went the way it did (ADR-0048).
+	if asJSON {
+		if err := renderJSON(os.Stdout, "import", importPayload(res, dryRun)); err != nil {
+			return err
+		}
 	}
-	return renderJSON(os.Stdout, "import", importPayload(res, dryRun))
+	if len(res.IDs) == 0 && res.MatchedCount == 0 {
+		return errNothingMatched
+	}
+	return nil
 }
 
 // reportDryRun summarises a dry run. The number that matters is Add: those are
