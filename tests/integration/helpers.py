@@ -81,8 +81,9 @@ def write_tfvars(directory: Path | str, name: str, values: dict) -> Path:
     """Write a ``.tfvars`` input bundle and return its path.
 
     Returns a path rather than a name on purpose. ``--var-file`` also accepts a
-    preset name, and one that resolves to nothing is only a warning — so passing
-    the name drops the bundle without failing.
+    preset name, and a name that resolves to nothing is skipped — an outright
+    error under ``--strict``, which every caller here passes — so handing over
+    the name would drop the bundle rather than configure the module.
     """
     path = Path(directory) / f"{name}.tfvars"
     path.write_text("".join(f"{k} = {_hcl(v)}\n" for k, v in values.items()))
