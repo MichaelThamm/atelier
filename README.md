@@ -25,6 +25,10 @@ and presets for reusable configurations.
   It is version-controllable, shareable, runnable without Atelier installed, and
   CI-compatible. Atelier's internal state lives in a `.atelier/` subdirectory
   that is regenerable from the wrapper.
+- **Only what you change.** Atelier writes an input only when its value differs
+  from the default the module declares, so the wrapper stays short and the
+  module's own defaults handle the rest. Inputs with no default are always
+  written, because Terraform needs a value for them.
 - **Plan and apply in the TUI.** Atelier owns the configure → plan iteration
   loop and supports `terraform apply` from the plan view (`A` key).
 - **Presets are plain Terraform.** Reusable value bundles are `.tfvars` files,
