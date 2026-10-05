@@ -17,6 +17,7 @@ non-empty. Drift in ``terraform_data`` and secrets is expected — see
 
 import json
 import re
+from pathlib import Path
 
 import jubilant
 import pytest
@@ -41,6 +42,19 @@ PRESERVED_TYPES = frozenset({"juju_application", "juju_integration", "juju_offer
 # completeness check below fails, rather than silently passing, if COS-Lite ever
 # creates a type nobody has decided about.
 DRIFT_TYPES = frozenset({"terraform_data", "juju_secret", "juju_access_secret"})
+
+
+def show(path: Path) -> str:
+    """Return a file's text, echoing it to the CI log.
+
+    The wrapper is the artifact (ADR-0001), so when an assertion below fails the
+    question is always "what did Atelier actually write?" — and a failing job in
+    a deleted temp directory cannot answer it. Printing it as it is read means
+    the log carries the answer.
+    """
+    text = path.read_text()
+    print(f"\n----- {path.name} -----\n{text}\n----- end {path.name} -----\n")
+    return text
 
 
 def _arg_block(main_tf: str, name: str) -> str:
@@ -84,7 +98,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # THEN the wrapper went where the test prepared it, at the subdirectory the
     # repository puts the module in, and main.tf has the bundle values written
     # through with every ingress component switched off
-    main_tf = (wrapper / "main.tf").read_text()
+    main_tf = show(wrapper / "main.tf")
     assert COS_MODULE in main_tf
     assert f"ref={COS_REF}" in main_tf
     assert f'uuid = "{model_uuid}"' in main_tf
