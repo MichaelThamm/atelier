@@ -251,6 +251,15 @@ func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string
 				resolved = append(resolved, ref)
 				continue
 			}
+			// A bundle that resolved to nothing contributes nothing, and the run
+			// goes on to write a wrapper missing every value it held. That is the one
+			// outcome a reader cannot detect: the wrapper looks fine, and the
+			// omission surfaces later as a missing required input, or not at all if
+			// the module has a default. Under --strict it is an error, alongside the
+			// unknown keys and type mismatches already fatal there.
+			if strict {
+				return fmt.Errorf("var-file %q not found: not a path, and no such bundle in an ancestor atelier.presets/, the module repository, or the gallery", ref)
+			}
 			fmt.Fprintf(os.Stderr, "warning: var-file %q not found; ignored\n", ref)
 		}
 		warns, err := wrapper.ApplyVarFiles(state, resolved, strict)

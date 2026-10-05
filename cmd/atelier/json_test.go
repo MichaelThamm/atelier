@@ -394,3 +394,54 @@ func TestCandidatesChannel(t *testing.T) {
 		t.Errorf("under --json the list went to %v, want stderr", w)
 	}
 }
+
+func TestFinishImport_matchedNothingIsAFailure(t *testing.T) {
+	// A recovery job reading only the exit code must not pass having recovered
+	// nothing, so the run has to fail — but the payload is still written, since
+	// that is where the reason lives.
+	out, err := captureStdout(t, func() error {
+		return finishImport(true, &importer.Result{}, false)
+	})
+	if err == nil {
+		t.Error("an import that matched nothing succeeded")
+	}
+	if !strings.Contains(err.Error(), "nothing was imported") {
+		t.Errorf("error does not say what happened: %v", err)
+	}
+	if !strings.Contains(out, `"matchedNothing": true`) {
+		t.Errorf("payload missing from stdout:\n%s", out)
+	}
+}
+
+func TestFinishImport_alreadyInStateIsASuccess(t *testing.T) {
+	// The same command run twice: everything matched is already there. That is
+	// not a failure, however few addresses the payload reports as imported.
+	if err := finishImport(false, &importer.Result{MatchedCount: 3}, false); err != nil {
+		t.Errorf("a re-run was reported as a failure: %v", err)
+	}
+}
+
+func TestFinishImport_matchedIsASuccess(t *testing.T) {
+	if err := finishImport(false, &importer.Result{IDs: map[string]string{"a": "b"}}, false); err != nil {
+		t.Errorf("a matching import was reported as a failure: %v", err)
+	}
+}
+
+// captureStdout collects what fn writes to os.Stdout.
+func captureStdout(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	fnErr := fn()
+	os.Stdout = saved
+	w.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String(), fnErr
+}

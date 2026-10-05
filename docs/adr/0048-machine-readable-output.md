@@ -84,6 +84,11 @@ and leaves everything else alone.**
 - **Failures are unchanged.** A command that fails writes `atelier: <error>` to
   stderr and exits `1`; there is no error payload. A consumer reads stdout only
   on success.
+- **A run that reports a result nobody asked for fails.** `atelier import` that
+  matched no live resource exits `1` even though the command completed: it means
+  the deployment is not the one the module describes, and a CI job reading only
+  the exit code must not pass. Its payload is still written, since that is where
+  the reason lives. Already-in-state stays `0` — that is the same command twice.
 - **A `--json` run that needs more input is a failure.** When a source matches
   several modules, `add` prints the candidates and exits `0`, because a person
   reads the list and re-runs with `--module`. Under `--json` the list moves to

@@ -646,6 +646,12 @@ exactly like any other `--var-file`.
   type-mismatched value — is skipped with a warning; `--strict` makes those
   binding problems fatal. Object/tuple values are not type-checked (Atelier's
   cty view loses `optional()` metadata); Terraform catches nested-shape errors.
+- A `--var-file` that resolves to nothing at all — not a path, and no such bundle
+  in an ancestor `atelier.presets/`, the module repository, or the gallery — is
+  skipped with a warning, because a gallery entry's preset may be superseded by
+  one the user supplies. `--strict` makes it fatal: a bundle that contributed
+  nothing yields a wrapper that looks complete and is missing every value it
+  held, which is the one failure a reader cannot detect.
 - `atelier presets lint --module <dir> <file.tfvars>…` checks a bundle against a
   module's `variables.tf` without applying it: it reports names the module does
   not declare, keys nested inside object values that the object type does not
@@ -809,6 +815,11 @@ wants (usually a wrong model UUID or a `--query-var` that never reached the
 query). `unresolved` is the fourth worth asserting on — resources that matched a
 live object but whose import ID could not be built, which a later apply would
 *create*, duplicating live infrastructure.
+
+The third of those three is the only one that exits non-zero. It means the running
+deployment is not the one the module describes, so a recovery job reading only the
+exit code must not pass; the payload is still written, because that is where the
+reason lives. A re-run — everything matched already in state — stays a success.
 
 ## 7. TUI layout
 
