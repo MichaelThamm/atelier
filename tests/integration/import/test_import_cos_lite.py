@@ -139,14 +139,22 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # same --ref and --var-file as the deploy above, and the model UUID as a
     # query variable. Note --query-var, not --var: the UUID feeds the query, not
     # the module, and conflating them writes it into main.tf.
-    result = json.loads(run("import", "juju", "--source", COS_REPO, "--module", COS_MODULE,
-                            "--ref", COS_REF, "--dir", ".", "--var-file", str(bundle),
-                            "--var-file", COS_PRESET,
-                            "--query-var", f"model_uuid={model_uuid}",
-                            "--yes", "--json", cwd=wrapper_dir).stdout)["data"]
+    #
+    # check=False because `atelier import` exits 1 when it matched nothing, and
+    # letting that raise would replace the explanation below with a traceback.
+    # Its payload is written either way.
+    reported = run("import", "juju", "--source", COS_REPO, "--module", COS_MODULE,
+                   "--ref", COS_REF, "--dir", ".", "--var-file", str(bundle),
+                   "--var-file", COS_PRESET,
+                   "--query-var", f"model_uuid={model_uuid}",
+                   "--yes", "--json", cwd=wrapper_dir, check=False)
+    result = json.loads(reported.stdout)["data"]
 
     # THEN live objects were matched to module addresses and imported
-    assert result["matched"], "nothing matched the module's resources"
+    assert result["matched"], (
+        f"nothing matched the module's resources (import exited {reported.returncode})\n"
+        f"{reported.stderr}"
+    )
     assert result["imported"], f"nothing was imported: {result['unresolved']}"
     assert state_file.exists(), "import should have repopulated terraform.tfstate"
 
