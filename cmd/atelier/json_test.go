@@ -263,6 +263,7 @@ func TestImportPayload_reportsWhatAnApplyWouldCreate(t *testing.T) {
 		"    ],\n" +
 		"    \"dryRun\": false,\n" +
 		"    \"preview\": null,\n" +
+		"    \"postImportPlan\": null,\n" +
 		"    \"importsFile\": \"\",\n" +
 		"    \"queryFile\": \"\",\n" +
 		"    \"terraformVersion\": \"1.14.0\"\n" +
@@ -311,6 +312,40 @@ func TestImportPayload_dryRunPreview(t *testing.T) {
 	// A dry run imports nothing, and says so.
 	if len(got.Imported) != 0 {
 		t.Errorf("Imported = %v, want empty", got.Imported)
+	}
+}
+
+func TestImportPayload_postImportPlan(t *testing.T) {
+	res := &importer.Result{
+		Imported: []importer.ImportResult{{Address: "module.cos.juju_application.a"}},
+		PostImportPlan: &importer.PlanSummary{
+			Add: 2, Change: 1, UnimportableAdds: 1,
+			AddAddresses:    []string{"module.cos.juju_offer.b"},
+			ChangeAddresses: []string{"module.cos.juju_integration.c"},
+		},
+	}
+	got := render(t, "import", importPayload(res, false))
+	// A CI job gates on exactly this: an address here is something a later apply
+	// would still change, which is what "the import round-tripped" means.
+	for _, want := range []string{
+		`"postImportPlan"`,
+		`"module.cos.juju_offer.b"`,
+		`"module.cos.juju_integration.c"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("payload missing %s:\n%s", want, got)
+		}
+	}
+	// The dry-run preview is a different measurement — the plan *before* the
+	// import — and must not be filled in from the post-import one.
+	if strings.Contains(got, `"preview":{`) {
+		t.Errorf("post-import plan leaked into preview:\n%s", got)
+	}
+	// A payload that omitted the field would be indistinguishable from a run that
+	// found no drift, so it is null when not computed.
+	empty := render(t, "import", importPayload(&importer.Result{}, false))
+	if !strings.Contains(empty, `"postImportPlan": null`) {
+		t.Errorf("absent plan should be null, not missing:\n%s", empty)
 	}
 }
 

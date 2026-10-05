@@ -9,9 +9,9 @@ detection, discovery, matching, and import-ID construction.
 
 Two things keep it from being a happy path. The module is configured from the
 upstream ``no-ingress`` preset as well as a local bundle, so a preset resolved
-from the clone is exercised too. And the final check is a ``terraform plan``
-rather than Atelier's own report: the state must match reality, not merely be
-non-empty. Drift in ``terraform_data`` and secrets is expected — see
+from the clone is exercised too. And the final check is the plan against the
+imported state rather than the import report: the state must match reality, not
+merely be non-empty. Drift in ``terraform_data`` and secrets is expected — see
 ``PRESERVED_TYPES`` for why it is tolerated.
 """
 
@@ -73,7 +73,7 @@ def _arg_block(main_tf: str, name: str) -> str:
 
 
 @pytest.mark.cloud
-def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
+def test_import_cos_lite_roundtrip(juju: jubilant.Juju, tmp_path):
     # GIVEN a running Juju model
     model_uuid = juju.show_model(juju.model).model_uuid
 
@@ -161,17 +161,21 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     missing = PRESERVED_TYPES - imported_types
     assert not missing, f"import did not recover core resource types: {sorted(missing)}"
 
-    # AND the strongest check: a plan against the imported state finds nothing
+    # AND the strongest check: the plan against the imported state finds nothing
     # to change for those core resources. Drift in other types is tolerated —
     # see PRESERVED_TYPES for why.
     #
-    # This is the one thing left that needs Terraform directly. `atelier` has no
-    # command that answers "would a plan change anything?", and it needs the
-    # addresses, not the counts an import --dry-run preview gives.
-    tf_manager.latch(wrapper)
-    changes = tf_manager.plan_changes()
-    drifted = sorted(c for c in changes if c[1] in PRESERVED_TYPES)
+    # Read from the import's own payload rather than by planning again: the run
+    # already planned the imported state to produce this, so a second plan would
+    # measure the same thing twice.
+    drift = result["postImportPlan"]
+    assert drift is not None, f"no post-import plan was reported: {result}"
+    drifted = [
+        addr
+        for addr in drift["addAddresses"] + drift["changeAddresses"]
+        if any(f".{kind}." in addr for kind in PRESERVED_TYPES)
+    ]
     assert not drifted, (
-        "import did not preserve these core resources "
-        f"(address, type, actions): {drifted}"
+        "import did not preserve these core resources (address, action): "
+        f"{drifted}"
     )

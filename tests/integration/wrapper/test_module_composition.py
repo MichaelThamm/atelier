@@ -54,6 +54,27 @@ def module_blocks(main_tf: str) -> list[str]:
     return re.findall(r'^module\s+"([^"]+)"', main_tf, re.M)
 
 
+def terraform_data_inputs(state_path) -> dict[str, object]:
+    """The value each `terraform_data` resource in a state file ended up with.
+
+    Keyed by the address Terraform spells it with. `terraform_data` stores
+    `input` as a dynamic value, so the `{"value": ..., "type": ...}` envelope is
+    unwrapped and callers see the value they configured.
+    """
+    state = json.loads(state_path.read_text())
+    out: dict[str, object] = {}
+    for resource in state.get("resources", []):
+        if resource.get("mode") != "managed" or resource["type"] != "terraform_data":
+            continue
+        address = ".".join(
+            p for p in (resource.get("module"), resource["type"], resource["name"]) if p
+        )
+        for instance in resource.get("instances", []):
+            raw = (instance.get("attributes") or {}).get("input")
+            out[address] = raw.get("value") if isinstance(raw, dict) else raw
+    return out
+
+
 def test_add_composes_a_second_module_by_dir(tmp_path):
     # GIVEN a wrapper holding one module
     first = write_module(tmp_path / "src" / "cos-lite", "cos_lite", "model_uuid")
@@ -156,12 +177,13 @@ def test_apply_composes_and_deploys_the_whole_root(tmp_path):
     assert module_blocks(main_tf) == ["cos_lite", "charmed_spark"], main_tf
     assert not (tmp_path / "wrapper" / "charmed-spark").exists(), "apply nested a root"
 
-    # AND the apply succeeded, producing state for both modules in one root
-    tf = TfDirManager()
-    tf.latch(tmp_path / "wrapper")
-    state = tf.state_list()
-    assert "module.cos_lite.terraform_data.cos_lite" in state, state
-    assert "module.charmed_spark.terraform_data.charmed_spark" in state, state
+    # AND both modules landed in one state, each with the value it was configured
+    # with — which is the whole claim: one root, one state, one apply. The values
+    # are the assertion: addresses alone would be there for two separate roots.
+    wrapper = tmp_path / "wrapper"
+    inputs = terraform_data_inputs(wrapper / "terraform.tfstate")
+    assert inputs["module.cos_lite.terraform_data.cos_lite"] == "uuid-1", inputs
+    assert inputs["module.charmed_spark.terraform_data.charmed_spark"] == "8.0/stable", inputs
 
 
 def test_apply_inside_a_wrapper_deploys_it_rather_than_nesting(tmp_path):

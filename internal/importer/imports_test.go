@@ -86,6 +86,11 @@ func TestSummarizePlan(t *testing.T) {
 	if got.Change != 1 {
 		t.Errorf("Change = %d, want 1", got.Change)
 	}
+	// An update is drift for a caller checking the imported state, so it needs an
+	// address the way a create does — not only a count.
+	if len(got.ChangeAddresses) != 1 || got.ChangeAddresses[0] != "juju_application.e" {
+		t.Errorf("ChangeAddresses = %v, want [juju_application.e]", got.ChangeAddresses)
+	}
 	if got.Destroy != 1 {
 		t.Errorf("Destroy = %d, want 1", got.Destroy)
 	}

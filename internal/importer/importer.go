@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -159,6 +160,12 @@ type Options struct {
 	// No `terraform import` is run and no post-import step executes, so state
 	// is left untouched.
 	DryRun bool
+	// ReportPostImportPlan plans the target once more after the imports and the
+	// post-import steps, and reports what a later apply would still change. It
+	// answers "did the import round-trip?" rather than "what will be imported?",
+	// and it costs a plan, so a caller asks for it only when something will read
+	// the answer.
+	ReportPostImportPlan bool
 	// BinPath overrides terraform/tofu discovery (mainly for tests).
 	BinPath string
 	// PreflightSteps are provider-specific steps that run after the live
@@ -242,6 +249,11 @@ type Result struct {
 	// Preview summarises the plan computed with the imports artifact in place.
 	// Only populated for a dry run.
 	Preview *PlanSummary
+	// PostImportPlan summarises the plan computed against the state the imports
+	// produced. It answers whether the import round-tripped: a non-empty Add or
+	// Change means a later apply would still alter the deployment. Nil unless
+	// Options.ReportPostImportPlan asked for it.
+	PostImportPlan *PlanSummary
 	// TerraformVersion is the resolved binary version.
 	TerraformVersion string
 }
@@ -607,7 +619,30 @@ func Generate(ctx context.Context, opts Options) (_ *Result, rerr error) {
 		}
 	}
 
+	// Taken after the steps, because they normalise what the plan sees.
+	res.PostImportPlan = postImportSummary(opts.ReportPostImportPlan, pctx.Plan, os.Stderr)
+
 	return res, nil
+}
+
+// postImportSummary summarises the plan against the state the imports produced,
+// when a caller asked for that answer.
+//
+// A plan failure is reported but not returned. The imports are already in state
+// by this point, so failing here would tell the caller a successful import had
+// failed — and the question the plan answers ("would a later apply change
+// anything?") is worth less than the import that already happened.
+func postImportSummary(asked bool, plan func() (*tfjson.Plan, error), stderr io.Writer) *PlanSummary {
+	if !asked {
+		return nil
+	}
+	p, err := plan()
+	if err != nil {
+		fmt.Fprintf(stderr, "\nCould not plan the imported state, so drift is not reported: %v\n", err)
+		return nil
+	}
+	summary := SummarizePlan(p)
+	return &summary
 }
 
 // failedTypes maps the error diagnostics back to the list resource types that

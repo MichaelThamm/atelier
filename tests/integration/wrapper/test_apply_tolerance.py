@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers import TfDirManager, atelier
+from helpers import atelier
 
 REPO_V1 = "v1.0.0"
 REPO_V2 = "v2.0.0"
@@ -241,11 +241,9 @@ def test_apply_repoints_the_ref_rather_than_appending(tmp_path, module_repo):
     assert "cos_lite" in done.stderr, done.stderr
     assert REPO_V2 in done.stderr, done.stderr
 
-    # AND the re-pointed root deploys: the surviving input's resource is in state
-    tf = TfDirManager()
-    tf.latch(wrapper)
-    state = tf.state_list()
-    assert "module.cos_lite.terraform_data.model_uuid" in state, state
+    # No state assertion here: v2 drops the `model_uuid` variable, so Terraform
+    # creates no resource for it and there is nothing in state to read. The
+    # carry-over is asserted above, where it is visible — in the file.
 
 
 def test_apply_reports_a_new_required_input_from_the_new_ref(tmp_path, module_repo):
@@ -291,12 +289,13 @@ def test_apply_reports_an_argument_it_pruned_for_being_at_its_default(tmp_path, 
     assert "region" in done.stderr, done.stderr
     assert "pruned" in done.stderr, done.stderr
 
-    # AND the input is still in state, because pruning an argument that matched
-    # the default changes nothing Terraform computes.
-    tf = TfDirManager()
-    tf.latch(wrapper)
-    state = tf.state_list()
-    assert "module.cos_lite.terraform_data.region" in state, state
+    # No state assertion here, and that is deliberate rather than an omission.
+    # "Pruning an at-default argument changes nothing Terraform computes" cannot be
+    # shown from state: the argument is prunable only because its value equals the
+    # declared default, so after the prune Terraform reads the same default and
+    # writes the same value. The assertion would pass whether the prune happened or
+    # not. What the prune must not lose is a *non*-default value, which the
+    # re-point test above covers from the file.
 
 
 def test_apply_refuses_when_two_blocks_declare_the_module(tmp_path, module_repo):

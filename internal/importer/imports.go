@@ -84,6 +84,10 @@ type PlanSummary struct {
 	// have no live counterpart by definition (see unimportableTypes). These
 	// are the ones worth a user's attention.
 	AddAddresses []string
+	// ChangeAddresses lists the addresses counted in Change, on the same terms as
+	// AddAddresses: types that can never be imported are left out, because a
+	// plan that expects to rewrite them is reporting bookkeeping, not drift.
+	ChangeAddresses []string
 	// UnimportableAdds counts Add entries whose type can never be imported
 	// (e.g. terraform_data). They are expected and benign.
 	UnimportableAdds int
@@ -120,6 +124,9 @@ func SummarizePlan(plan *tfjson.Plan) PlanSummary {
 		case rc.Change.Actions.Update():
 			if rc.Change.Importing == nil {
 				s.Change++
+				if !unimportableTypes[rc.Type] {
+					s.ChangeAddresses = append(s.ChangeAddresses, rc.Address)
+				}
 			}
 		}
 	}

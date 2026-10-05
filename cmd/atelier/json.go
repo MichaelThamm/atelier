@@ -221,6 +221,10 @@ type jsonImport struct {
 	SkippedTypes  []string        `json:"skippedTypes"`
 	DryRun        bool            `json:"dryRun"`
 	Preview       *jsonPreview    `json:"preview"`
+	// PostImportPlan is the plan against the state this run's imports produced,
+	// so a non-empty add or change means a later apply would still alter the
+	// deployment. Null unless the run computed it.
+	PostImportPlan *jsonPostImportPlan `json:"postImportPlan"`
 	// ImportsFile and QueryFile are absolute paths to artifacts this run wrote,
 	// or "" when it wrote none. QueryFile is retained only when it would help a
 	// retry.
@@ -245,6 +249,18 @@ type jsonPreview struct {
 	Destroy          int      `json:"destroy"`
 	UnimportableAdds int      `json:"unimportableAdds"`
 	AddAddresses     []string `json:"addAddresses"`
+}
+
+// jsonPostImportPlan is the plan against the imported state. It carries no
+// "toImport": there is nothing left to import by the time it is taken, and
+// reporting a zero there would read as a shortfall rather than as done.
+type jsonPostImportPlan struct {
+	Add              int      `json:"add"`
+	Change           int      `json:"change"`
+	Destroy          int      `json:"destroy"`
+	UnimportableAdds int      `json:"unimportableAdds"`
+	AddAddresses     []string `json:"addAddresses"`
+	ChangeAddresses  []string `json:"changeAddresses"`
 }
 
 // importPayload builds the `atelier import` payload from the same Result the
@@ -297,6 +313,16 @@ func importPayload(res *importer.Result, dryRun bool) jsonImport {
 			Destroy:          p.Destroy,
 			UnimportableAdds: p.UnimportableAdds,
 			AddAddresses:     nonNil(p.AddAddresses),
+		}
+	}
+	if p := res.PostImportPlan; p != nil {
+		out.PostImportPlan = &jsonPostImportPlan{
+			Add:              p.Add,
+			Change:           p.Change,
+			Destroy:          p.Destroy,
+			UnimportableAdds: p.UnimportableAdds,
+			AddAddresses:     nonNil(p.AddAddresses),
+			ChangeAddresses:  nonNil(p.ChangeAddresses),
 		}
 	}
 	return out
