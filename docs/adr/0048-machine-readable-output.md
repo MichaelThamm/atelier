@@ -44,7 +44,7 @@ Two properties make a payload hard to add later rather than merely absent:
 and leaves everything else alone.**
 
 - The payload goes to **stdout**, which is already the result channel
-  (`atelier tidy`'s diff, `import --list`'s resource list). Progress, prompts,
+  (`import --list`'s resource list). Progress, prompts,
   spinners and warnings stay on stderr, per the rule that `internal/` never
   writes to stdout and `cmd/atelier` only does for a result.
 - **What happens to the text depends on what the text is.** Where it is a report
@@ -65,10 +65,9 @@ and leaves everything else alone.**
   `schema` changes when a field is removed or its meaning changes. Adding a
   field is not a change, so a consumer can ignore what it does not recognise.
 - **Only data-bearing commands get it:** `add` (including `--list-var-files`),
-  `ls`, `wrappers`, and `import` (including `--list`). Not `tidy`, whose payload
-  *is* a diff; not `gallery`, whose `list --commands` and `requires` output is
-  already one record per line; not `rm`, `purge` or `presets lint`, which report
-  nothing to carry.
+  `ls`, `wrappers`, and `import` (including `--list`). Not `gallery`, whose
+  `list --commands` and `requires` output is already one record per line; not
+  `rm`, `purge` or `presets lint`, which report nothing to carry.
 - **`atelier apply` rejects `--json`.** It reports Terraform's own output, which
   Atelier does not control. A silent no-op would be worse than the error: a CI
   job reads a missing payload as success.

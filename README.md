@@ -25,6 +25,10 @@ and presets for reusable configurations.
   It is version-controllable, shareable, runnable without Atelier installed, and
   CI-compatible. Atelier's internal state lives in a `.atelier/` subdirectory
   that is regenerable from the wrapper.
+- **Only what you change.** Atelier writes an input only when its value differs
+  from the default the module declares, so the wrapper stays short and the
+  module's own defaults handle the rest. Inputs with no default are always
+  written, because Terraform needs a value for them.
 - **Plan and apply in the TUI.** Atelier owns the configure → plan iteration
   loop and supports `terraform apply` from the plan view (`A` key).
 - **Presets are plain Terraform.** Reusable value bundles are `.tfvars` files,
@@ -180,7 +184,7 @@ atelier
 ```
 
 > **Note:** run `atelier --help` for the full command list, including `atelier
-> add|rm|ls`, `atelier wrappers`, `atelier tidy`, and `atelier purge`.
+> add|rm|ls`, `atelier wrappers`, and `atelier purge`.
 
 > **Note:** the demos below use
 > [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform):
@@ -507,45 +511,6 @@ Every edit is saved to disk immediately, and Atelier runs a background
 `terraform validate`. Errors appear inline in the status bar; press `L` for the
 live logs, whose Errors tab holds the full diagnostics. Validation runs
 `terraform init` automatically if the workspace isn't initialised yet.
-
-## Tidying a wrapper
-
-Atelier writes sparse `main.tf` files — only values that differ from the
-module's defaults appear (see [ADR-0007](docs/adr/0007-sparse-wrapper-write-rule.md)).
-But a wrapper that was hand-authored or seeded from an upstream example often
-carries arguments set to their default value, which is just noise:
-
-```hcl
-module "cos_lite" {
-  source  = "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main"
-  model   = { name = "cos-lite-two" }
-  grafana = { units = 1 }          # 1 is already the default
-  catalogue = { app_name = "catalogue" }  # also the default
-}
-```
-
-`atelier tidy` prunes those redundant arguments back to sparse form:
-
-```bash
-atelier tidy            # dry run: print the diff, change nothing
-atelier tidy --write    # apply it (backs up main.tf first)
-```
-
-It is **dry-run by default**. With `--write` it copies the current `main.tf`
-to `.atelier/backups/main.tf.<timestamp>.bak` before rewriting. Tidy reuses
-the same writer the TUI uses, so the change is apply-neutral: `terraform plan`
-is identical before and after. Arguments whose value is an expression
-(`var.x`, `module.y.z`) are never pruned. See
-[ADR-0021](docs/adr/0021-tidy-command.md) for the design.
-
-Every Atelier write applies the same rule, so you will sometimes see an
-at-default argument disappear without asking: the TUI when you save, and
-`atelier apply` when it rewrites a module's block — which it names on stderr.
-What those do not offer is a chance to look first. Tidy is how you see a prune
-before it happens: it shows the diff, changes nothing unless you pass `--write`,
-keeps a backup, and reports an unpinned ref (where "default" is only whatever
-upstream says today) before it prunes against it. It also prunes the whole
-wrapper, including modules you are not about to deploy.
 
 ## Troubleshooting
 

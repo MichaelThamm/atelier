@@ -97,10 +97,9 @@ removed entirely; `.tfvars` files are preset bundles only, not a wrapper shape.
 - **A generated pass-through wrapper (`--tfvars`), opt-in or default.**
   Rejected: it duplicates the module's API (a second source of truth that can
   drift), turns `main.tf` into a wall of `var.*` forwards, and adds a second
-  read/write path (mode detection, ref-switch propagation, a `tidy` refusal, a
-  single-module constraint, parallel tests) for a goal the preset bundles
-  already meet. Users who want a root `variables.tf` interface can hand-write
-  one.
+  read/write path (mode detection, ref-switch propagation, a single-module
+  constraint, parallel tests) for a goal the preset bundles already meet. Users
+  who want a root `variables.tf` interface can hand-write one.
 
 ## Consequences
 
