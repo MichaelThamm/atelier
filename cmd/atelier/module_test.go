@@ -157,6 +157,19 @@ func TestApplyVarFlags_MissingFileIsSkipped(t *testing.T) {
 	}
 }
 
+func TestApplyVarFlags_MissingFileIsFatalUnderStrict(t *testing.T) {
+	// A bundle that resolved to nothing writes a wrapper missing every value it
+	// held, and the wrapper looks fine. Under --strict that must not pass.
+	err := applyVarFlags(&wrapper.State{Values: map[string]cty.Value{}},
+		t.TempDir(), "", "", []string{"typo-in-the-name"}, nil, true)
+	if err == nil {
+		t.Fatal("an unresolvable --var-file was accepted under --strict")
+	}
+	if !strings.Contains(err.Error(), "typo-in-the-name") {
+		t.Errorf("error does not name the bundle: %v", err)
+	}
+}
+
 // --- sanitizeBlockName ---
 
 func TestSanitizeBlockName_Hyphens(t *testing.T) {
