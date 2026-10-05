@@ -198,7 +198,13 @@ On confirmation, Atelier:
 1. Re-clones the module at the new ref.
 2. Carries over existing user values for variables that still exist in the
    new ref into the wrapper before running init (required variables must be
-   present in the HCL for init to succeed).
+   present in the HCL for init to succeed). What carries over is the module's
+   input: concrete values, and expressions Atelier cannot evaluate
+   (`model_uuid = data.juju_model.x.uuid`). An input the new revision dropped is
+   removed, because Terraform would reject it as an unrecognised argument.
+   Terraform meta-arguments (`depends_on`, `count`, `for_each`, `providers`) are
+   the user's own composition and are left in the block untouched
+   ([ADR-0050](adr/0050-tolerant-apply-converges.md)).
 3. Runs `terraform init -upgrade` in the wrapper to fetch the new module
    revision and update providers.
 4. Re-parses variables from the new ref.
@@ -254,8 +260,8 @@ atelier ls [--json]                 # list modules in the wrapper
 atelier wrappers [PATH] [--json]    # list wrappers directly under PATH (default: CWD)
 atelier apply <git-url>             # scaffold a wrapper in a new dir, init, then apply interactively
 atelier apply <git-url> --module <subdir>  # skip the candidate picker
-atelier apply <git-url> --ref <ref>  # pin a ref
-atelier apply <git-url> --as <name>  # target directory / HCL block name
+atelier apply <git-url> --ref <ref>  # pin a ref; re-points the block when the wrapper already declares the module (§6.9)
+atelier apply <git-url> --as <name>  # target directory / HCL block name; selects the block to update
 atelier apply <git-url> --dir <path> # target directory; compose into and deploy it when it holds a wrapper (§6.9)
 atelier apply <git-url> --var <K=V>  # set a module input (repeatable; wins over --var-file)
 atelier tidy [PATH] [--write]              # prune module arguments left at their default value
@@ -282,11 +288,11 @@ That is the complete CLI surface. Notably absent:
 
 - No `atelier plan` (use `terraform plan` directly in the wrapper, or press
   `P` within the TUI).
-- No command to apply an *existing* wrapper. `atelier apply` is the
-  scaffold-and-first-deploy one-liner (`mkdir && cd && terraform init &&
-  terraform apply` for a module not yet deployed), driven by Terraform's own
-  interactive approval (see §6.9). Applying an existing wrapper is done with
-  `terraform apply` directly or with `A` from the TUI plan view.
+- No command to apply a wrapper *without naming a module*. `atelier apply` takes
+  a module URL and converges the target wrapper on it, whether the wrapper is new
+  or already declares it (§6.9, §6.9.1). Deploying the wrapper exactly as it
+  stands — no source argument — is `terraform apply` directly, or `A` from the TUI
+  plan view.
 - No daemon mode or persistent sessions.
 
 There is no `atelier output` subcommand; run `terraform output` directly in the
@@ -520,23 +526,26 @@ non-colliding name and would otherwise pass unnoticed.
 | Existing block vs. the add | Behaviour |
 |----------------------------|-----------|
 | Same repo, same sub-dir, same ref | **Error.** Nothing is written. |
-| Same repo, same sub-dir, same ref, plus a free `--as NAME` | Allowed, with a warning. |
-| Same repo, same sub-dir, different ref | Allowed, with a note. |
+| Same repo, same sub-dir, different ref | **Error.** Nothing is written. |
 | Different repo or different sub-dir | Allowed silently. |
 
-Two blocks of one module at one ref declare two copies of the same resources.
-Terraform accepts the configuration and fails later at apply, on colliding
-resource names — far from the cause. The error is therefore a refusal, not a
-prompt: `--as NAME` is a precise way to say "I do want a separate instance", and
-`--yes` does **not** bypass it.
+Two blocks of one module declare two copies of the same resources. Terraform
+accepts the configuration and fails later at apply, on colliding resource names —
+far from the cause. The error is therefore a refusal, and `--yes` does **not**
+bypass it. `--as NAME` is not an escape hatch either: it names the block to
+write, so pointing it at a block that already declares the module is refused the
+same way. A genuinely separate instance is a hand-written block in `main.tf`
+(§6.9.1).
 
 URL comparison normalises the `git::` prefix, a `.git` suffix, a trailing slash,
 and case. Refs are compared as literally written in `main.tf`: resolving each
 existing block's ref to a SHA would catch `--ref main` duplicating an unpinned
 block already tracking `main`, but at the cost of a network round trip per block
 on every add. The literal compare catches the case that actually occurs — the
-same command run twice — and never blocks a genuinely distinct revision. The
-different-ref note covers the residual gap.
+same command run twice — and never blocks a genuinely distinct revision.
+
+`atelier apply` compares the same way but acts on the answer instead of refusing
+it: it updates the block (§6.9.1, [ADR-0050](adr/0050-tolerant-apply-converges.md)).
 
 See [ADR-0030](adr/0030-target-directory-preflight.md).
 
@@ -711,9 +720,67 @@ Sequence, for a target with no `main.tf`:
 3. Write the wrapper (bootstrap) into the target.
 4. Run `terraform init`, then **`terraform apply`**.
 
-For a target that already holds a `main.tf`, steps 2 and 3 are replaced by the
-additive append of §6.2 — same clone, candidate discovery, duplicate refusal,
-and `--var`/`--var-file` handling — and step 4 runs in that target.
+For a target that already holds a `main.tf`, steps 2 and 3 are replaced by a
+compose into that wrapper — same clone, candidate discovery, and
+`--var`/`--var-file` handling — and step 4 runs in that target. What the wrapper
+already declares decides whether its block is updated or a new one appended:
+see §6.9.1.
+
+### 6.9.1 `atelier apply` converges on the block it finds
+
+A compose identifies the block to write **by module, not by ref**. A block *is*
+the module being applied when its repository and sub-directory match, at any ref:
+the ref is what an apply may change, not what makes a block a different module.
+
+| the wrapper declares | `atelier apply` | `atelier add` |
+| --- | --- | --- |
+| this module once | **update that block in place** | refuse as a duplicate |
+| this module 2+ times | refuse, naming them; `--as` picks one | refuse as a duplicate |
+| no such module | append a new block | append a new block |
+
+So the three cases that matter:
+
+- **Re-deploying an identical declaration is idempotent.** Running the same
+  command again updates the block with the values it already holds and deploys.
+- **A different `--ref` re-points the block** rather than appending a second one.
+  Inputs the new revision still declares are carried over, ones it dropped are
+  removed, and ones it adds are reported.
+- **A `--var` merges into the block's current values.** Every input the flags do
+  not mention keeps the value it had. The freshly cloned module carries
+  *defaults*, so an apply that did not read the block back would revert
+  everything the user configured.
+
+Carrying the block's current declaration onto the newly cloned schema is what
+makes the third case safe. It is read against the new schema, so a value arrives
+typed and mergeable while a wired expression or a `depends_on` is preserved
+verbatim. See [ADR-0050](adr/0050-tolerant-apply-converges.md).
+
+**`--as` selects the block to write; it never declares a second copy.** It names
+an existing block of this module, which is updated in place. A name matching no
+block falls back to the one block that does declare the module, keeping its own
+name and reporting the name it did not use — which is what makes
+`atelier apply <gallery-name>` work on a wrapper that holds the module under a
+different block name, since a gallery entry supplies the name itself. When the
+module is absent, the name becomes the new block's name. Pointing `--as` at a
+block of a different module is refused. A genuinely separate instance is a
+hand-edited block in `main.tf`; the editor picks it up on the next open, and such
+a wrapper stays deployable via `atelier apply --as <block>`.
+
+`add` stays strict: it authors, so a module the wrapper already has is refused
+rather than overwriting hand-made configuration. The shared target rule of
+[ADR-0044](adr/0044-dir-names-the-wrapper.md) is unchanged — a `main.tf` still
+means compose.
+
+The run reports what it changed, because a block rewritten under the same name
+otherwise looks like the command did nothing: whether the block already declared
+this source or was re-pointed (and from which ref), which arguments the new
+revision dropped, which inputs it adds, and which arguments the sparse rule
+pruned for now matching their module default.
+
+Rewriting a block normalises it, so `atelier apply` is not a way to *inspect* a
+prune before it happens. `atelier tidy` is: it previews the diff, requires
+`--write`, backs `main.tf` up, warns when the ref is unpinned, and prunes every
+module in the wrapper rather than the one being deployed.
 
 The apply is **not auto-approved when a terminal is present**: Terraform prints
 the plan and asks `Do you want to perform these actions?`, and the user answers.
@@ -733,13 +800,16 @@ Rules:
   scaffolded over. A target holding a `main.tf` composes rather than scaffolds,
   so the refusal and the additive case are decided by the same predicate
   `atelier add` uses.
-- In the additive case the §6.5 preflight findings are printed but not prompted
-  over: `atelier apply` rejects `--yes`, so Terraform's plan prompt is the only
-  confirmation it has, and a question it cannot answer is worse than none.
+- When composing into an existing wrapper, the §6.5 preflight findings are
+  printed but not prompted over: `atelier apply` rejects `--yes`, so Terraform's
+  plan prompt is the only confirmation it has, and a question it cannot answer is
+  worse than none.
 - If the module declares a required variable with no value, `atelier apply`
   writes the wrapper and stops before applying, naming the variable and
   suggesting `--var`. Terraform would otherwise reject the run with a less
-  direct message.
+  direct message. A required input wired to an expression
+  (`model_uuid = module.loki.endpoint`) counts as set — Terraform resolves it
+  even though Atelier cannot.
 - The wrapper is a normal Atelier wrapper: re-open it with `atelier`, or run
   `terraform` in it directly (SPEC §4). `atelier apply` is a convenience, not a
   new artifact shape.

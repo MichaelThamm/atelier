@@ -56,6 +56,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0047 | [An import takes a gallery entry's module but none of its presets](0047-import-gallery-name.md) | Accepted |
 | 0048 | [Machine-readable output behind `--json`](0048-machine-readable-output.md) | Accepted |
 | 0049 | [The Juju page reads the model from the environment](0049-juju-page-model-from-environment.md) | Accepted |
+| 0050 | [`atelier apply` converges on the block it finds](0050-tolerant-apply-converges.md) | Accepted |
 
 ## Conventions
 

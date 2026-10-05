@@ -47,8 +47,11 @@ func TestFindExistingInstances_differentRefIsNotADuplicate(t *testing.T) {
 		{Name: "mimir", Source: "git::https://github.com/canonical/mimir-operators.git//terraform?ref=track/2"},
 	}
 	same, otherRef := findExistingInstances(existing, mimirSource)
+	// The split is exact-ref vs any-ref, not a same-module/different-module
+	// judgement: a block at another ref is still this module, and the caller
+	// decides what to do about it (ADR-0050).
 	if len(same) != 0 {
-		t.Errorf("a different ref is a supported second instance, not a duplicate; got %+v", same)
+		t.Errorf("a different ref is not an exact-ref match; got %+v", same)
 	}
 	if len(otherRef) != 1 {
 		t.Errorf("expected the different-ref block to be reported; got %+v", otherRef)
@@ -118,15 +121,23 @@ func TestBlockNameTaken(t *testing.T) {
 
 func TestDuplicateModuleError_isActionable(t *testing.T) {
 	dups := []wrapper.ModuleBlockInfo{{Name: "mimir", Source: mimirSource}}
-	err := duplicateModuleError(dups, mimirSource, "https://github.com/canonical/mimir-operators.git")
+	err := duplicateModuleError(dups, composeRequest{
+		source:    mimirSource,
+		requested: "https://github.com/canonical/mimir-operators.git",
+	})
 	if err == nil {
 		t.Fatal("expected an error")
 	}
 	msg := err.Error()
-	for _, want := range []string{`"mimir"`, "--as", "--ref", mimirSource} {
+	// The remedies are the ways out that do not declare a second copy: open the
+	// existing block, or deploy at another ref. --as is no longer one of them.
+	for _, want := range []string{`"mimir"`, "--ref", "atelier apply", mimirSource} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error should mention %q; got:\n%s", want, msg)
 		}
+	}
+	if strings.Contains(msg, "--as") {
+		t.Errorf("the duplicate error must not offer --as, which no longer declares a second copy; got:\n%s", msg)
 	}
 }
 
@@ -135,7 +146,7 @@ func TestDuplicateModuleError_namesEveryDuplicate(t *testing.T) {
 		{Name: "mimir", Source: mimirSource},
 		{Name: "mimir_extra", Source: mimirSource},
 	}
-	msg := duplicateModuleError(dups, mimirSource, "url").Error()
+	msg := duplicateModuleError(dups, composeRequest{source: mimirSource, requested: "url"}).Error()
 	if !strings.Contains(msg, `"mimir"`) || !strings.Contains(msg, `"mimir_extra"`) {
 		t.Errorf("expected both block names; got:\n%s", msg)
 	}

@@ -12,12 +12,26 @@
 package wrapper
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
+
+// metaArguments are the module-block attributes Terraform interprets itself
+// instead of passing to the module. A module cannot receive them as inputs, so
+// they are never stale variables and must survive a change of schema.
+var metaArguments = []string{"version", "count", "for_each", "providers", "depends_on"}
+
+// IsMetaArgument reports whether name is a Terraform meta-argument — an
+// attribute of a module block that Terraform interprets itself instead of
+// passing to the module — rather than one of the module's inputs. A module
+// cannot receive one as an argument, so it is never a stale variable.
+func IsMetaArgument(name string) bool {
+	return slices.Contains(metaArguments, name)
+}
 
 // State is Atelier's in-memory model of the wrapper. It does not embed file
 // contents (that lives in main.tf etc.); instead it holds the values Atelier
@@ -160,6 +174,40 @@ func (s *State) WiredExpression(name string) (string, bool) {
 		return expr, expr != ""
 	}
 	return "", false
+}
+
+// AdoptPrior folds a previous declaration's user input into s, keeping only
+// what s's schema still declares: priorValues land in s.Values, and s's carried
+// expressions become exactly the surviving priorAttrs. An input the new schema
+// dropped is discarded rather than written back, because RenderMain would prune
+// it as an unrecognised argument and `terraform init` would reject the block.
+//
+// It is the one carry-over rule for a schema change — a ref switch, or
+// `atelier apply` re-pointing a block — and it is idempotent, so a caller that
+// has already carried the same prior over may call it again.
+//
+// A meta-argument (`depends_on`, `count`, …) is not carried over, because it is
+// not a module input and Atelier holds no opinion on how modules compose. It
+// needs no help: writes are AST-backed on the existing main.tf and RenderMain
+// keeps those names unconditionally, so a hand-written `depends_on` survives any
+// rewrite untouched. Carrying it here would only mean modelling it.
+func (s *State) AdoptPrior(priorValues map[string]cty.Value, priorAttrs []RawAttr) {
+	s.EnsureValues()
+	keep := make(map[string]bool, len(s.Vars))
+	for i := range s.Vars {
+		keep[s.Vars[i].Name] = true
+	}
+	for name, val := range priorValues {
+		if keep[name] {
+			s.Values[name] = val
+		}
+	}
+	s.UnknownAttrs = nil
+	for _, ra := range priorAttrs {
+		if keep[ra.Name] {
+			s.UnknownAttrs = append(s.UnknownAttrs, ra)
+		}
+	}
 }
 
 // FindVar returns the declaration for a variable name, or nil if not found.

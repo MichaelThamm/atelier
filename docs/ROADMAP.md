@@ -16,17 +16,21 @@ wrapper, iterate against `terraform plan` inside the TUI."
 Concretely:
 
 - The `atelier` CLI: open a wrapper (`atelier`), add/remove/list modules
-  (`atelier add|rm|ls`), scaffold-and-deploy a module in one command
+  (`atelier add|rm|ls`), scaffold-and-deploy a module in one re-runnable command
   (`atelier apply`), prune to sparse form (`atelier tidy`), list wrappers under
   a directory (`atelier wrappers`), and clean up (`atelier purge`).
 - Public git source loading (`atelier add <url>`); local `source =
   "./..."` paths in a hand-authored `main.tf` are also supported.
 - **Multi-module composition in one root.** A target that already holds a
-  `main.tf` is the additive case for both `add` and `apply`, so a deployment is
+  `main.tf` is the compose case for both `add` and `apply`, so a deployment is
   built one module per command: `atelier apply cos-lite`, then
   `atelier apply charmed-spark --dir cos-lite` appends and deploys both from one
   state. `--dir` names the wrapper, so it need not be the CWD
   ([ADR-0044](adr/0044-dir-names-the-wrapper.md)).
+- **A re-runnable `atelier apply`.** Re-running the same command is idempotent, a
+  changed `--ref` re-points the block it finds, and a `--var` merges into that
+  block's existing values rather than reverting them to defaults
+  ([ADR-0050](adr/0050-tolerant-apply-converges.md)).
 - Two-pane TUI with type-appropriate widgets for `string`, `bool`, `number`,
   `object`, `map(string)`, `map(object)`, `list(string)`, `list(object)`,
   `set(...)`, and nullable scalars.

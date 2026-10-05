@@ -6,9 +6,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/MichaelThamm/atelier/internal/wrapper"
-	"github.com/zclconf/go-cty/cty"
 )
 
 // RefUnresolvedInfo mirrors bootstrap.RefUnresolved for the TUI layer: it
@@ -172,30 +169,13 @@ func (m *Model) applyRefSwitch(result *RefSwitchResult) {
 	//      so failing to carry them over silently deletes the reference from
 	//      the rendered module block on the next write.
 	// Overrides for variables that no longer exist in the new ref are
-	// intentionally dropped (reported as orphaned).
+	// intentionally dropped (reported as orphaned). This second overlay is on
+	// top of the carry-over bootstrap.LoadRefState already did, and uses the
+	// in-memory state so edits made since the switcher last cached it are not
+	// lost; AdoptPrior is idempotent, so doing both is safe.
 	oldState := entry.State
 	newState := result.State
-	if newState.Values == nil {
-		newState.Values = make(map[string]cty.Value)
-	}
-	newVarNames := make(map[string]bool, len(newState.Vars))
-	for _, v := range newState.Vars {
-		newVarNames[v.Name] = true
-	}
-	for name, val := range oldState.Values {
-		if newVarNames[name] {
-			newState.Values[name] = val
-		}
-	}
-	if len(oldState.UnknownAttrs) > 0 {
-		carried := make([]wrapper.RawAttr, 0, len(oldState.UnknownAttrs))
-		for _, ra := range oldState.UnknownAttrs {
-			if newVarNames[ra.Name] {
-				carried = append(carried, ra)
-			}
-		}
-		newState.UnknownAttrs = carried
-	}
+	newState.AdoptPrior(oldState.Values, oldState.UnknownAttrs)
 
 	// Write the new state back into the owning entry. This is the single
 	// source of truth used by writeAllModules — failing to update it here is
