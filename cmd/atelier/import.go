@@ -203,7 +203,7 @@ func runImport(args []string) error {
 	// there is no repo to search. It honours --dir so the local walk-up is the
 	// same one the import itself would see.
 	if listVarFiles {
-		return listVarFileBundles(dir, moduleOpts{
+		return listVarFileBundles(dir, "import", moduleOpts{
 			Source: sourceArg, Ref: refArg, ModulePath: moduleArg, JSON: asJSON,
 		})
 	}

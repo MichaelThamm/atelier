@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -370,5 +371,26 @@ func TestParseModuleArgs_json(t *testing.T) {
 	}
 	if !opts.JSON {
 		t.Error("JSON = false, want true")
+	}
+}
+
+func TestCandidatesChannel(t *testing.T) {
+	// Interactively the list is the answer, so it prints and the run succeeds.
+	w, err := candidatesChannel(moduleOpts{})
+	if err != nil {
+		t.Errorf("without --json: %v", err)
+	}
+	if w != os.Stdout {
+		t.Errorf("without --json the list went to %v, want stdout", w)
+	}
+
+	// Under --json stdout is the payload channel and exiting 0 would be
+	// indistinguishable from success.
+	w, err = candidatesChannel(moduleOpts{JSON: true})
+	if err == nil {
+		t.Error("an ambiguous source reported success under --json")
+	}
+	if w != os.Stderr {
+		t.Errorf("under --json the list went to %v, want stderr", w)
 	}
 }

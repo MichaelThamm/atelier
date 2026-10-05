@@ -40,18 +40,21 @@ Two properties make a payload hard to add later rather than merely absent:
 
 ## Decision
 
-**A `--json` flag on the commands whose result is data. It adds a payload on
-stdout and changes nothing else.**
+**A `--json` flag on the commands whose result is data. It replaces the result
+and leaves everything else alone.**
 
 - The payload goes to **stdout**, which is already the result channel
   (`atelier tidy`'s diff, `import --list`'s resource list). Progress, prompts,
   spinners and warnings stay on stderr, per the rule that `internal/` never
   writes to stdout and `cmd/atelier` only does for a result.
-- **The human report is still printed, to stderr.** `--json` adds a second
-  rendering; it never suppresses the first. A run that failed still explains
-  itself, and the two renderings cannot disagree because both are built from the
-  same `Result`. `--json` output is indented, so a CI log is readable without
-  `jq`.
+- **What happens to the text depends on what the text is.** Where it is a report
+  — what `add` and `import` say about what they just did — it is still printed,
+  to stderr: `--json` adds a second rendering and suppresses nothing, and the two
+  cannot disagree because both are built from the same `Result`. Where the text
+  *is* the result — the table `ls` and `wrappers` print — the payload replaces
+  it, since two renderings cannot share stdout. Either way a run that failed
+  still explains itself on stderr. `--json` output is indented, so a CI log is
+  readable without `jq`.
 - **Every payload is wrapped in one envelope**, so a consumer can tell what it
   got and which revision of the shape it is reading:
 
@@ -81,6 +84,12 @@ stdout and changes nothing else.**
 - **Failures are unchanged.** A command that fails writes `atelier: <error>` to
   stderr and exits `1`; there is no error payload. A consumer reads stdout only
   on success.
+- **A `--json` run that needs more input is a failure.** When a source matches
+  several modules, `add` prints the candidates and exits `0`, because a person
+  reads the list and re-runs with `--module`. Under `--json` the list moves to
+  stderr and the exit code becomes `1`: stdout is the payload channel, so prose
+  there is unparseable, and exiting `0` would report the one outcome a consumer
+  cannot detect.
 - **`add --json` reports the wrapper directory it wrote**, because `atelier add`
   creates a directory named after the module when it is not told where to write
   (ADR-0044), and "where did my wrapper go?" is otherwise unanswerable.

@@ -362,8 +362,8 @@ The pieces that make this work:
 ## Scripting and CI
 
 `atelier add`, `atelier ls`, `atelier wrappers` and `atelier import` take
-`--json`, which writes the result to stdout as JSON. The text you normally read
-still goes to stderr, so nothing is lost:
+`--json`, which writes the result to stdout as JSON. Anything the command says
+*about* what it did still goes to stderr, so nothing is lost:
 
 ```bash
 atelier add https://github.com/canonical/observability-stack.git \

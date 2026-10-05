@@ -174,7 +174,10 @@ func printVarFiles(files []bootstrap.VarFile) {
 // clone is removed before returning, so nothing is written and no preflight is
 // needed. Names are resolved against the same walk-up and repo locations the
 // command itself would see.
-func listVarFileBundles(wrapperDir string, opts moduleOpts) error {
+//
+// command names the invocation, so the envelope reports the command the caller
+// actually ran rather than the one this helper happens to be shared with.
+func listVarFileBundles(wrapperDir, command string, opts moduleOpts) error {
 	ctx, cancel := interruptContext()
 	defer cancel()
 	files, err := bootstrap.ListVarFiles(ctx, bootstrap.InitOptions{
@@ -188,7 +191,7 @@ func listVarFileBundles(wrapperDir string, opts moduleOpts) error {
 		return err
 	}
 	if opts.JSON {
-		return renderJSON(os.Stdout, "add", varFilesPayload(files))
+		return renderJSON(os.Stdout, command, varFilesPayload(files))
 	}
 	printVarFiles(files)
 	return nil
@@ -205,6 +208,25 @@ func printCandidates(w io.Writer, cands []candidate.Candidate) {
 		}
 		fmt.Fprintln(w, "  "+label)
 	}
+}
+
+// errNeedsModule reports an ambiguous source under --json, where the candidate
+// list has already gone to stderr.
+var errNeedsModule = errors.New("several modules match this source; re-run with --module <path>")
+
+// candidatesChannel decides where an ambiguous module's candidate list is printed
+// and whether the run counts as a failure.
+//
+// Interactively the list goes to stdout and the run succeeds, because a person
+// reads the list and re-runs with --module. Neither half survives --json: stdout
+// is the payload channel, so prose there is unparseable, and exiting 0 would
+// report the one outcome a consumer cannot detect. So the list moves to stderr
+// and the caller gets an error to return.
+func candidatesChannel(opts moduleOpts) (io.Writer, error) {
+	if !opts.JSON {
+		return os.Stdout, nil
+	}
+	return os.Stderr, errNeedsModule
 }
 
 // applyVarFlags layers `--var-file` bundles then `--var` overrides onto state
@@ -271,7 +293,7 @@ func runModuleAdd(args []string) error {
 	// and no preflight is needed. It runs before the terraform check because
 	// listing needs only git.
 	if opts.ListVarFiles {
-		return listVarFileBundles(cwd, opts)
+		return listVarFileBundles(cwd, "add", opts)
 	}
 
 	if _, err := tfexec.Locate(); err != nil {
@@ -428,8 +450,9 @@ func appendModuleBlock(cwd, dir string, opts moduleOpts, prompt bool) (*wrapper.
 	}
 	if prep.State == nil {
 		// Multiple candidates — user needs --module. Nothing was written.
-		printCandidates(os.Stdout, prep.Candidates)
-		return nil, nil
+		w, err := candidatesChannel(opts)
+		printCandidates(w, prep.Candidates)
+		return nil, err
 	}
 	state := prep.State
 
@@ -580,8 +603,9 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 	}
 	if res.State == nil {
 		// Multiple candidates — user needs --module. Nothing was written.
-		printCandidates(os.Stdout, res.Candidates)
-		return "", nil, nil
+		w, err := candidatesChannel(opts)
+		printCandidates(w, res.Candidates)
+		return "", nil, err
 	}
 
 	// --as renames the HCL block the bootstrap wrote under the candidate-derived
@@ -665,7 +689,7 @@ func runModuleApply(args []string) error {
 		return err
 	}
 	if opts.ListVarFiles {
-		return listVarFileBundles(cwd, opts)
+		return listVarFileBundles(cwd, "apply", opts)
 	}
 	if _, err := tfexec.Locate(); err != nil {
 		return err

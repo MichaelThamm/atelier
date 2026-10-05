@@ -749,9 +749,15 @@ otherwise address a child, and it does not recurse. It exists because
 ### 6.11 Machine-readable output
 
 `atelier add`, `ls`, `wrappers` and `import` accept `--json`, which writes the
-command's result to stdout as JSON and changes nothing else: the human report
-still goes to stderr, so a run that went wrong still explains itself. See
+command's result to stdout as JSON. What happens to the text depends on which
+kind of output it is. Where the text is a report — what `add` and `import` print
+about what they did — it still goes to stderr, so a run that went wrong still
+explains itself. Where the text *is* the result — the table `ls` and `wrappers`
+print — the payload replaces it, because both cannot share stdout. See
 [ADR-0048](adr/0048-machine-readable-output.md).
+
+`atelier add --json` exits `1` and lists the candidates on stderr when the
+source matches several modules, since `--json` has to re-run to get a result.
 
 Every payload is wrapped in one envelope:
 
