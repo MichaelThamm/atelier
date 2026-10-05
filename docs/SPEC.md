@@ -776,10 +776,11 @@ this source or was re-pointed (and from which ref), which arguments the new
 revision dropped, which inputs it adds, and which arguments the sparse rule
 pruned for now matching their module default.
 
-Rewriting a block normalises it, so `atelier apply` is not a way to *inspect* a
-prune before it happens. To see what the sparse rule would remove, open the
-wrapper in the TUI and save; `RenderMain` renders the sparse form without
-touching disk, so a diff of the file against that render is the prune.
+Rewriting a block normalises it. Two things change as a side effect: an argument
+that now matches its module default is removed, and a constant expression is
+replaced by its value (`units = 1 + 1` comes back as `units = 2`). Both are
+apply-neutral. The run reports the prune by name; it does not report the
+constant fold.
 
 The apply is **not auto-approved when a terminal is present**: Terraform prints
 the plan and asks `Do you want to perform these actions?`, and the user answers.

@@ -508,31 +508,6 @@ Every edit is saved to disk immediately, and Atelier runs a background
 live logs, whose Errors tab holds the full diagnostics. Validation runs
 `terraform init` automatically if the workspace isn't initialised yet.
 
-## Sparse wrappers
-
-Atelier writes sparse `main.tf` files — only values that differ from the
-module's defaults appear (see [ADR-0007](docs/adr/0007-sparse-wrapper-write-rule.md)).
-A wrapper that was hand-authored or seeded from an upstream example often
-carries arguments set to their default value, which is just noise:
-
-```hcl
-module "cos_lite" {
-  source  = "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main"
-  model   = { name = "cos-lite-two" }
-  grafana = { units = 1 }          # 1 is already the default
-  catalogue = { app_name = "catalogue" }  # also the default
-}
-```
-
-The next Atelier write collapses that back to sparse form. Open the wrapper and
-save, or re-run `atelier apply` for the module — either way the at-default
-arguments go, and `atelier apply` names what it pruned on stderr. The result is
-apply-neutral: `terraform plan` is identical before and after. Arguments whose
-value is an expression (`var.x`, `module.y.z`) are never pruned.
-
-Your hand edits and comments are preserved throughout; only the redundant
-arguments are removed.
-
 ## Troubleshooting
 
 Atelier persists terraform's diagnostics under the wrapper's
