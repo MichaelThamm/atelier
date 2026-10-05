@@ -16,7 +16,6 @@ non-empty. Drift in ``terraform_data`` and secrets is expected — see
 """
 
 import json
-from pathlib import Path
 
 import jubilant
 import pytest
@@ -94,30 +93,24 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
         },
     )
 
-    # WHEN Atelier bootstraps the module, non-interactively, pinned to --ref
-    # and configured from both bundles: the explicit ci values, then the
-    # module's own no-ingress preset.
-    added = json.loads(run("add", COS_REPO, "--module", COS_MODULE, "--ref", COS_REF,
-                           "--dir", ".", "--var-file", str(bundle), "--var-file", COS_PRESET,
-                           "--strict", "--yes", "--json", cwd=wrapper_dir).stdout)["data"]
+    # WHEN Atelier deploys the module: `apply` is `add` plus `terraform init`
+    # and `apply`, so this one call authors the wrapper and stands the stack up.
+    # It is pinned to --ref and configured from both bundles, the explicit ci
+    # values then the module's own no-ingress preset.
+    run("apply", COS_REPO, "--module", COS_MODULE, "--ref", COS_REF, "--dir", ".",
+        "--var-file", str(bundle), "--var-file", COS_PRESET, "--strict", cwd=wrapper_dir)
 
     # THEN the wrapper went where the test prepared it, at the subdirectory the
     # repository puts the module in, and main.tf has the bundle values written
     # through with every ingress component switched off
-    assert Path(added["wrapper"]) == wrapper_dir
-    assert added["added"]["modulePath"] == COS_MODULE
-    assert added["added"]["ref"] == COS_REF
     main_tf = (wrapper_dir / "main.tf").read_text()
+    assert COS_MODULE in main_tf
+    assert f"ref={COS_REF}" in main_tf
     assert f'uuid = "{model_uuid}"' in main_tf
     assert "internal_tls = false" in main_tf
     ingress_block = _hcl_block(main_tf, "ingress")
     assert "= false" in ingress_block
     assert "= true" not in ingress_block
-
-    # AND the module is deployed. `apply` is `add` plus `terraform init` and
-    # `apply`, so Terraform needs no separate invocation here.
-    run("apply", COS_REPO, "--module", COS_MODULE, "--ref", COS_REF, "--dir", ".",
-        "--var-file", str(bundle), "--var-file", COS_PRESET, "--strict", cwd=wrapper_dir)
 
     # THEN the model settles active and idle
     wait_for_active_idle_without_error(juju)
@@ -142,8 +135,10 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     state_file.unlink()
     (wrapper_dir / "terraform.tfstate.backup").unlink(missing_ok=True)
 
-    # WHEN Atelier imports the live deployment back into a fresh state, with
-    # the same --ref/--var-file bundles and the model UUID as a query variable
+    # WHEN Atelier imports the live deployment back into a fresh state, with the
+    # same --ref and --var-file as the deploy above, and the model UUID as a
+    # query variable. Note --query-var, not --var: the UUID feeds the query, not
+    # the module, and conflating them writes it into main.tf.
     result = json.loads(run("import", "juju", "--source", COS_REPO, "--module", COS_MODULE,
                             "--ref", COS_REF, "--dir", ".", "--var-file", str(bundle),
                             "--var-file", COS_PRESET,
