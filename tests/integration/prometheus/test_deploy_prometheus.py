@@ -18,7 +18,7 @@ import json
 import jubilant
 import pytest
 
-from helpers import run, write_tfvars
+from helpers import atelier
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 PROM_MODULE = "terraform"
@@ -29,29 +29,28 @@ def test_deploy_prometheus_k8s(juju: jubilant.Juju, tmp_path):
     # GIVEN a running Juju model
     model_uuid = juju.show_model(juju.model).model_uuid
 
-    # AND a fresh directory for Atelier to author a wrapper into
-    wrapper_dir = tmp_path
-
-    # AND a bundle describing the deployment for that model, kept beside the
-    # wrapper directory so the prepared directory stays empty for `--dir`.
-    bundle = write_tfvars(
-        wrapper_dir.parent,
-        "ci",
-        {"model_uuid": model_uuid, "channel": "dev/edge", "units": 1},
+    # AND a bundle describing the deployment for that model, beside the wrapper
+    # rather than inside it, so Atelier has an empty directory to scaffold into
+    (tmp_path / "ci.tfvars").write_text(
+        f'model_uuid = "{model_uuid}"\nchannel = "dev/edge"\nunits = 1\n'
     )
 
     # WHEN Atelier deploys it, non-interactively, from the bundle. `apply` is
     # `add` plus `terraform init` and `apply`, so this test needs no Terraform of
     # its own — and no --yes, which the CLI rejects here because Terraform's own
     # plan prompt is the confirmation.
-    run("apply", PROM_REPO, "--module", PROM_MODULE, "--dir", ".",
-        "--var-file", str(bundle), "--strict", cwd=wrapper_dir)
+    atelier(
+        f"apply {PROM_REPO} --module {PROM_MODULE} --dir wrapper"
+        " --var-file ci.tfvars --strict",
+        cwd=tmp_path,
+    )
 
     # THEN the wrapper went where the test prepared it and declares the module
     # at the subdirectory the repository puts it in, with the bundle values
     # written through
-    modules = json.loads(run("ls", "--json", cwd=wrapper_dir).stdout)["data"]["modules"]
+    wrapper = tmp_path / "wrapper"
+    modules = json.loads(atelier("ls --json", cwd=wrapper).stdout)["data"]["modules"]
     assert [m["name"] for m in modules] == ["prometheus_k8s_operator"]
-    main_tf = (wrapper_dir / "main.tf").read_text()
+    main_tf = (wrapper / "main.tf").read_text()
     assert "//terraform" in main_tf
     assert model_uuid in main_tf
