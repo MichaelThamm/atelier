@@ -60,7 +60,7 @@ func (s *State) RenameModuleBlock(newName string) error {
 		labels := b.Labels()
 		if len(labels) == 1 && labels[0] == old {
 			b.SetLabels([]string{newName})
-			if err := WriteMain(s.Dir, hclwrite.Format(file.Bytes())); err != nil {
+			if err := writeAtomic(mainPath, hclwrite.Format(file.Bytes()), 0o644); err != nil {
 				return err
 			}
 			s.ModuleBlockName = newName
@@ -78,11 +78,6 @@ func (s *State) writeMain() error {
 	// Write to a temporary file and rename for atomicity — important because
 	// the file watcher (`terraform validate` in the TUI) may race the write.
 	return writeAtomic(filepath.Join(s.Dir, MainTF), out, 0o644)
-}
-
-// WriteMain atomically writes pre-rendered main.tf bytes into dir.
-func WriteMain(dir string, data []byte) error {
-	return writeAtomic(filepath.Join(dir, MainTF), data, 0o644)
 }
 
 // RenderMain produces the bytes Atelier would write to the wrapper's main.tf,
