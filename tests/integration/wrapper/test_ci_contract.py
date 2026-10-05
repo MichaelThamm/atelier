@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from helpers import run, write_tfvars
+from helpers import atelier
 
 
 def local_module(base) -> str:
@@ -27,15 +27,14 @@ def local_module(base) -> str:
 
 def test_an_unresolvable_var_file_is_fatal_under_strict(tmp_path):
     # GIVEN a bundle written under one name
-    write_tfvars(tmp_path, "ci", {"greeting": "hello"})
+    (tmp_path / "ci.tfvars").write_text('greeting = "hello"\n')
     target = tmp_path / "wrapper"
     target.mkdir()
 
     # WHEN `add` is asked for it by a name that resolves to nothing, under --strict
     with pytest.raises(subprocess.CalledProcessError) as failure:
-        run("add", local_module(tmp_path), "--as", "stack", "--dir", "wrapper",
-            "--var-file", "no-such-bundle", "--strict", "--yes", cwd=tmp_path)
-
+        atelier(f"add {local_module(tmp_path)} --as stack --dir wrapper"
+                " --var-file no-such-bundle --strict --yes", cwd=tmp_path)
     # THEN the run fails, rather than writing a wrapper that silently holds none of
     # the values the bundle carried. Without this the omission surfaces later as a
     # missing required input — or not at all, if the module has a default.
@@ -45,14 +44,13 @@ def test_an_unresolvable_var_file_is_fatal_under_strict(tmp_path):
 
 def test_an_unresolvable_var_file_is_only_a_warning_without_strict(tmp_path):
     # GIVEN the same typo, without --strict
-    write_tfvars(tmp_path, "ci", {"greeting": "hello"})
+    (tmp_path / "ci.tfvars").write_text('greeting = "hello"\n')
     target = tmp_path / "wrapper"
     target.mkdir()
 
     # WHEN it is asked for by a name that resolves to nothing
-    result = run("add", local_module(tmp_path), "--as", "stack", "--dir", "wrapper",
-                 "--var-file", "no-such-bundle", "--yes", cwd=tmp_path, check=False)
-
+    result = atelier(f"add {local_module(tmp_path)} --as stack --dir wrapper"
+                     " --var-file no-such-bundle --yes", cwd=tmp_path, check=False)
     # THEN the wrapper is still written and the bundle is reported as skipped.
     # A gallery entry's preset may be superseded by one the caller supplies, so
     # this case has to keep working — it is a judgement, not an error.

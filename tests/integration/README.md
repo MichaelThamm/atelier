@@ -41,6 +41,34 @@ ATELIER_BIN=/tmp/atelier \
 `-m "not cloud"` in `addopts`, so an unscoped `pytest` run never creates a Juju
 model by accident. Passing `-m cloud` overrides it.
 
+## Writing a test
+
+[`helpers.py`](helpers.py) has three things. `atelier(...)` runs one command line,
+`TfDirManager` asks Terraform what became of the wrapper, and
+`wait_for_active_idle_without_error` settles a model.
+
+```python
+from helpers import atelier
+
+atelier("apply cos-lite --dir runner --ref track/2", cwd=tmp_path)
+```
+
+The command is a string, everything after the word `atelier`, so a test reads as
+the command it runs — prefix `atelier` and it is something you can paste into a
+shell. Two details it handles, both of which a hand-rolled `subprocess.run` gets
+wrong:
+
+- **stdin is `/dev/null`.** That is how Atelier knows there is no terminal:
+  `apply` auto-approves instead of opening Terraform's plan prompt, and `add`
+  writes the wrapper instead of launching the editor. In your own repo, end the
+  command line with `< /dev/null` to get the same behaviour.
+- **stdout is captured alone**, so a `--json` payload reads as
+  `json.loads(result.stdout)["data"]` with no progress chatter mixed in.
+
+One quoting limit: POSIX splitting strips quotes used as syntax, so a value whose
+own text needs double quotes — an HCL object, say — loses them. Put those in a
+`.tfvars` bundle and pass it with `--var-file`.
+
 Set `KEEP_MODELS=true` (or pass `--keep-models`) to keep the temporary Juju
 models when a test fails, so you can inspect them.
 

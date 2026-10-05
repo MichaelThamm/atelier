@@ -16,11 +16,12 @@ non-empty. Drift in ``terraform_data`` and secrets is expected — see
 """
 
 import json
+import re
 
 import jubilant
 import pytest
 
-from helpers import run, wait_for_active_idle_without_error, write_tfvars
+from helpers import atelier, wait_for_active_idle_without_error
 
 COS_REPO = "https://github.com/canonical/observability-stack.git"
 COS_MODULE = "terraform/cos-lite"
@@ -42,36 +43,19 @@ PRESERVED_TYPES = frozenset({"juju_application", "juju_integration", "juju_offer
 DRIFT_TYPES = frozenset({"terraform_data", "juju_secret", "juju_access_secret"})
 
 
-def _hcl_block(text: str, name: str) -> str:
-    """Return the `{...}` body of `name = {...}` in `text`, brace-balanced.
+def _arg_block(main_tf: str, name: str) -> str:
+    """Return the body of `name = {...}` in `main_tf`.
 
-    A plain `split("}", 1)` truncates at the first closing brace, which is wrong
-    for a block whose values are themselves objects. This walks the braces so
-    nested values are included, and skips quoted strings so a `}` inside one
-    does not end the block early.
+    Atelier writes one argument per line, so a non-greedy match to the first
+    closing line ends the block. That is wrong if an argument is itself an object,
+    which would truncate the body and let the caller's assertions pass on a
+    prefix — so an unclosed brace in the result is a failure, not a shorter body.
     """
-    start = text.index(f"{name} = {{") + len(f"{name} = ")
-    depth = 0
-    in_str = False
-    escaped = False
-    for i, ch in enumerate(text[start:], start):
-        if in_str:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_str = False
-            continue
-        if ch == '"':
-            in_str = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start + 1 : i]
-    raise AssertionError(f"unbalanced braces in {name} block")
+    match = re.search(rf"{name} = \{{(.*?)\n\s*\}}", main_tf, re.S)
+    assert match, f"no {name} block in main.tf:\n{main_tf}"
+    body = match.group(1)
+    assert "{" not in body, f"{name} block was truncated at a nested object:\n{main_tf}"
+    return body
 
 
 @pytest.mark.cloud
@@ -79,36 +63,33 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # GIVEN a running Juju model
     model_uuid = juju.show_model(juju.model).model_uuid
 
-    # AND a fresh directory for Atelier to author a wrapper into
-    wrapper_dir = tmp_path
-
-    # AND a bundle describing the deployment for that model, kept beside the
-    # wrapper directory: the wrapper directory itself stays empty for `--dir`.
-    bundle = write_tfvars(
-        wrapper_dir.parent,
-        "ci",
-        {
-            "model": {"uuid": model_uuid, "name": juju.model},
-            "internal_tls": False,
-        },
+    # AND a bundle describing the deployment for that model, beside the wrapper
+    # rather than inside it, so Atelier has an empty directory to scaffold into
+    (tmp_path / "ci.tfvars").write_text(
+        f'model = {{ uuid = "{model_uuid}", name = "{juju.model}" }}\ninternal_tls = false\n'
     )
 
     # WHEN Atelier deploys the module: `apply` is `add` plus `terraform init`
     # and `apply`, so this one call authors the wrapper and stands the stack up.
     # It is pinned to --ref and configured from both bundles, the explicit ci
     # values then the module's own no-ingress preset.
-    run("apply", COS_REPO, "--module", COS_MODULE, "--ref", COS_REF, "--dir", ".",
-        "--var-file", str(bundle), "--var-file", COS_PRESET, "--strict", cwd=wrapper_dir)
+    atelier(
+        f"apply {COS_REPO} --module {COS_MODULE} --ref {COS_REF} --dir wrapper"
+        f" --var-file ci.tfvars --var-file {COS_PRESET} --strict",
+        cwd=tmp_path,
+    )
+
+    wrapper = tmp_path / "wrapper"
 
     # THEN the wrapper went where the test prepared it, at the subdirectory the
     # repository puts the module in, and main.tf has the bundle values written
     # through with every ingress component switched off
-    main_tf = (wrapper_dir / "main.tf").read_text()
+    main_tf = (wrapper / "main.tf").read_text()
     assert COS_MODULE in main_tf
     assert f"ref={COS_REF}" in main_tf
     assert f'uuid = "{model_uuid}"' in main_tf
     assert "internal_tls = false" in main_tf
-    ingress_block = _hcl_block(main_tf, "ingress")
+    ingress_block = _arg_block(main_tf, "ingress")
     assert "= false" in ingress_block
     assert "= true" not in ingress_block
 
@@ -118,7 +99,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # AND the state is deleted, orphaning the live deployment — after first
     # recording what apply created, so the test can flag any COS-Lite resource
     # type it has not classified
-    state_file = wrapper_dir / "terraform.tfstate"
+    state_file = wrapper / "terraform.tfstate"
     assert state_file.exists(), "apply should have produced terraform.tfstate"
     applied = json.loads(state_file.read_text())
     applied_types = {
@@ -133,7 +114,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
         "or DRIFT_TYPES (may drift)."
     )
     state_file.unlink()
-    (wrapper_dir / "terraform.tfstate.backup").unlink(missing_ok=True)
+    (wrapper / "terraform.tfstate.backup").unlink(missing_ok=True)
 
     # WHEN Atelier imports the live deployment back into a fresh state, with the
     # same --ref and --var-file as the deploy above, and the model UUID as a
@@ -143,11 +124,12 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # check=False because `atelier import` exits 1 when it matched nothing, and
     # letting that raise would replace the explanation below with a traceback.
     # Its payload is written either way.
-    reported = run("import", "juju", "--source", COS_REPO, "--module", COS_MODULE,
-                   "--ref", COS_REF, "--dir", ".", "--var-file", str(bundle),
-                   "--var-file", COS_PRESET,
-                   "--query-var", f"model_uuid={model_uuid}",
-                   "--yes", "--json", cwd=wrapper_dir, check=False)
+    reported = atelier(
+        f"import juju --source {COS_REPO} --module {COS_MODULE} --ref {COS_REF} --dir wrapper"
+        f" --var-file ci.tfvars --var-file {COS_PRESET}"
+        f" --query-var model_uuid={model_uuid} --yes --json",
+        cwd=tmp_path, check=False,
+    )
     result = json.loads(reported.stdout)["data"]
 
     # THEN live objects were matched to module addresses and imported
@@ -172,7 +154,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # This is the one thing left that needs Terraform directly. `atelier` has no
     # command that answers "would a plan change anything?", and it needs the
     # addresses, not the counts an import --dry-run preview gives.
-    tf_manager.latch(wrapper_dir)
+    tf_manager.latch(wrapper)
     changes = tf_manager.plan_changes()
     drifted = sorted(c for c in changes if c[1] in PRESERVED_TYPES)
     assert not drifted, (

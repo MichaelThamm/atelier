@@ -18,7 +18,7 @@ import subprocess
 
 import pytest
 
-from helpers import TfDirManager, run
+from helpers import TfDirManager, atelier
 
 REPO_V1 = "v1.0.0"
 
@@ -78,9 +78,8 @@ def broken_module(tmp_path) -> str:
 def test_apply_exits_zero_when_the_deployment_succeeds(tmp_path, good_module):
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    done = run("apply", good_module, "--ref", REPO_V1, "--dir", "wrapper",
-               "--strict", "--var", "model_uuid=u1", cwd=tmp_path)
-
+    done = atelier(f"apply {good_module} --ref {REPO_V1} --dir wrapper"
+                   " --strict --var model_uuid=u1", cwd=tmp_path)
     assert done.returncode == 0, done.stderr
     tf = TfDirManager()
     tf.latch(wrapper)
@@ -90,9 +89,8 @@ def test_apply_exits_zero_when_the_deployment_succeeds(tmp_path, good_module):
 def test_apply_exits_two_when_terraform_fails(tmp_path, broken_module):
     # WHEN the module's provider does not exist, so the clone succeeds and the
     # wrapper is written, then `terraform init` fails
-    done = run("apply", broken_module, "--ref", REPO_V1, "--dir", "wrapper",
-               "--strict", "--var", "model_uuid=u1", cwd=tmp_path, check=False)
-
+    done = atelier(f"apply {broken_module} --ref {REPO_V1} --dir wrapper"
+                   " --strict --var model_uuid=u1", cwd=tmp_path, check=False)
     # THEN the exit code says the failure was Terraform's, not Atelier's, so a job
     # knows the wrapper is fine and the deployment is what broke.
     assert done.returncode == 2, f"exit={done.returncode}\n{done.stderr}"
@@ -108,15 +106,14 @@ def test_apply_exits_one_when_atelier_refuses(tmp_path, good_module):
     # preflight question, which is a different refusal.
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    run("apply", good_module, "--ref", REPO_V1, "--dir", "wrapper", "--strict",
-        "--var", "model_uuid=u1", cwd=tmp_path)
+    atelier(f"apply {good_module} --ref {REPO_V1} --dir wrapper --strict"
+            " --var model_uuid=u1", cwd=tmp_path)
     with (wrapper / "main.tf").open("a") as fh:
         fh.write(f'\nmodule "cos_lite_2" {{\n  source = "{good_module}?ref={REPO_V1}"\n}}\n')
 
     # WHEN apply declines to guess which block to write
-    done = run("apply", good_module, "--ref", REPO_V1, "--dir", "wrapper",
-               "--strict", "--var", "model_uuid=u2", cwd=tmp_path, check=False)
-
+    done = atelier(f"apply {good_module} --ref {REPO_V1} --dir wrapper"
+                   " --strict --var model_uuid=u2", cwd=tmp_path, check=False)
     # THEN it exits 1 — Atelier's — tellable apart from a failed deployment
     # without reading the message.
     assert done.returncode == 1, f"exit={done.returncode}\n{done.stderr}"
@@ -131,17 +128,16 @@ def test_apply_exits_one_when_a_clone_fails(tmp_path, tmp_path_factory):
     not_a_repo.mkdir()
     (not_a_repo / "main.tf").write_text(MODULE)
 
-    done = run("apply", f"file://{not_a_repo}", "--dir", "wrapper", "--strict",
-               "--var", "model_uuid=u1", cwd=tmp_path, check=False)
-
+    done = atelier(f"apply file://{not_a_repo} --dir wrapper --strict"
+                   " --var model_uuid=u1", cwd=tmp_path, check=False)
     assert done.returncode == 1, f"exit={done.returncode}\n{done.stderr}"
     assert not (tmp_path / "wrapper" / "main.tf").exists()
 
 
 def test_apply_exits_one_when_a_required_input_is_missing(tmp_path, good_module):
     # A gate Atelier owns: it stops before Terraform, having written the wrapper.
-    done = run("apply", good_module, "--ref", REPO_V1, "--dir", "wrapper",
-               "--strict", cwd=tmp_path, check=False)
+    done = atelier(f"apply {good_module} --ref {REPO_V1} --dir wrapper --strict",
+                    cwd=tmp_path, check=False)
 
     assert done.returncode == 1, f"exit={done.returncode}\n{done.stderr}"
     assert "model_uuid" in done.stderr, done.stderr

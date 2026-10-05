@@ -12,7 +12,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from helpers import run
+from helpers import atelier
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 LOKI_REPO = "https://github.com/canonical/loki-operators.git"
@@ -49,35 +49,25 @@ def _empty_dir(base: Path, name: str) -> Path:
     return path
 
 
-def _json_atelier(cwd, *args: str) -> dict:
+def _json_atelier(cwd, command: str) -> dict:
     """Run Atelier with ``--json`` and return the payload's ``data``.
-
-    Reads the envelope itself rather than :func:`~helpers.data`, because asserting
-    on it is half the point: every command reports the same shape, and ``command``
-    must name the one that ran (ADR-0048).
+    Reads the envelope itself because asserting on it is half the point: every
+    command reports the same shape, and ``command`` must name the one that ran
+    (ADR-0048).
     """
-    envelope = json.loads(run(*args, "--json", cwd=cwd).stdout)
+    envelope = json.loads(atelier(f"{command} --json", cwd=cwd).stdout)
     assert envelope["schema"] == 1
-    assert envelope["command"] == args[0]
+    assert envelope["command"] == command.split()[0]
     return envelope["data"]
 
 
-def _add_prom(base: Path, name: str, *extra: str) -> dict:
+def _add_prom(base: Path, name: str, extra: str = "") -> dict:
     """Add the prometheus module into a named wrapper and return the payload."""
     wrapper = _empty_dir(base, name)
+    # `--dir` is resolved against the CWD, so stay above the wrapper.
     data = _json_atelier(
-        # `--dir` is resolved against the CWD, so stay above the wrapper.
         base,
-        "add",
-        PROM_REPO,
-        "--module",
-        PROM_MODULE,
-        "--ref",
-        PROM_REF,
-        "--dir",
-        name,
-        "--yes",
-        *extra,
+        f"add {PROM_REPO} --module {PROM_MODULE} --ref {PROM_REF} --dir {name} --yes {extra}",
     )
     # The payload says which directory was written, so this is checked rather
     # than assumed from the arguments.
@@ -109,7 +99,7 @@ def test_add_json_reports_where_the_wrapper_went(tmp_path):
 
 def test_add_json_sanitises_an_explicit_block_name(tmp_path):
     # GIVEN a request for a name that is not a valid HCL identifier
-    data = _add_prom(tmp_path, "json-as", "--as", "prom-k8s")
+    data = _add_prom(tmp_path, "json-as", "--as prom-k8s")
 
     # THEN the reported name is the one that reached main.tf, not the one asked
     # for. This is why `add --json` reads the wrapper back rather than echoing.
@@ -124,15 +114,7 @@ def test_add_json_composes_into_an_existing_wrapper(tmp_path):
     # WHEN a second module is added into the same wrapper
     second = _json_atelier(
         tmp_path,
-        "add",
-        LOKI_REPO,
-        "--module",
-        PROM_MODULE,
-        "--as",
-        "loki",
-        "--dir",
-        "json-compose",
-        "--yes",
+        f"add {LOKI_REPO} --module {PROM_MODULE} --as loki --dir json-compose --yes",
     )
 
     # THEN the payload names the wrapper it composed into and every block in it
@@ -147,7 +129,7 @@ def test_ls_json_matches_ls(tmp_path):
 
     # WHEN the modules are listed both ways
     data = _json_atelier(wrapper, "ls")
-    text = run("ls", cwd=wrapper).stdout
+    text = atelier("ls", cwd=wrapper).stdout
 
     # THEN the payload carries what the table prints, and the //subdir the table
     # drops
@@ -188,7 +170,7 @@ def test_wrappers_json_lists_absolute_paths(tmp_path):
     plain = _empty_dir(tmp_path, "json-not-a-wrapper")
 
     # WHEN the shared parent is scanned with --json
-    data = _json_atelier(tmp_path, "wrappers", ".")
+    data = _json_atelier(tmp_path, "wrappers .")
 
     # THEN each wrapper is reported with a path a caller can use, not a basename,
     # and a plain sibling directory is left out
@@ -204,11 +186,7 @@ def test_list_var_files_json(tmp_path):
     # WHEN the bundles a module can be configured from are listed with --json
     data = _json_atelier(
         _empty_dir(tmp_path, "json-vars"),
-        "add",
-        LOKI_REPO,
-        "--module",
-        PROM_MODULE,
-        "--list-var-files",
+        f"add {LOKI_REPO} --module {PROM_MODULE} --list-var-files",
     )
 
     # THEN each one carries the name to pass to --var-file
@@ -223,17 +201,8 @@ def test_json_does_not_suppress_the_human_report(tmp_path):
     _add_prom(tmp_path, "json-streams")
 
     # WHEN a second module is added with --json
-    result = run(
-        "add",
-        LOKI_REPO,
-        "--module",
-        PROM_MODULE,
-        "--as",
-        "loki",
-        "--dir",
-        "json-streams",
-        "--yes",
-        "--json",
+    result = atelier(
+        f"add {LOKI_REPO} --module {PROM_MODULE} --as loki --dir json-streams --yes --json",
         cwd=tmp_path,
     )
 
@@ -249,14 +218,8 @@ def test_apply_rejects_json(tmp_path):
     target = _empty_dir(tmp_path, "json-apply")
 
     # WHEN --json is passed to a command that has no report of its own
-    result = run(
-        "apply",
-        PROM_REPO,
-        "--module",
-        PROM_MODULE,
-        "--dir",
-        target.name,
-        "--json",
+    result = atelier(
+        f"apply {PROM_REPO} --module {PROM_MODULE} --dir {target.name} --json",
         cwd=tmp_path,
         check=False,
     )
@@ -272,12 +235,8 @@ def test_add_json_reports_an_ambiguous_source_as_a_failure(tmp_path):
     wrapper = _empty_dir(tmp_path, "json-ambiguous")
 
     # WHEN it is added with --json and no --module to disambiguate
-    result = run(
-        "add",
-        repo,
-        "--dir",
-        wrapper.name,
-        "--json",
+    result = atelier(
+        f"add {repo} --dir {wrapper.name} --json",
         cwd=tmp_path,
         check=False,
     )

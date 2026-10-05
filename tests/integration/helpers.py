@@ -3,13 +3,14 @@
 """Helpers for Atelier's Juju + Terraform integration tests.
 
 Atelier authors the wrapper and deploys it; a test's job is to ask what happened.
-:func:`run` and :func:`write_tfvars` cover the two things that are fiddly to get
-right — running Atelier without a terminal, and writing an input bundle — and
-:class:`TfDirManager` asks Terraform what became of the wrapper.
+:func:`atelier` runs a command, :class:`TfDirManager` asks Terraform what became
+of the wrapper, and :func:`wait_for_active_idle_without_error` settles a model.
 
-Atelier's own commands are called as :func:`run` spells them out, because that is
-what anyone scripting Atelier has to write: they cannot import from here. Read the
-flags in a test and you can see the command it runs.
+:func:`atelier` takes one command line as a string, so every call reads as the
+command it stands for and nobody has to guess which binary and flags are behind
+it. Nothing here is importable from a user's own repository, which is the point:
+the tests spell commands out the way anyone scripting Atelier has to write them,
+and read the wrapper back rather than asking Atelier to interpret it for them.
 """
 
 import json
@@ -30,27 +31,41 @@ logger = logging.getLogger(__name__)
 def atelier_bin() -> str:
     """The Atelier under test: ``ATELIER_BIN``, else ``atelier`` on ``PATH``.
 
-    Absolute, because :func:`run` executes inside the wrapper under test, where a
-    relative path would be looked for instead of where the test started.
+    Absolute, because :func:`atelier` executes inside the wrapper under test,
+    where a relative path would be looked for instead of where the test started.
     """
     configured = os.environ.get("ATELIER_BIN") or "atelier"
     # which() expands a PATH name but returns a path-like argument unchanged.
     return os.path.abspath(shutil.which(configured) or configured)
 
 
-def run(*args: str, cwd: Path | str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    """Run ``atelier <args>`` in ``cwd`` and return the finished process.
+def atelier(
+    command: str, *, cwd: Path | str, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    """Run one ``atelier`` command line in ``cwd`` and return the finished process.
+    ``command`` is the whole command line except the word ``atelier``, so
+    ``atelier("apply cos-lite --dir runner --ref track/2")`` reads as the command
+    it runs and can be pasted into a shell with the word put back. It is split
+    with POSIX rules, so wrap a value that contains spaces in quotes.
 
-    Two details are what make this work from CI. Standard input is
-    ``/dev/null``, which is how Atelier knows there is no terminal and declines to
-    open its editor instead of hanging. And stdout is captured on its own, so the
-    ``--json`` payload can be read with ``json.loads(result.stdout)["data"]``
-    without progress chatter mixed in.
+    One consequence to know: POSIX splitting removes a quote used as syntax, so a
+    value whose own text needs double quotes — an HCL object, say
+    ``cos_offers={dashboard="admin/cos-lite.grafana-dashboards"}`` — arrives
+    without them. Such a value belongs in a ``.tfvars`` bundle passed with
+    ``--var-file``, which carries no quoting through this path.
+
+    Standard input is ``/dev/null``, which is how Atelier knows no terminal is
+    there: ``apply`` auto-approves rather than opening Terraform's plan prompt,
+    and ``add`` writes the wrapper rather than launching the editor. A user gets
+    the same behaviour by ending their own command line with ``< /dev/null``.
+
+    stdout is captured on its own, so a ``--json`` payload can be read with
+    ``json.loads(result.stdout)["data"]`` without progress chatter mixed in.
 
     With ``check`` (the default) a non-zero exit raises ``CalledProcessError``;
     pass ``check=False`` to assert on the exit instead.
     """
-    cmd = [atelier_bin(), *args]
+    cmd = [atelier_bin(), *shlex.split(command)]
     logger.info("running: %s (in %s)", shlex.join(cmd), cwd)
     result = subprocess.run(cmd, cwd=cwd, stdin=subprocess.DEVNULL,
                             capture_output=True, text=True, timeout=3600, check=False)
@@ -61,45 +76,13 @@ def run(*args: str, cwd: Path | str, check: bool = True) -> subprocess.Completed
     return result
 
 
-def write_tfvars(directory: Path | str, name: str, values: dict) -> Path:
-    """Write a ``.tfvars`` input bundle and return its path.
-
-    Returns a path rather than a name on purpose. ``--var-file`` also accepts a
-    preset name, and a name that resolves to nothing is skipped — an outright
-    error under ``--strict``, which every caller here passes — so handing over
-    the name would drop the bundle rather than configure the module.
-    """
-    path = Path(directory) / f"{name}.tfvars"
-    path.write_text("".join(f"{k} = {_hcl(v)}\n" for k, v in values.items()))
-    logger.info("wrote %s with variables: %s", path, ", ".join(values))
-    return path
-
-
-def _hcl(value) -> str:
-    """Render a Python value as HCL. bool is checked before int: bool is an int."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, str):
-        return json.dumps(value)
-    if value is None:
-        return "null"
-    if isinstance(value, dict):
-        return "{ " + ", ".join(f"{k} = {_hcl(v)}" for k, v in value.items()) + " }"
-    if isinstance(value, (list, tuple)):
-        return "[" + ", ".join(_hcl(v) for v in value) + "]"
-    raise TypeError(f"cannot render {value!r} as HCL")
-
-
 class TfDirManager:
     """Asks Terraform what became of a wrapper Atelier wrote. Verification, not authoring.
 
     The wrapper is the artifact (ADR-0001), so this attaches to the directory
-    Atelier wrote and answers only the three questions Atelier has no command for:
-    is it valid, what is in state, and would a plan change anything. Editing the
-    wrapper afterwards is the test's own business — write the HCL, then ``init``
-    and ``validate``.
+    Atelier wrote and answers only the questions Atelier has no command for: is it
+    valid, what is in state, and would a plan change anything. Editing the wrapper
+    afterwards is the test's own business.
     """
 
     def __init__(self) -> None:
@@ -110,7 +93,7 @@ class TfDirManager:
         self.dir = str(directory)
 
     def _run(self, *args: str) -> subprocess.CompletedProcess[str]:
-        cmd = shlex.split(f"terraform -chdir={self.dir} {shlex.join(args)}")
+        cmd = ["terraform", f"-chdir={self.dir}", *args]
         logger.info("running: %s", shlex.join(cmd))
         return subprocess.run(cmd, stdin=subprocess.DEVNULL, check=True, capture_output=True, text=True)
 
