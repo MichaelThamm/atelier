@@ -80,18 +80,14 @@ func (s *State) writeMain() error {
 	return writeAtomic(filepath.Join(s.Dir, MainTF), out, 0o644)
 }
 
-// WriteMain atomically writes pre-rendered main.tf bytes into dir. It is the
-// persist half of RenderMain, exposed so callers that preview before writing
-// (e.g. `atelier tidy`) apply exactly the bytes they showed.
+// WriteMain atomically writes pre-rendered main.tf bytes into dir.
 func WriteMain(dir string, data []byte) error {
 	return writeAtomic(filepath.Join(dir, MainTF), data, 0o644)
 }
 
 // RenderMain produces the bytes Atelier would write to the wrapper's main.tf,
 // applying the sparse-plus-required rule (ADR-0007) to the module block in the
-// existing file. It does not touch disk: writeMain uses it to persist, and
-// `atelier tidy` uses it to preview the prune without writing. Because both go
-// through this one path, the diff `tidy` shows is exactly what it applies.
+// existing file. It does not touch disk: writeMain uses it to persist.
 func (s *State) RenderMain() ([]byte, error) {
 	mainPath := filepath.Join(s.Dir, MainTF)
 
