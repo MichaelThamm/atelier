@@ -109,10 +109,8 @@ atelier add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 `cos-lite`) unless `--dir`/`--as` names one, so there is no `mkdir`/`cd` to do
 first. When the target — `--dir`, else the current directory — already holds a
 wrapper, it appends a module block instead; when it creates its own directory, a
-non-empty target is refused rather than scaffolded over
-([ADR-0030](docs/adr/0030-target-directory-preflight.md),
-[ADR-0034](docs/adr/0034-module-apply-one-liner.md)). Run `atelier wrappers` to
-list the wrappers sharing a parent directory (e.g. a `tf-testing/` scratch
+non-empty target is refused rather than scaffolded over. Run `atelier wrappers`
+to list the wrappers sharing a parent directory (e.g. a `tf-testing/` scratch
 dir).
 
 ### Compose several modules
@@ -136,8 +134,7 @@ The TUI groups each module's variables under its own header and switches the
 ref, plan, and apply target to whichever one you are on, so a multi-module
 wrapper is edited as one document. Modules are ordinary Terraform blocks, so
 wire one module's output into another's input the way you would by hand —
-`greeting = module.cos_lite.greeting`. See
-[ADR-0044](docs/adr/0044-dir-names-the-wrapper.md).
+`greeting = module.cos_lite.greeting`.
 
 ### Just apply it
 
@@ -161,7 +158,7 @@ it, and a non-empty target with no `main.tf` is refused rather than scaffolded
 over. A `--dir` (or CWD) that already holds a wrapper composes into it instead —
 see [Compose several modules](#compose-several-modules). The result is an
 ordinary wrapper — `cd` into it and run `atelier` to configure further, or
-`terraform` directly. See [ADR-0034](docs/adr/0034-module-apply-one-liner.md).
+`terraform` directly.
 
 Run the same command again and it converges rather than complaining or
 duplicating:
@@ -176,8 +173,7 @@ first one set. Changing `--ref` re-points the same block instead of adding a
 second one, and inputs the new revision no longer declares are dropped with a
 note. `--as` names the block to work on when the wrapper declares the same module
 more than once; a name that matches nothing falls back to the block that does,
-which is why a gallery entry's own block name never gets in the way. See
-[ADR-0050](docs/adr/0050-tolerant-apply-converges.md).
+which is why a gallery entry's own block name never gets in the way.
 
 Re-open an existing wrapper (run with no arguments in the wrapper dir):
 ```bash
@@ -199,15 +195,13 @@ one action, then customise. Atelier finds them in two places:
   `terraform/cos/presets/single-unit.tfvars`.
 
 Atelier reads only Terraform-native `.tfvars` files, and only when you name
-them. See [ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md).
+them.
 
 Atelier also bundles a gallery of quick starts for real modules. Run `atelier
 gallery list` to see each module, its pinned ref, the presets it composes (if
 any), and the command to deploy it. An entry also lists the inputs it leaves to
 you, so you see them before running. `atelier gallery lint` checks that every
-entry covers the required inputs its module declares. See
-[ADR-0035](docs/adr/0035-bundled-module-gallery.md) and
-[ADR-0039](docs/adr/0039-composed-gallery-presets.md).
+entry covers the required inputs its module declares.
 
 The TUI lists both sources with `F` (source-labelled `[local]`/`[repo]`, with
 the description taken from each file's leading comment); `Enter` applies the
@@ -260,9 +254,8 @@ atelier add https://github.com/canonical/observability-stack.git \
 Redirecting stdin (`< /dev/null`) makes these examples non-interactive, so they
 run unattended. When `atelier add` creates its own directory there is no prompt;
 `--yes` is for the additive case, where the current directory already holds
-files but no wrapper and Atelier asks before appending a module block
-([ADR-0030](docs/adr/0030-target-directory-preflight.md)). Without a terminal on
-stdin the preflight fails, naming `--yes`.
+files but no wrapper and Atelier asks before appending a module block. Without a
+terminal on stdin the preflight fails, naming `--yes`.
 
 ## Importing live infrastructure
 
@@ -406,8 +399,7 @@ print(Path("stack/main.tf").read_text())   # the wrapper is yours to read
 `atelier apply` exits `2` rather than `1` when Terraform ran and failed, so a job
 can branch without reading stderr: `2` means look at the infrastructure (the
 wrapper is current, and the deployment may be partly applied), `1` means fix the
-command line or the wrapper. Everything else exits `0` or `1`. See
-[ADR-0051](docs/adr/0051-apply-exit-codes.md).
+command line or the wrapper. Everything else exits `0` or `1`.
 
 To assert on what Terraform actually did — state, plan changes — reach for
 `terraform` directly: no Atelier command reports state.
