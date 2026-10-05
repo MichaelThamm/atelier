@@ -25,9 +25,6 @@ import jubilant
 
 logger = logging.getLogger(__name__)
 
-# Flags whose value is a module input, and may be a secret.
-SECRET_FLAGS = ("--var", "--query-var")
-
 
 @lru_cache(maxsize=None)
 def atelier_bin() -> str:
@@ -39,19 +36,6 @@ def atelier_bin() -> str:
     configured = os.environ.get("ATELIER_BIN") or "atelier"
     # which() expands a PATH name but returns a path-like argument unchanged.
     return os.path.abspath(shutil.which(configured) or configured)
-
-
-def _redact(argv: list[str]) -> list[str]:
-    """``argv`` with module-input values masked, so a secret cannot reach the log."""
-    out, hide = [], False
-    for arg in argv:
-        if hide:
-            out.append(arg.split("=", 1)[0] + "=***")
-            hide = False
-        else:
-            out.append(arg)
-            hide = arg in SECRET_FLAGS
-    return out
 
 
 def run(*args: str, cwd: Path | str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -67,7 +51,7 @@ def run(*args: str, cwd: Path | str, check: bool = True) -> subprocess.Completed
     pass ``check=False`` to assert on the exit instead.
     """
     cmd = [atelier_bin(), *args]
-    logger.info("running: %s (in %s)", shlex.join(_redact(cmd)), cwd)
+    logger.info("running: %s (in %s)", shlex.join(cmd), cwd)
     result = subprocess.run(cmd, cwd=cwd, stdin=subprocess.DEVNULL,
                             capture_output=True, text=True, timeout=3600, check=False)
     logger.debug("exit %d\nstdout:\n%s\nstderr:\n%s", result.returncode, result.stdout, result.stderr)
