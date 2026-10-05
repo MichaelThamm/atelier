@@ -55,6 +55,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0046 | [A gallery card names its required inputs once](0046-gallery-card-states-inputs-once.md) | Accepted |
 | 0047 | [An import takes a gallery entry's module but none of its presets](0047-import-gallery-name.md) | Accepted |
 | 0048 | [Machine-readable output behind `--json`](0048-machine-readable-output.md) | Accepted |
+| 0049 | [The Juju page reads the model from the environment](0049-juju-page-model-from-environment.md) | Accepted |
 
 ## Conventions
 

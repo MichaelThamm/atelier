@@ -9,12 +9,13 @@ import (
 )
 
 // The three shapes Juju modules use to name a model. Atelier cannot infer which
-// a module takes, so each renders its own form and the value must survive the
-// shell and Terraform's expression parser.
+// a module takes, so each renders its own form, and the value must survive the
+// shell and Terraform's expression parser. The model itself comes from the
+// environment, which the banner exports once.
 const (
-	uuidVar  = `model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`
-	modelObj = `model={uuid=\"$(juju show-model --format json | jq -r '.[]."model-uuid"')\"}`
-	modelNam = `model="$(juju show-model --format json | jq -r '.[]."short-name"')"`
+	uuidVar  = `model_uuid="$CURRENT_MODEL"`
+	modelObj = `model={uuid=\"$CURRENT_MODEL\"}`
+	modelNam = `model="$CURRENT_MODEL_NAME"`
 )
 
 func TestJujuArgs_modelShapePerEntry(t *testing.T) {
@@ -114,6 +115,34 @@ func TestJujuModels_disjointFromOwnModel(t *testing.T) {
 	for _, e := range entries {
 		if _, both := jujuModels[e.Name]; both && createsOwnModel(e) {
 			t.Errorf("entry %q is both pinned and declared own-model", e.Name)
+		}
+	}
+}
+
+// The banner resolves the model once, so a card's command carries no
+// substitution of its own.
+func TestRenderJujuPage_resolvesTheModelOnceInTheBanner(t *testing.T) {
+	entries, err := gallery.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	if err := renderJujuPage(&b, entries); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(b.String(), "juju show-model"); n != 2 {
+		t.Errorf("`juju show-model` appears %d times, want only the two export lines", n)
+	}
+}
+
+// A pin names the exported model; it does not resolve one. The exception is the
+// flag that stops a module creating its model, which is not a model value.
+func TestJujuModels_pinsCarryNoSubstitution(t *testing.T) {
+	for name, pins := range jujuModels {
+		for _, p := range pins {
+			if strings.Contains(p, "$(") {
+				t.Errorf("pin %q for %q resolves the model; the banner exports it", p, name)
+			}
 		}
 	}
 }
@@ -254,7 +283,9 @@ func TestRenderJujuPage_bannerStatesConventionsOnce(t *testing.T) {
 	for _, want := range []string{
 		"# Juju modules",
 		"## Deploying into your current model",
-		"You need `juju` and `jq` on your `PATH`",
+		"`juju` and `jq` must be on your `PATH`",
+		`export CURRENT_MODEL="$(juju show-model`,
+		`export CURRENT_MODEL_NAME="$(juju show-model`,
 		"On 1 of these the module demands a model",
 		"On 1 the module would otherwise create its own model",
 		"`S3_ENDPOINT`",
@@ -310,7 +341,7 @@ func TestJujuArgs_carriesTheFlagThatStopsModelCreation(t *testing.T) {
 		{"kubeflow-iam", []string{
 			`create_model=false`,
 			uuidVar,
-			`iam_core_model_uuid="$(juju show-model --format json | jq -r '.[]."model-uuid"')"`,
+			`iam_core_model_uuid="$CURRENT_MODEL"`,
 		}},
 	}
 	for _, c := range cases {
