@@ -17,8 +17,8 @@ Concretely:
 
 - The `atelier` CLI: open a wrapper (`atelier`), add/remove/list modules
   (`atelier add|rm|ls`), scaffold-and-deploy a module in one re-runnable command
-  (`atelier apply`), prune to sparse form (`atelier tidy`), list wrappers under
-  a directory (`atelier wrappers`), and clean up (`atelier purge`).
+  (`atelier apply`), list wrappers under a directory (`atelier wrappers`), and
+  clean up (`atelier purge`).
 - Public git source loading (`atelier add <url>`); local `source =
   "./..."` paths in a hand-authored `main.tf` are also supported.
 - **Multi-module composition in one root.** A target that already holds a

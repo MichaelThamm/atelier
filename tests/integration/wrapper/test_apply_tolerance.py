@@ -12,8 +12,9 @@ The module is a local `file://` git repository rather than a directory, because
 a local path has no ref and re-pointing one is the behaviour under test. So the
 real clone path (ls-remote, resolve, clone) is exercised, with no network.
 
-Atelier is called through `run`, spelled out, because that is how anything
-scripting Atelier has to call it — nobody can import from a test directory.
+Atelier is called through `atelier`, spelled out as a command line, because that
+is how anything scripting Atelier has to call it — nobody can import from a test
+directory.
 
 See ADR-0050.
 """
@@ -25,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers import TfDirManager, run
+from helpers import TfDirManager, atelier
 
 REPO_V1 = "v1.0.0"
 REPO_V2 = "v2.0.0"
@@ -109,15 +110,15 @@ def repo_url(repo) -> str:
     return f"file://{repo}"
 
 
-def apply_repo(tmp_path, repo, ref, *extra: str, check: bool = True):
+def apply_repo(tmp_path, repo, ref, extra: str = "", check: bool = True):
     """Apply the fixture repo at ref into ./wrapper, from tmp_path."""
-    return run("apply", repo_url(repo), "--ref", ref, "--dir", "wrapper",
-               "--strict", *extra, cwd=tmp_path, check=check)
+    return atelier(f"apply {repo_url(repo)} --ref {ref} --dir wrapper --strict {extra}",
+                   cwd=tmp_path, check=check)
 
 
-def add_repo(tmp_path, repo, ref, *extra: str, check: bool = True):
-    return run("add", repo_url(repo), "--ref", ref, "--dir", "wrapper",
-               "--strict", "--yes", "--json", *extra, cwd=tmp_path, check=check)
+def add_repo(tmp_path, repo, ref, extra: str = "", check: bool = True):
+    return atelier(f"add {repo_url(repo)} --ref {ref} --dir wrapper"
+                   f" --strict --yes --json {extra}", cwd=tmp_path, check=check)
 
 
 def module_blocks(main_tf: str) -> list[str]:
@@ -146,7 +147,7 @@ def two_block_wrapper(tmp_path, repo, second_ref=None) -> Path:
     """
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir(exist_ok=True)
-    apply_repo(tmp_path, repo, REPO_V1, "--var", "model_uuid=u1", "--var", "units=1")
+    apply_repo(tmp_path, repo, REPO_V1, "--var model_uuid=u1 --var units=1")
     with (wrapper / "main.tf").open("a") as fh:
         fh.write(
             f'''
@@ -162,12 +163,12 @@ def test_rerunning_an_identical_apply_is_idempotent(tmp_path, module_repo):
     # GIVEN a wrapper deployed at a ref
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    apply_repo(tmp_path, module_repo, REPO_V1, "--var", "model_uuid=u1", "--var", "units=1")
+    apply_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=1")
     first = (wrapper / "main.tf").read_text()
     assert module_blocks(first) == ["cos_lite"], first
 
     # WHEN the identical command runs again
-    again = apply_repo(tmp_path, module_repo, REPO_V1, "--var", "model_uuid=u1", "--var", "units=1")
+    again = apply_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=1")
 
     # THEN it succeeds rather than refusing as a duplicate, and the wrapper is
     # unchanged — one block, same values. This is what a CI job re-running its
@@ -180,10 +181,10 @@ def test_apply_var_merges_into_the_existing_block(tmp_path, module_repo):
     # GIVEN a wrapper holding several configured values
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    apply_repo(tmp_path, module_repo, REPO_V1, "--var", "model_uuid=u1", "--var", "units=3")
+    apply_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=3")
 
     # WHEN a re-run sets only one of them
-    apply_repo(tmp_path, module_repo, REPO_V1, "--var", "units=5")
+    apply_repo(tmp_path, module_repo, REPO_V1, "--var units=5")
 
     # THEN the named value is updated and the other is untouched. The freshly
     # cloned state carries defaults, not what main.tf held, so writing it without
@@ -199,13 +200,13 @@ def test_apply_var_file_merges_into_the_existing_block(tmp_path, module_repo):
     # GIVEN a wrapper with values set and a bundle ready beside it
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    apply_repo(tmp_path, module_repo, REPO_V1, "--var", "model_uuid=u1", "--var", "units=1")
+    apply_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=1")
 
     bundle = tmp_path / "override.tfvars"
     bundle.write_text('units = "7"\n')
 
     # WHEN a bundle is applied on top
-    apply_repo(tmp_path, module_repo, REPO_V1, "--var-file", str(bundle))
+    apply_repo(tmp_path, module_repo, REPO_V1, "--var-file override.tfvars")
 
     # THEN the bundle's value wins and the value it does not mention survives
     main_tf = (wrapper / "main.tf").read_text()
@@ -217,10 +218,10 @@ def test_apply_repoints_the_ref_rather_than_appending(tmp_path, module_repo):
     # GIVEN a wrapper pinned at v1 with values configured
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    apply_repo(tmp_path, module_repo, REPO_V1, "--var", "model_uuid=u1", "--var", "units=1")
+    apply_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=1")
 
     # WHEN the same module is applied at v2
-    done = apply_repo(tmp_path, module_repo, REPO_V2, "--var", "model=u2")
+    done = apply_repo(tmp_path, module_repo, REPO_V2, "--var model=u2")
 
     # THEN the block was re-pointed, not duplicated. Before ADR-0050 this
     # appended module "cos_lite_2" and left the wrapper declaring two copies of
@@ -251,7 +252,7 @@ def test_apply_reports_a_new_required_input_from_the_new_ref(tmp_path, module_re
     # GIVEN a wrapper pinned at v1
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    apply_repo(tmp_path, module_repo, REPO_V1, "--var", "model_uuid=u1", "--var", "units=1")
+    apply_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=1")
 
     # WHEN v2 is applied without v2's new required input
     done = apply_repo(tmp_path, module_repo, REPO_V2, check=False)
@@ -264,22 +265,20 @@ def test_apply_reports_a_new_required_input_from_the_new_ref(tmp_path, module_re
 
 
 def test_apply_reports_an_argument_it_pruned_for_being_at_its_default(tmp_path, module_repo):
-    # GIVEN a wrapper with a hand-written argument set to the module's default —
-    # the noise `atelier tidy` exists to remove. Passing it with --var does not
-    # produce this state: Atelier's own writer never emits an at-default
-    # argument, so the argument has to be written into main.tf by hand or seeded
-    # from an upstream example.
+    # GIVEN a wrapper with a hand-written argument set to the module's default.
+    # Passing it with --var does not produce this state: Atelier's own writer
+    # never emits an at-default argument, so the argument has to be written into
+    # main.tf by hand or seeded from an upstream example.
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    apply_repo(tmp_path, module_repo, REPO_V1, "--var", "model_uuid=u1", "--var", "units=1")
+    apply_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=1")
     main_tf = wrapper / "main.tf"
     main_tf.write_text(main_tf.read_text().replace(
         'units      = "1"', 'units      = "1"\n  region     = "eu"'))
     assert arg_value(main_tf.read_text(), "cos_lite", "region") == '"eu"'
 
     # WHEN the same module is applied again
-    done = apply_repo(tmp_path, module_repo, REPO_V1, "--var", "model_uuid=u1",
-                      "--var", "units=1")
+    done = apply_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=1")
 
     # THEN the at-default argument is gone — the sparse rule (ADR-0007) — and the
     # run says so, so a line leaving the user's file is never a silent edit. It is
@@ -320,8 +319,8 @@ def test_apply_as_selects_the_block_to_update(tmp_path, module_repo):
     wrapper = two_block_wrapper(tmp_path, module_repo, second_ref=REPO_V1)
 
     # WHEN --as names the block to write
-    done = apply_repo(tmp_path, module_repo, REPO_V2, "--as", "cos_lite_2",
-                      "--var", "model_uuid=u1", "--var", "model=u2")
+    done = apply_repo(tmp_path, module_repo, REPO_V2,
+                      "--as cos_lite_2 --var model_uuid=u1 --var model=u2")
 
     # THEN only the named block moved, and the sibling was left alone
     main_tf = (wrapper / "main.tf").read_text()
@@ -338,13 +337,12 @@ def test_apply_as_naming_no_block_updates_the_one_that_declares_the_module(tmp_p
     # is what `atelier apply <gallery-name>` does after any rename.
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    apply_repo(tmp_path, module_repo, REPO_V1, "--as", "prod_cos",
-               "--var", "model_uuid=u1", "--var", "units=1")
+    apply_repo(tmp_path, module_repo, REPO_V1,
+               "--as prod_cos --var model_uuid=u1 --var units=1")
     assert module_blocks((wrapper / "main.tf").read_text()) == ["prod_cos"]
 
     # WHEN a name that matches no block is supplied
-    done = apply_repo(tmp_path, module_repo, REPO_V1, "--as", "cos_lite",
-                      "--var", "model_uuid=u2")
+    done = apply_repo(tmp_path, module_repo, REPO_V1, "--as cos_lite --var model_uuid=u2")
 
     # THEN the block that does declare the module is updated, keeps its name, and
     # the unmatched name is reported rather than silently dropped. Refusing here
@@ -360,7 +358,7 @@ def test_add_still_refuses_a_module_the_wrapper_already_has(tmp_path, module_rep
     # GIVEN a wrapper holding one module
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    add_repo(tmp_path, module_repo, REPO_V1, "--var", "model_uuid=u1", "--var", "units=1")
+    add_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=1")
     before = (wrapper / "main.tf").read_text()
 
     # WHEN add runs again for the same module. add authors; it does not overwrite
@@ -380,8 +378,8 @@ def test_apply_preserves_a_wired_expression_in_the_updated_block(tmp_path, modul
     other = write_module(tmp_path / "src" / "loki", "loki", {"endpoint": ""})
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    run("add", other, "--dir", "wrapper", "--strict", "--yes", "--json",
-        "--var", "endpoint=http://loki:3100", cwd=tmp_path)
+    atelier(f"add {other} --dir wrapper --strict --yes --json"
+            " --var endpoint=http://loki:3100", cwd=tmp_path)
     with (wrapper / "main.tf").open("a") as fh:
         fh.write(
             f'''
@@ -393,7 +391,7 @@ module "cos_lite" {{
         )
 
     # WHEN the block is re-pointed at v2
-    apply_repo(tmp_path, module_repo, REPO_V2, "--var", "model=u2")
+    apply_repo(tmp_path, module_repo, REPO_V2, "--var model=u2")
 
     # THEN the reference survived verbatim, and the wired input satisfied the
     # required-input gate. Carrying values alone would have dropped the reference,
@@ -409,8 +407,8 @@ def test_apply_preserves_depends_on_when_repointing(tmp_path, module_repo):
     other = write_module(tmp_path / "src" / "loki", "loki", {"endpoint": ""})
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
-    run("add", other, "--dir", "wrapper", "--strict", "--yes", "--json",
-        "--var", "endpoint=http://loki:3100", cwd=tmp_path)
+    atelier(f"add {other} --dir wrapper --strict --yes --json"
+            " --var endpoint=http://loki:3100", cwd=tmp_path)
     with (wrapper / "main.tf").open("a") as fh:
         fh.write(
             f'''
@@ -423,7 +421,7 @@ module "cos_lite" {{
         )
 
     # WHEN the block is re-pointed
-    apply_repo(tmp_path, module_repo, REPO_V2, "--var", "model=u2")
+    apply_repo(tmp_path, module_repo, REPO_V2, "--var model=u2")
 
     # THEN depends_on is still there. It is not a module input, so it is never a
     # stale variable — the same fix applies to the TUI's ref switch.
