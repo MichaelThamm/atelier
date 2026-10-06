@@ -14,6 +14,10 @@ atelier-import.auto.tfvars
 # wrappers beneath it). Keep out of the repo and out of agent search.
 tf-testing/
 
+# Local git worktrees. Each is a nested repository, so committing one would add
+# a gitlink and break clones; `git worktree list` still finds them.
+.worktrees/
+
 # Python integration tests
 .venv/
 __pycache__/

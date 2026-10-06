@@ -153,7 +153,6 @@ func (m *Model) applyRefSwitch(result *RefSwitchResult) {
 
 	// Refresh the preset picker: the new ref may ship different `.tfvars`
 	// example bundles, and the list is otherwise only built at launch.
-	m.SetPresets(result.Presets)
 
 	idx := m.refModuleIdx
 	if idx < 0 || idx >= len(m.Modules) {

@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-0053](0053-tui-does-not-list-or-apply-presets.md) — the TUI
+no longer lists or applies preset bundles (`F` and the picker are removed);
+`S` is kept. The decision that presets *are* Terraform-native `.tfvars`
+bundles is unchanged. This ADR is kept unedited below.
+
+Originally Accepted; it superseded
+[ADR-0022](0022-local-presets.md) and [ADR-0026](0026-save-preset.md).
 
 Supersedes [ADR-0022](0022-local-presets.md) and
 [ADR-0026](0026-save-preset.md).

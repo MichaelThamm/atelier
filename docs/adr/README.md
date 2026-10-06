@@ -37,7 +37,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0028 | [Provider-specific import IDs — scoped to Juju for v1](0028-provider-specific-import-ids.md) | Accepted |
 | 0029 | [Live logs view (`L`)](0029-live-logs-view.md)                                              | Superseded by ADR-0052 |
 | 0030 | [Target-directory preflight and duplicate-module refusal](0030-target-directory-preflight.md) | Accepted |
-| 0031 | [Presets as Terraform-native `.tfvars` bundles](0031-presets-as-tfvars-bundles.md)          | Accepted |
+| 0031 | [Presets as Terraform-native `.tfvars` bundles](0031-presets-as-tfvars-bundles.md)          | Superseded by ADR-0053 |
 | 0032 | [Nested-wrapper preflight distinguishes deliberate nesting from stray `cd`](0032-nested-wrapper-preflight-scope.md) | Accepted |
 | 0033 | [Provider-specific matching lives behind the Provider interface](0033-provider-fallback-matching.md) | Accepted |
 | 0034 | [`atelier module apply` one-liner](0034-module-apply-one-liner.md)                            | Accepted |
@@ -59,6 +59,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0050 | [`atelier apply` converges on the block it finds](0050-tolerant-apply-converges.md) | Accepted |
 | 0051 | [`atelier apply` exits 2 when Terraform failed](0051-apply-exit-codes.md) | Accepted |
 | 0052 | [Hand the terminal to Terraform instead of re-rendering its output](0052-hand-the-terminal-to-terraform.md) | Accepted |
+| 0053 | [The TUI does not list or apply preset bundles](0053-tui-does-not-list-or-apply-presets.md) | Accepted |
 
 ## Conventions
 

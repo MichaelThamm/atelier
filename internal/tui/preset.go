@@ -6,17 +6,6 @@ import (
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
-// ResolvedPreset is a preset ready for application: its values are already
-// cty.Values keyed by variable name. Presets are sourced from `.tfvars`
-// bundles: Source is "local" (walk-up personal) or "repo" (committed to the
-// module).
-type ResolvedPreset struct {
-	Name        string
-	Description string
-	Values      map[string]cty.Value
-	Source      string
-}
-
 // snapshotValues returns the primary module's current, non-default concrete
 // values — exactly what Atelier would write sparsely (wrapper.ShouldEmit +
 // SparseValue, ADR-0007). This is the "save a bundle from what you have" path:

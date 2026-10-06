@@ -11,7 +11,7 @@ file only adds what is local to the package.
 | `update.go` | `Update` and the top-level key router. |
 | `messages.go`, `commands.go` | Bubble Tea message types and `tea.Cmd` producers (plan, apply, validate, ref). |
 | `list_keys.go`, `plan_keys.go` | Key handling for the variable list, and for the plan/diff views. |
-| `preset_keys.go`, `ref_keys.go` | `.tfvars` bundle picker/save flows; ref-switch modal, matching, and apply. |
+| `preset_keys.go`, `ref_keys.go` | The `.tfvars` save flow (`S`); ref-switch modal, matching, and apply. |
 | `helpers.go` | Small model helpers (labels, counts, diagnostics formatting). |
 | `editor.go` | `cellInput` readline cell, `Editor` interfaces, dispatcher, and the scalar editors (`string`/`number`/`bool`/read-only). |
 | `editor_map.go`, `editor_mapobject.go` | The `map(string)` and `map(object(...))` editors. |
@@ -48,10 +48,9 @@ file only adds what is local to the package.
   `EnsureInit` runs the body only for the leader and waiters take its result.
   Reaching for a bare `initialised` bool instead would reintroduce the race.
 - **Presets are `.tfvars` bundles** ([ADR-0031](../../docs/adr/0031-presets-as-tfvars-bundles.md)):
-  the picker lists personal walk-up and repo preset bundles (local does not
-  hide a same-named repo bundle — the source is shown and the user picks), `S`
-  writes `atelier.presets/<name>.tfvars`, and the list must be refreshed after
-  a ref switch.
+  `S` writes `atelier.presets/<name>.tfvars` from the current configuration.
+  Applying one is `atelier apply --var-file <name>` and listing them is
+  `--list-var-files`; the TUI does not offer either.
 - Editor behavior is spec'd: readline editing
   ([ADR-0020](../../docs/adr/0020-readline-style-text-editing.md)), map row
   lifecycle ([ADR-0023](../../docs/adr/0023-map-row-editing-lifecycle.md)),

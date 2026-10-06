@@ -36,9 +36,6 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "  Esc/←          Focus left pane")
 		fmt.Fprintln(&b, "  Ctrl+R         Reset variable to default")
 		fmt.Fprintln(&b, "  P              Run terraform plan")
-		if len(m.presets) > 0 {
-			fmt.Fprintln(&b, "  F              Open preset picker")
-		}
 		fmt.Fprintln(&b, "  S              Save current config as a preset")
 		if m.activeSwitcher() != nil {
 			fmt.Fprintln(&b, "  R              Switch module ref")
@@ -112,30 +109,6 @@ func (m *Model) renderRefDetail() string {
 func (m *Model) renderWarnDetail() string {
 	title := styleStatusWarning.Render(fmt.Sprintf("⚠ %d check warning(s)", len(m.checkWarnings)))
 	return m.renderModalFrame(title, formatCheckWarnings(m.checkWarnings), "[Esc] close")
-}
-
-// renderPresetPicker renders a centered modal for bundle selection. Each row
-// shows the source ([local] personal walk-up, [repo] committed to the module)
-// and the description from the file's leading comment.
-func (m *Model) renderPresetPicker() string {
-	var b strings.Builder
-	for i, p := range m.presets {
-		cursor := "  "
-		name := p.Name
-		if p.Source != "" {
-			name = "[" + p.Source + "] " + name
-		}
-		if i == m.presetCursor {
-			cursor = styleCursorActive.Render("▸ ")
-			name = styleCursorActive.Render(name)
-		}
-		line := cursor + name
-		if p.Description != "" {
-			line += "  " + styleDescription.Render(p.Description)
-		}
-		fmt.Fprintln(&b, line)
-	}
-	return m.renderModalFrame("Select a preset", b.String(), "[↑↓] select   [Enter] apply   [Esc] cancel")
 }
 
 // renderSavePresetModal renders the "save current configuration as a preset"
