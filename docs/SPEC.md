@@ -1339,6 +1339,27 @@ for the session.
 
 See [ADR-0002](adr/0002-author-and-plan-scope.md).
 
+### 13.2.1 `terraform init` is serialised
+
+`terraform init` runs at most once at a time per wrapper. The `P` key, the
+debounced `terraform validate`, and `Apply` can all need it, and Terraform's
+module installer writes into one shared `.terraform/modules/` tree — two
+overlapping inits clobber each other's git packfiles and both fail with
+`invalid index-pack output` or `Module installation was canceled by an
+interrupt signal`.
+
+A caller that finds an init in flight waits for it and reports its result: a
+failed init surfaces to every waiter rather than letting one proceed against a
+half-populated cache. A caller whose context expires while waiting returns
+without running init. After a successful init the wrapper is considered
+initialised and later callers return immediately.
+
+After a ref switch (`R`), the next init runs `terraform init -upgrade`, since
+only the `?ref=` query changed. A reset invalidates an init already in flight
+rather than cancelling it — that run described the old module source — and the
+next caller re-initialises. The `-upgrade` request is consumed only by a run
+that succeeded, so a failed one retries as an `-upgrade`.
+
 ### 13.3 Error handling
 
 | Error class                                      | Handling                                                                                        |

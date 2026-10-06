@@ -49,16 +49,16 @@ type TfexecPlanner struct {
 	// writes phase updates to it via terraform's stdout stream.
 	Progress *ProgressTracker
 
-	initialised  bool
-	needsUpgrade bool // set by ResetInit after a ref switch
+	init initGuard
 }
 
 // ResetInit clears the cached init state so the next EnsureInit call will
 // run init -upgrade. Called after a ref switch rewrites the module source.
+// An init already in flight is invalidated rather than cancelled: its result
+// described the old module source, so it must not mark the wrapper ready.
 func (p *TfexecPlanner) ResetInit() {
 	if p != nil {
-		p.initialised = false
-		p.needsUpgrade = true
+		p.init.reset()
 	}
 }
 
@@ -71,10 +71,11 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	if p == nil || p.Tf == nil {
 		return errors.New("planner not configured")
 	}
-	if p.initialised {
-		return nil
-	}
+	return ensureInitOnce(ctx, &p.init, p.runInit)
+}
 
+// runInit is the body EnsureInit serialises. Only the leader reaches it.
+func (p *TfexecPlanner) runInit(ctx context.Context, upgrade bool) error {
 	// Stream init output to progress tracker if available.
 	if p.Progress != nil {
 		p.Progress.SetPhase("Running terraform init…")
@@ -88,12 +89,10 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 
 	// After a ref switch we must run -upgrade to re-fetch the module even
 	// though the base URL hasn't changed (only the ?ref= query did).
-	if p.needsUpgrade {
+	if upgrade {
 		if err := p.Tf.InitUpgrade(ctx); err != nil {
 			return fmt.Errorf("terraform init -upgrade: %w", err)
 		}
-		p.needsUpgrade = false
-		p.initialised = true
 		return nil
 	}
 	// Always run `terraform init` on the first plan of a session. This is
@@ -102,7 +101,6 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 	if err := p.Tf.Init(ctx); err != nil {
 		return fmt.Errorf("terraform init: %w", err)
 	}
-	p.initialised = true
 	return nil
 }
 
