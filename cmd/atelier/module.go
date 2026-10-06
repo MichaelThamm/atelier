@@ -33,7 +33,8 @@ type moduleOpts struct {
 	VarFiles     []string // --var-file: seed values from a .tfvars file or repo-local name (repeatable)
 	Vars         []string // --var: KEY=VALUE overrides applied after all var-files (repeatable)
 	Yes          bool     // --yes/-y: skip the target-directory confirmation
-	ListVarFiles bool     // --list-var-files: print the repo's .tfvars files and exit
+	ListVarFiles bool     // --list-var-files: print the .tfvars files available to a module and exit
+	AllVarFiles  bool     // --all: with --list-var-files, print every bundled bundle, not just this module's
 	Strict       bool     // --strict: make var-file binding warnings fatal
 	JSON         bool     // --json: report the result as JSON on stdout (add only; apply rejects it)
 }
@@ -48,6 +49,8 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 			opts.Yes = true
 		case "--list-var-files":
 			opts.ListVarFiles = true
+		case "--all":
+			opts.AllVarFiles = true
 		case "--strict":
 			opts.Strict = true
 		case "--json":
@@ -121,6 +124,11 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 		return opts, fmt.Errorf("module command takes exactly one URL argument; got %v", positional)
 	}
 	opts.Source = positional[0]
+	// --all only widens a listing; on its own it would be silently ignored,
+	// which reads as "you asked for everything and got the default".
+	if opts.AllVarFiles && !opts.ListVarFiles {
+		return opts, errors.New("--all is only meaningful with --list-var-files")
+	}
 	return opts, nil
 }
 
@@ -163,12 +171,29 @@ func varsToMap(pairs []string) map[string]string {
 // source-labelled (`local` walk-up or `repo`), name first so a long list stays
 // scannable.
 func printVarFiles(files []bootstrap.VarFile) {
+	printVarFilesTo(os.Stdout, files)
+}
+
+func printVarFilesTo(w io.Writer, files []bootstrap.VarFile) {
 	if len(files) == 0 {
-		fmt.Println("No .tfvars bundles found (checked atelier.presets/ up-tree and the module repo).")
+		fmt.Fprintln(w, "No .tfvars bundles found (checked atelier.presets/ up-tree and the module repo).")
 		return
 	}
+	// Size both leading columns to the widest value present, so the
+	// descriptions line up whatever the bundles are called. Fixed widths shift
+	// by one space for any value that happens to fill one exactly, and the
+	// source labels differ in length ([repo] against [gallery]).
+	nameWidth, sourceWidth := 0, 0
 	for _, f := range files {
-		fmt.Printf("[%s] %-24s %s\n", f.Source, f.Name, f.Display)
+		if n := len(f.Name); n > nameWidth {
+			nameWidth = n
+		}
+		if n := len(f.Source); n > sourceWidth {
+			sourceWidth = n
+		}
+	}
+	for _, f := range files {
+		fmt.Fprintf(w, "[%-*s] %-*s %s\n", sourceWidth, f.Source, nameWidth, f.Name, f.Display)
 	}
 }
 
@@ -185,11 +210,12 @@ func listVarFileBundles(wrapperDir, command string, opts moduleOpts) error {
 	ctx, cancel := interruptContext()
 	defer cancel()
 	files, err := bootstrap.ListVarFiles(ctx, bootstrap.InitOptions{
-		WrapperDir:  wrapperDir,
-		Source:      opts.Source,
-		LocalSource: modulesource.IsLocal(opts.Source),
-		Ref:         opts.Ref,
-		ModulePath:  opts.ModulePath,
+		WrapperDir:    wrapperDir,
+		Source:        opts.Source,
+		LocalSource:   modulesource.IsLocal(opts.Source),
+		Ref:           opts.Ref,
+		ModulePath:    opts.ModulePath,
+		AllGalleryVar: opts.AllVarFiles,
 	})
 	if err != nil {
 		return err

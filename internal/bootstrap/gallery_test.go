@@ -53,7 +53,7 @@ func TestGalleryVarFiles_descriptionsAreOneSentence(t *testing.T) {
 }
 
 func TestListAllVarFiles_includesGallery(t *testing.T) {
-	got := ListAllVarFiles(t.TempDir(), "", "")
+	got := ListAllVarFiles(t.TempDir(), "", "", nil)
 	for _, f := range got {
 		if f.Source == "gallery" && f.Name == "cos-no-ingress" {
 			if f.Path == "" {

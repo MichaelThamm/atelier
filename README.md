@@ -240,7 +240,8 @@ component off and turns only Alertmanager ingress back on.
 
 Names resolve against your walk-up `atelier.presets/` bundles first, then the
 module repo's presets; a local path is also accepted. `--list-var-files` prints
-what is available:
+what is available for that module, including the presets Atelier bundles for
+it — not every preset Atelier ships:
 
 ```bash
 atelier add https://github.com/canonical/observability-stack.git \
@@ -251,7 +252,12 @@ atelier add https://github.com/canonical/observability-stack.git \
 [repo] no-ingress               terraform/cos/presets/no-ingress.tfvars
 [repo] s3-seaweedfs             terraform/cos/presets/s3-seaweedfs.tfvars
 [repo] single-unit              terraform/cos/presets/single-unit.tfvars
+[gallery] cos-grafana-single-unit  bundled with atelier
+[gallery] cos-no-ingress           bundled with atelier
+[gallery] cos-single-unit          bundled with atelier
 ```
+
+Add `--all` to see every bundled preset regardless of module.
 
 Redirecting stdin (`< /dev/null`) makes these examples non-interactive, so they
 run unattended. When `atelier add` creates its own directory there is no prompt;
@@ -316,7 +322,8 @@ The pieces that make this work:
 - **`--query-var model_uuid`** is required by the Juju provider's list
   resources; `--var model` pins the module's own model input.
 - **`--list-var-files`** works on both `atelier add` and `import` (the latter
-  needs `--source`, since the repo is only searched after a clone).
+  needs `--source`, since the repo is only searched after a clone). It lists the
+  bundles for the module you named; `--all` lists every bundled preset.
 
 ## Scripting and CI
 

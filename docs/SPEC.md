@@ -585,7 +585,13 @@ exactly like any other `--var-file`.
   preset can be superseded by a bundle the user supplies.
 - `--list-var-files` prints the available bundles (source-labelled) without
   writing anything. On `atelier add` it needs no other flag; on `import` it
-  requires `--source`, since the repo is only searched after a clone.
+  requires `--source`, since the repo is only searched after a clone. Bundled
+  presets are narrowed to the gallery entries that deploy the module named on
+  the command line, matched on repository and sub-directory — so
+  `atelier apply cos-lite --list-var-files` reports `cos-lite-no-ingress` and
+  not the presets for `cos`, `trino`, and the rest. `--all` drops the narrowing
+  and prints every bundled preset; it is only meaningful with
+  `--list-var-files`.
 - `atelier gallery list [--commands]` renders Atelier's bundled gallery: the
   module, pinned ref, the composed presets (if any), the optional ones, and the
   command to deploy it. An entry whose module needs deployment-specific inputs (a Juju model UUID,
