@@ -172,7 +172,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # fails here naming the disagreement, rather than the reverse: pytest stops
     # at the first failure, so judging the payload first would let a reporting
     # bug hide the state it misreported.
-    tf_manager.latch(wrapper_dir)
+    tf_manager.latch(wrapper)
     drifted = sorted(c for c in tf_manager.plan_changes() if c[1] in PRESERVED_TYPES)
     assert not drifted, (
         "a plan of the imported state still changes these core resources "
