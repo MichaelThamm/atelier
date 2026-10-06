@@ -124,11 +124,16 @@ func TestHelpModal_AdvertisesNoVimLetters(t *testing.T) {
 	}
 	for _, want := range []string{
 		"↑ ↓            Move cursor",
-		"Home/End       Jump to top/bottom",
 		"Ctrl+U         Delete to start of line",
 	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("help modal missing %q; got:\n%s", want, plain)
+		}
+	}
+	// The logs view is gone (ADR-0052); the modal must not still point at it.
+	for _, gone := range []string{"Logs view", "View terraform logs", "[L]"} {
+		if strings.Contains(plain, gone) {
+			t.Errorf("help modal still advertises %q; got:\n%s", gone, plain)
 		}
 	}
 	// The modal is the source of truth for keybindings, so it must not

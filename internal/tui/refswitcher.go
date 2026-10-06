@@ -24,13 +24,6 @@ type RefSwitcher interface {
 	ListRefs(ctx context.Context) ([]string, error)
 }
 
-// ProgressAware is an optional interface that RefSwitcher implementations can
-// satisfy to receive a ProgressTracker before long-running operations. The TUI
-// checks for this at runtime and attaches a tracker when available.
-type ProgressAware interface {
-	SetProgress(p *ProgressTracker)
-}
-
 // RefSwitchResult is returned by SwitchRef with the new state, any orphaned
 // variable names (present in old state but absent in new module), and the
 // resolved SHA.

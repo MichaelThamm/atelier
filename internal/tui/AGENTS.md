@@ -10,14 +10,14 @@ file only adds what is local to the package.
 | `model.go` | Top-level `Model`, state enums, row model, constructor, accessors, `Init`/`View`/`SaveIfDirty`. |
 | `update.go` | `Update` and the top-level key router. |
 | `messages.go`, `commands.go` | Bubble Tea message types and `tea.Cmd` producers (plan, apply, validate, ref). |
-| `list_keys.go`, `plan_keys.go` | Key handling for the variable list/logs, and for the plan/diff views. |
+| `list_keys.go`, `plan_keys.go` | Key handling for the variable list, and for the plan/diff views. |
 | `preset_keys.go`, `ref_keys.go` | `.tfvars` bundle picker/save flows; ref-switch modal, matching, and apply. |
 | `helpers.go` | Small model helpers (labels, counts, diagnostics formatting). |
 | `editor.go` | `cellInput` readline cell, `Editor` interfaces, dispatcher, and the scalar editors (`string`/`number`/`bool`/read-only). |
 | `editor_map.go`, `editor_mapobject.go` | The `map(string)` and `map(object(...))` editors. |
 | `editor_object.go` | The `list`/`set` and `object` editors and their field helpers. |
 | `view.go` | Core view helpers: wrapping, modal frame, layout primitives. |
-| `view_panes.go`, `view_logs.go`, `view_modals.go` | Panes/header/footer; logs view and status line; help/ref/preset modals. |
+| `view_panes.go`, `view_modals.go` | Panes/header/footer (including the spinner and status hints); help/ref/preset modals. |
 | `theme.go` | All colors and role styles (Catppuccin Mocha/Latte). |
 | `planner.go` | `Planner` / `Applier` / `Validator` interfaces and the tfexec-backed implementation. |
 | `initguard.go` | `initGuard`: serialises `terraform init` and hands waiters the leader's result. |
@@ -25,7 +25,6 @@ file only adds what is local to the package.
 | `plan_view.go` | Full-screen plan rendering. |
 | `preset.go` | `ResolvedPreset` (a `.tfvars` bundle) and `snapshotValues` for saving the current configuration. |
 | `refswitcher.go` | `RefSwitcher` interface and result types. |
-| `progress.go` | Thread-safe progress and log capture for long-running terraform. |
 
 ## Invariants
 
@@ -37,6 +36,11 @@ file only adds what is local to the package.
   work goes via `Planner`/`Applier`/`Validator`/`RefSwitcher` so tests can
   substitute stubs. Never shell out to terraform from the TUI outside those
   interfaces.
+- **The TUI does not re-render terraform's output**
+  ([ADR-0052](../../docs/adr/0052-hand-the-terminal-to-terraform.md)). `A`
+  returns a `tea.Cmd` that hands the terminal to terraform; plan output goes
+  only to `.atelier/logs/`. Failures put their first line in the status bar
+  and the rest on disk. Do not reintroduce an in-TUI log buffer.
 - **Plan tree construction in `plan.go` is pure.** Keep rendering out of it;
   it is what makes plan logic unit-testable without a terminal.
 - **`terraform init` is serialised** (`initguard.go`, SPEC §13.2.1). Overlapping

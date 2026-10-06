@@ -527,17 +527,9 @@ type prodRefSwitcher struct {
 	// must be carried into the mid-switch state.Write() below, otherwise the
 	// rewritten module block silently loses the reference.
 	currentUnknownAttrs []wrapper.RawAttr
-	progress            *tui.ProgressTracker
-}
-
-func (s *prodRefSwitcher) SetProgress(p *tui.ProgressTracker) {
-	s.progress = p
 }
 
 func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.RefSwitchResult, error) {
-	if s.progress != nil {
-		s.progress.SetPhase("Cloning at new ref…")
-	}
 	// Clone the new revision and re-read its variable schema. Carry over the
 	// user's values for variables that still exist — required variables must be
 	// present in the HCL for init to succeed. Values not in the new schema are
@@ -562,12 +554,14 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	if err != nil {
 		return nil, fmt.Errorf("terraform init -upgrade: %w", err)
 	}
-	if s.progress != nil {
-		s.progress.SetPhase("Running terraform init…")
-		tf.SetStdout(&tui.ProgressWriter{Tracker: s.progress, FileWriter: tf.StdoutFile()})
-		tfexec.WriteTimestampHeader(tf.StdoutFile())
-		defer tf.SetStdout(nil)
-	}
+	// Terraform's output goes to the durable log files; the TUI shows only
+	// the spinner for this step (ADR-0052).
+	tf.SetStdout(tf.StdoutFile())
+	tf.SetStderr(tf.StderrFile())
+	tfexec.WriteTimestampHeader(tf.StdoutFile())
+	tfexec.WriteTimestampHeader(tf.StderrFile())
+	defer tf.SetStdout(nil)
+	defer tf.SetStderr(nil)
 	// A ref switch that changes the module's API can leave the wrapper
 	// temporarily invalid — most commonly when the new ref adds a required
 	// variable the user hasn't filled yet, which Terraform reports as

@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,14 +33,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.planScroll = 0
 		m.planDiffScroll = 0
 		m.planState = planReady
-		m.planErr = ""
 		m.status = ""
 		return m, nil
 	case planErrorMsg:
 		m.planState = planIdle
-		m.planErr = msg.err.Error()
-		m.status = "plan failed: " + msg.err.Error()
-		m.statusDetail = msg.err.Error()
+		cause, _, _ := strings.Cut(msg.err.Error(), "\n")
+		m.status = "plan failed: " + cause
 		m.statusLvl = statusError
 		m.statusAt = time.Now()
 		return m, nil
@@ -51,7 +50,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case applyResultMsg:
 		m.applyState = applyDone
-		m.applyErr = ""
 		m.status = "apply succeeded"
 		m.statusLvl = statusInfo
 		m.statusAt = time.Now()
@@ -69,9 +67,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case applyErrorMsg:
 		m.applyState = applyIdle
-		m.applyErr = msg.err.Error()
-		m.status = "apply failed: " + msg.err.Error()
-		m.statusDetail = msg.err.Error()
+		m.status = "apply failed"
 		m.statusLvl = statusError
 		m.statusAt = time.Now()
 		return m, nil
@@ -85,14 +81,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.validateOutput = msg.output
 		m.dirty = false // state was written by startValidate
 		if msg.output != nil && !msg.output.Valid {
-			m.statusDetail = formatValidateDiagnostics(msg.output)
+			// The status pane names the first diagnostic; the header keeps the
+			// count (SPEC §9).
+			detail, _, _ := strings.Cut(formatValidateDiagnostics(msg.output), "\n")
 			m.statusLvl = statusError
-			m.status = fmt.Sprintf("validate: %d error(s)", msg.output.ErrorCount)
+			m.status = "validate: " + detail
 			m.statusAt = time.Now()
 		} else {
 			// Clear any previous validate error.
 			if m.statusLvl == statusError && m.validateOutput != nil {
-				m.statusDetail = ""
 				m.statusLvl = statusInfo
 				m.status = ""
 			}
@@ -127,7 +124,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refMatchCursor = 0
 		m.refreshRefMatches()
 		m.status = "ref switch failed: " + msg.err.Error()
-		m.statusDetail = msg.err.Error()
 		m.statusLvl = statusError
 		m.statusAt = time.Now()
 		// Kick off a fresh ref list so the hint reflects the current remote.
@@ -196,49 +192,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePlanKey(msg)
 	}
 	if m.planState == planLoading {
-		// While plan is in flight, the logs view gets priority for scroll
-		// and navigation keys. Esc cancels the plan from either view.
-		if m.activeView == viewLogs {
-			if msg.String() == "esc" {
-				m.planState = planIdle
-				m.status = "plan cancelled (best effort)"
-				m.statusLvl = statusInfo
-				m.activeView = viewEditor
-				m.logScroll = 0
-				return m, nil
-			}
-			return m.handleLogsKey(msg)
-		}
-		switch msg.String() {
-		case "esc":
+		// Esc abandons the in-flight plan; the editor stays usable either way.
+		if msg.String() == "esc" {
 			m.planState = planIdle
 			m.status = "plan cancelled (best effort)"
 			m.statusLvl = statusInfo
-		case "l", "L":
-			if m.progress != nil {
-				m.activeView = viewLogs
-				m.logAutoScroll = true
-				var lines []LogLine
-				switch m.logsTab {
-				case logsTabErrors:
-					lines = m.progress.StderrLines()
-				case logsTabLogs:
-					lines = m.progress.StdoutLines()
-				}
-				h := m.panelHeight() - 1
-				if h < 1 {
-					h = 1
-				}
-				m.logScroll = max(0, len(lines)-h)
-			}
 		}
 		return m, nil
-	}
-
-	// Logs view interception: when the logs panel is active, it owns
-	// scroll keys, L/Tab/Esc to return, and arrow keys.
-	if m.activeView == viewLogs {
-		return m.handleLogsKey(msg)
 	}
 
 	// Preset picker interception: the overlay owns all keys until
@@ -267,28 +227,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.quit = true
 			return m, tea.Quit
 		}
-	case "l", "L":
-		if m.progress != nil {
-			m.activeView = viewLogs
-			m.logAutoScroll = true
-			var lines []LogLine
-			switch m.logsTab {
-			case logsTabErrors:
-				lines = m.progress.StderrLines()
-			case logsTabLogs:
-				lines = m.progress.StdoutLines()
-			}
-			if len(lines) == 0 {
-				m.logScroll = 0
-				return m, nil
-			}
-			h := m.panelHeight() - 1
-			if h < 1 {
-				h = 1
-			}
-			m.logScroll = max(0, len(lines)-h)
-			return m, nil
-		}
 	case "tab":
 		if m.focus == focusLeft {
 			m.setFocus(focusRight)
@@ -313,7 +251,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// belongs to the editor (the user might be typing "p" into a value).
 		if m.focus == focusLeft {
 			m.planState = planLoading
-			m.planErr = ""
 			m.status = ""
 			return m, tea.Batch(m.startPlan(), spinnerTick())
 		}

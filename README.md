@@ -30,7 +30,8 @@ and presets for reusable configurations.
   module's own defaults handle the rest. Inputs with no default are always
   written, because Terraform needs a value for them.
 - **Plan and apply in the TUI.** Atelier owns the configure → plan iteration
-  loop and supports `terraform apply` from the plan view (`A` key).
+  loop and applies from the plan view (`A` key), handing your terminal to
+  terraform so you watch the apply happen.
 - **Presets are plain Terraform.** Reusable value bundles are `.tfvars` files,
   discovered from an `atelier.presets/` directory or committed by the module
   under `<module>/presets/`. See [Presets](#presets).
@@ -432,24 +433,23 @@ the view you are in and is the single source of truth for shortcuts.
 ## Validate on save
 
 Every edit is saved to disk immediately, and Atelier runs a background
-`terraform validate`. Errors appear inline in the status bar; press `L` for the
-live logs, whose Errors tab holds the full diagnostics. Validation runs
-`terraform init` automatically if the workspace isn't initialised yet.
+`terraform validate`. Errors appear inline in the status bar, one diagnostic at a
+time. Validation runs `terraform init` automatically if the workspace isn't
+initialised yet.
 
 ## Troubleshooting
 
-Atelier persists terraform's diagnostics under the wrapper's
-`.atelier/logs/` directory (gitignored, regenerable). The `L` logs view prints
-this directory's absolute path at the top, along with the files that actually
-exist there, so you can open them from a shell without guessing where the
-wrapper lives:
+Atelier appends terraform's diagnostics under the wrapper's `.atelier/logs/`
+directory (gitignored, regenerable). Applying from the plan view hands your
+terminal to terraform, so you see its progress as it happens; these files are
+what's left to read when a plan the TUI ran on your behalf fails.
 
 - `tf-stderr.log` — terraform's stderr, appended across runs. Always on. It
   stays small because successful commands write little to stderr, so it
   mostly captures the warnings and errors worth keeping. This is the first
   place to look after an intermittent `plan`/`apply` failure.
-- `tf-stdout.log` — terraform's stdout (plan/apply progress), appended across
-  runs. Always on. This is the on-disk counterpart to the logs view's Logs tab.
+- `tf-stdout.log` — terraform's stdout (init and plan progress), appended
+  across runs. Always on.
 - `tf-trace.log` — terraform's full `TRACE` log, written only when the
   `ATELIER_DEBUG` environment variable is set to a truthy value
   (`ATELIER_DEBUG=1 atelier`). It is verbose, so it is off by default; leave

@@ -28,9 +28,6 @@ func (m *Model) renderHelpModal() string {
 		if m.refDetailText != "" {
 			fmt.Fprintln(&b, "  D              Show ref switch summary")
 		}
-		if m.progress != nil && (len(m.progress.StderrLines()) > 0 || len(m.progress.StdoutLines()) > 0) {
-			fmt.Fprintln(&b, "  L              View terraform logs")
-		}
 		fmt.Fprintln(&b, "  Esc/q          Return to editor")
 	default:
 		fmt.Fprintln(&b, "  Tab            Switch pane (left ↔ right)")
@@ -48,9 +45,6 @@ func (m *Model) renderHelpModal() string {
 		}
 		if m.refDetailText != "" {
 			fmt.Fprintln(&b, "  D              Show ref switch summary")
-		}
-		if m.progress != nil && (len(m.progress.StderrLines()) > 0 || len(m.progress.StdoutLines()) > 0) {
-			fmt.Fprintln(&b, "  L              View terraform logs")
 		}
 		fmt.Fprintln(&b, "  Q              Quit (auto-saves)")
 
@@ -81,11 +75,11 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "  Ctrl+Home/End  Jump to first/last field (in an object)")
 
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "Logs view (L):")
-		fmt.Fprintln(&b, "  ↑ ↓            Scroll up/down")
-		fmt.Fprintln(&b, "  PgUp/PgDn      Half-page up/down")
-		fmt.Fprintln(&b, "  Home/End       Jump to top/bottom")
-		fmt.Fprintln(&b, "  L/Tab/Esc     Return to previous view")
+		fmt.Fprintln(&b, "Logs:")
+		fmt.Fprintln(&b, "  (none)         Terraform's output for the last plan is in")
+		fmt.Fprintln(&b, "                 .atelier/logs/; the plan view names the file")
+		fmt.Fprintln(&b, "                 on failure, and A hands the terminal to")
+		fmt.Fprintln(&b, "                 terraform to apply.")
 
 		if m.activeSwitcher() != nil {
 			fmt.Fprintln(&b)

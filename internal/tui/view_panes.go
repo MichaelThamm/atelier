@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
@@ -285,24 +286,11 @@ func (m *Model) renderFooter() string {
 	}
 	var left string
 	switch {
-	case m.applyState == applyLoading:
+	case m.applyState == applyLoading, m.refSwitching, m.planState == planLoading:
 		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
-		label := "Running terraform apply…"
 		left = fmt.Sprintf("%s %s",
 			styleStatusBusy.Render(frame),
-			styleStatusBusy.Render(label+m.progressSuffix()))
-	case m.refSwitching:
-		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
-		label := "Switching module ref…"
-		left = fmt.Sprintf("%s %s",
-			styleStatusBusy.Render(frame),
-			styleStatusBusy.Render(label+m.progressSuffix()))
-	case m.planState == planLoading:
-		frame := spinnerFrames[m.planSpinnerFrame%len(spinnerFrames)]
-		label := "Running terraform plan…"
-		left = fmt.Sprintf("%s %s",
-			styleStatusBusy.Render(frame),
-			styleStatusBusy.Render(label+m.progressSuffix()))
+			styleStatusBusy.Render(m.opPhase+m.progressSuffix()))
 	case m.statusLvl == statusError && m.status != "":
 		errText := m.status
 		if idx := strings.IndexByte(errText, '\n'); idx >= 0 {
@@ -343,6 +331,71 @@ func (m *Model) renderFooter() string {
 	// runewidth (1 cell per arrow) and can undercount.
 	bar = ansi.TruncateWc(bar, contentW, "…")
 	return styleStatusBar.Width(m.width - 2).Render(bar)
+}
+
+// progressSuffix returns the elapsed time of the in-flight operation, e.g.
+// " (12s)", or "" when nothing is running.
+func (m *Model) progressSuffix() string {
+	if m.opStarted.IsZero() {
+		return ""
+	}
+	return fmt.Sprintf(" (%s)", formatDuration(time.Since(m.opStarted).Truncate(time.Second)))
+}
+
+// formatDuration renders a duration as a compact human string: "3s", "1m12s".
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	m := int(d.Minutes())
+	s := int(d.Seconds()) - m*60
+	return fmt.Sprintf("%dm%ds", m, s)
+}
+
+func (m *Model) statusHints() string {
+	if m.height < 15 {
+		return "[?] help"
+	}
+	switch m.planState {
+	case planLoading:
+		return "[Esc] cancel  [?] help"
+	case planReady:
+		if m.planDiffFocus {
+			return "[" + arrowUpDown + "] scroll diff  [Tab/Esc] back to tree  [?] help"
+		}
+		hints := "[" + arrowUpDown + "] navigate  [Enter] toggle  [Tab] focus diff  [P] re-plan"
+		if m.tfState != nil {
+			if m.planShowState {
+				hints += "  [S] show diff"
+			} else {
+				hints += "  [S] show state"
+			}
+		}
+		if m.Applier != nil && m.applyState != applyLoading {
+			hints += "  [A] apply"
+		}
+		if len(m.checkWarnings) > 0 {
+			hints += "  [W] warnings"
+		}
+		if m.refDetailText != "" {
+			hints += "  [D] details"
+		}
+		hints += "  [Esc] back  [?] help"
+		return hints
+	}
+	hints := "[Tab] pane  [" + arrowUpDown + "] navigate  [P] plan"
+	if len(m.presets) > 0 {
+		hints += "  [F] preset"
+	}
+	hints += "  [S] save"
+	if m.activeSwitcher() != nil {
+		hints += "  [R] ref"
+	}
+	if m.refDetailText != "" {
+		hints += "  [D] details"
+	}
+	hints += "  [Q] quit  [?] help"
+	return hints
 }
 
 // varMarker returns the modified-vs-default indicator the left pane shows

@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/MichaelThamm/atelier/internal/tfexec"
@@ -28,8 +30,10 @@ type Planner interface {
 // Separated from Planner so the capability can be independently stubbed or
 // disabled.
 type Applier interface {
-	// Apply runs `terraform apply` using the most recent saved plan file.
-	Apply(ctx context.Context) error
+	// ApplyCmd returns a command that applies the most recent saved plan file
+	// with the terminal handed back to terraform, so its own output and
+	// approval prompt reach the user unmediated (ADR-0052).
+	ApplyCmd() tea.Cmd
 }
 
 // Validator is the narrow interface the TUI needs to run `terraform validate`.
@@ -44,10 +48,6 @@ type Validator interface {
 type TfexecPlanner struct {
 	Tf         *tfexec.Terraform
 	WrapperDir string
-
-	// Progress is set by the caller before starting a plan/apply. The planner
-	// writes phase updates to it via terraform's stdout stream.
-	Progress *ProgressTracker
 
 	init initGuard
 }
@@ -76,16 +76,15 @@ func (p *TfexecPlanner) EnsureInit(ctx context.Context) error {
 
 // runInit is the body EnsureInit serialises. Only the leader reaches it.
 func (p *TfexecPlanner) runInit(ctx context.Context, upgrade bool) error {
-	// Stream init output to progress tracker if available.
-	if p.Progress != nil {
-		p.Progress.SetPhase("Running terraform init…")
-		p.Tf.SetStdout(&ProgressWriter{Tracker: p.Progress, FileWriter: p.Tf.StdoutFile()})
-		p.Tf.SetStderr(&ErrorLogWriter{Tracker: p.Progress, FileWriter: p.Tf.StderrFile()})
-		tfexec.WriteTimestampHeader(p.Tf.StderrFile())
-		tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
-		defer p.Tf.SetStdout(nil)
-		defer p.Tf.SetStderr(nil)
-	}
+	// Terraform's output goes to the durable log files rather than the
+	// screen: the TUI renders the plan tree, not terraform's progress, and
+	// the files are what a failed plan leaves behind to read (ADR-0052).
+	p.Tf.SetStdout(p.Tf.StdoutFile())
+	p.Tf.SetStderr(p.Tf.StderrFile())
+	tfexec.WriteTimestampHeader(p.Tf.StderrFile())
+	tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
+	defer p.Tf.SetStdout(nil)
+	defer p.Tf.SetStderr(nil)
 
 	// After a ref switch we must run -upgrade to re-fetch the module even
 	// though the base URL hasn't changed (only the ?ref= query did).
@@ -115,48 +114,69 @@ func (p *TfexecPlanner) Plan(ctx context.Context) (*tfjson.Plan, error) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, err
 	}
-	planFile := filepath.Join(cacheDir, "plan.tfplan")
 
-	var stdout *ProgressWriter
-	var stderr *ErrorLogWriter
-	if p.Progress != nil {
-		p.Progress.SetPhase("Running terraform plan…")
-		stdout = &ProgressWriter{Tracker: p.Progress, FileWriter: p.Tf.StdoutFile()}
-		stderr = &ErrorLogWriter{Tracker: p.Progress, FileWriter: p.Tf.StderrFile()}
-		p.Tf.SetStderr(stderr)
-		tfexec.WriteTimestampHeader(p.Tf.StderrFile())
-		tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
-		defer p.Tf.SetStderr(nil)
-	}
-	plan, _, err := p.Tf.Plan(ctx, planFile, stdout)
+	p.Tf.SetStdout(p.Tf.StdoutFile())
+	p.Tf.SetStderr(p.Tf.StderrFile())
+	tfexec.WriteTimestampHeader(p.Tf.StderrFile())
+	tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
+	defer p.Tf.SetStdout(nil)
+	defer p.Tf.SetStderr(nil)
+
+	plan, _, err := p.Tf.Plan(ctx, planFilePath(p.WrapperDir), nil)
 	if err != nil {
 		return nil, err
 	}
 	return plan, nil
 }
 
-// Apply applies the most recent saved plan file from the cache directory.
-func (p *TfexecPlanner) Apply(ctx context.Context) error {
-	if p == nil || p.Tf == nil {
-		return errors.New("applier not configured")
+// planFilePath is where a session's plan is cached between the P and A keys.
+// It is relative to the wrapper, which is also the handoff's working
+// directory, so terraform resolves it the same way the planner wrote it.
+func planFilePath(wrapperDir string) string {
+	return filepath.Join(wrapperDir, ".atelier", "cache", "plan.tfplan")
+}
+
+// ApplyCmd applies the cached plan file with the terminal handed back to
+// terraform: tea.ExecProcess releases the alt-screen so terraform prints its
+// own progress. The plan was already reviewed in the plan tree and pressing A
+// is the confirmation, so the flags match what the plan-file path has always
+// passed rather than prompting a second time.
+func (p *TfexecPlanner) ApplyCmd() tea.Cmd {
+	planFile := ""
+	if p != nil {
+		planFile = planFilePath(p.WrapperDir)
+		if _, err := os.Stat(planFile); err != nil {
+			return func() tea.Msg {
+				return applyErrorMsg{err: fmt.Errorf("no saved plan file: %w", err)}
+			}
+		}
 	}
-	planFile := filepath.Join(p.WrapperDir, ".atelier", "cache", "plan.tfplan")
-	if _, err := os.Stat(planFile); err != nil {
-		return fmt.Errorf("no saved plan file: %w", err)
+	if p == nil || p.Tf == nil {
+		return func() tea.Msg {
+			return applyErrorMsg{err: errors.New("applier not configured")}
+		}
 	}
 
-	var stdout *ProgressWriter
-	var stderr *ErrorLogWriter
-	if p.Progress != nil {
-		p.Progress.SetPhase("Running terraform apply…")
-		stdout = &ProgressWriter{Tracker: p.Progress, FileWriter: p.Tf.StdoutFile()}
-		stderr = &ErrorLogWriter{Tracker: p.Progress, FileWriter: p.Tf.StderrFile()}
-		p.Tf.SetStderr(stderr)
-		tfexec.WriteTimestampHeader(p.Tf.StderrFile())
-		tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
-		defer p.Tf.SetStderr(nil)
-	}
-	return p.Tf.Apply(ctx, planFile, stdout)
+	cmd := applyCmd(p.Tf.ExecPath(), p.WrapperDir, planFile)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return applyErrorMsg{err: err}
+		}
+		return applyResultMsg{}
+	})
+}
+
+// applyCmd builds the argv for the terminal handoff. It is separate from
+// ApplyCmd so the flags can be asserted without running terraform.
+//
+// Flags precede the plan file: terraform accepts one positional argument and
+// treats a flag after it as a second one ("Too many command line arguments"),
+// so `apply <plan> -auto-approve` fails where `apply -auto-approve <plan>`
+// succeeds.
+func applyCmd(execPath, wrapperDir, planFile string) *exec.Cmd {
+	cmd := exec.Command(execPath, "apply", "-auto-approve", "-input=false", planFile)
+	cmd.Dir = wrapperDir
+	return cmd
 }
 
 // Validate runs `terraform validate -json` against the wrapper directory.
