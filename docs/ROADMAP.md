@@ -43,7 +43,8 @@ Concretely:
   ([ADR-0039](adr/0039-composed-gallery-presets.md)).
 - Presets: named `.tfvars` bundles discovered from an ancestor
   `atelier.presets/` directory (walk-up) and from the module repo's `presets/`,
-  applied via `--var-file` or the TUI `F` picker, and saved with `S`.
+  applied via `--var-file`, listed with `--list-var-files`, and written with
+  the TUI's `S`.
 - Debounced `terraform validate` for inline validation feedback.
 - `terraform plan -json` rendering as a module-path tree with attribute diffs
   in a side pane.
@@ -172,8 +173,8 @@ proposed mechanism of auto-discovery from `tftest.hcl` run blocks.
 
 **Presets are now shipped as `.tfvars` bundles.** Users keep personal bundles
 in an ancestor `atelier.presets/` directory, and product repos commit presets
-under `<module>/presets/`; both are applied with `--var-file` or the TUI `F`
-picker (see [ADR-0031](adr/0031-presets-as-tfvars-bundles.md) and
+under `<module>/presets/`; both are applied with `--var-file` (see
+[ADR-0031](adr/0031-presets-as-tfvars-bundles.md) and
 [SPEC §11](SPEC.md)).
 
 What remains parked:

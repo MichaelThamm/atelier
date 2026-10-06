@@ -204,9 +204,10 @@ any), and the command to deploy it. An entry also lists the inputs it leaves to
 you, so you see them before running. `atelier gallery lint` checks that every
 entry covers the required inputs its module declares.
 
-The TUI lists both sources with `F` (source-labelled `[local]`/`[repo]`, with
-the description taken from each file's leading comment); `Enter` applies the
-selected one. Press `S` to save the current non-default configuration as a new
+`atelier apply <module> --list-var-files` lists both sources
+(source-labelled `[local]`/`[repo]`, with the description taken from each
+file's leading comment) and `--var-file <name>` applies one. In the TUI, `S`
+saves the current non-default configuration as a new
 `atelier.presets/<name>.tfvars` in the wrapper directory.
 
 ### Applying a preset from the CLI

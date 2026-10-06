@@ -201,12 +201,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Preset picker interception: the overlay owns all keys until
-	// the user applies (Enter) or cancels (Esc).
-	if m.presetPicker {
-		return m.handlePresetKey(msg)
-	}
-
 	// Save-preset modal interception: text input + confirm/cancel.
 	if m.savePresetModal {
 		return m.handleSavePresetKey(msg)
@@ -253,13 +247,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.planState = planLoading
 			m.status = ""
 			return m, tea.Batch(m.startPlan(), spinnerTick())
-		}
-	case "f", "F":
-		// Open preset picker from the left pane (if presets available).
-		if m.focus == focusLeft && len(m.presets) > 0 {
-			m.presetPicker = true
-			m.presetCursor = 0
-			return m, nil
 		}
 	case "s", "S":
 		// Save the current configuration as a new preset (ADR-0026). Only

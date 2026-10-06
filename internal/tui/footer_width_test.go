@@ -17,8 +17,12 @@ func TestFooter_neverOverflowsBox(t *testing.T) {
 	for _, width := range []int{60, 78, 80, 82, 100, 120} {
 		m := New(sampleState(t), "cos_lite")
 		m = feed(m, tea.WindowSizeMsg{Width: width, Height: 24})
-		// Make the widest hint set active: presets + ref switcher present.
-		m.SetPresets([]ResolvedPreset{{Name: "production"}})
+		// Make the widest hint set active: a ref switcher is present.
+		m.Modules = []ModuleEntry{{
+			State:    m.State,
+			Name:     "cos_lite",
+			Switcher: &stubRefSwitcher{},
+		}}
 
 		for _, part := range []struct {
 			name string

@@ -383,11 +383,7 @@ func (m *Model) statusHints() string {
 		hints += "  [Esc] back  [?] help"
 		return hints
 	}
-	hints := "[Tab] pane  [" + arrowUpDown + "] navigate  [P] plan"
-	if len(m.presets) > 0 {
-		hints += "  [F] preset"
-	}
-	hints += "  [S] save"
+	hints := "[Tab] pane  [" + arrowUpDown + "] navigate  [P] plan  [S] save"
 	if m.activeSwitcher() != nil {
 		hints += "  [R] ref"
 	}

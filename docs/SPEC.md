@@ -95,7 +95,7 @@ environment manager. The following are permanently out of scope (see
 - **Preset bundle** — a named `.tfvars` file. Personal bundles live in an
   `atelier.presets/` directory discovered by walking up from the wrapper
   directory; product presets live in the module repo under `<module>/presets/`.
-  Applied with `--var-file` or the TUI `F` picker. See §11.
+  Applied with `--var-file`; listed by `--list-var-files`. See §11.
 - **Session** — one invocation of `atelier` against a wrapper directory.
 - **`.atelier/`** — a hidden subdirectory inside the wrapper holding
   Atelier-managed internal state (module clone cache, session metadata).
@@ -563,7 +563,7 @@ and a gallery entry *composes* zero or more presets as its default scenario
 
 An entry separates the presets it composes from the ones it only *offers*.
 `presets` are applied by default; `available_presets` appear in
-`--list-var-files`, the TUI picker, and the gallery card, and the user opts in
+`--list-var-files` and the gallery card, and the user opts in
 with `--var-file <name>`. Declaring an offered preset rather than leaving it
 unreferenced is what lets the gallery check bind it against the entry's module,
 so it cannot drift out of sync with a variable the module renames or drops. An
@@ -667,10 +667,8 @@ exactly like any other `--var-file`.
   mismatches, exiting non-zero on any finding. It is the CI gate for a committed
   bundle — `--strict` covers the apply path, while `lint` covers a bundle that is
   not being applied.
-- **The TUI uses these bundles directly.** `F` lists the discovered presets —
-  personal `[local]` and repo `[repo]`, with the description taken from each
-  file's leading comment — and applies the selected one. `S` saves the current
-  non-default configuration as a new `atelier.presets/<name>.tfvars` in the
+- **The TUI can write these bundles.** `S` saves the current non-default
+  configuration as a new `atelier.presets/<name>.tfvars` in the
   wrapper directory. The `atelier.local.yaml` mechanism is no longer used by the
   TUI (see §11).
 
@@ -1014,15 +1012,14 @@ elements (panel borders, summary lines) subtract from this budget.
 - Validation indicator: `✓ valid` or `✗ N error(s), M warning(s)`.
 
 **Footer** (contextual hints change by mode):
-- Editor mode: `[cos_lite] [Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [S] save  [R] ref  [Q] quit  [?] help`
+- Editor mode: `[cos_lite] [Tab] pane  [↑↓] navigate  [P] plan  [S] save  [R] ref  [Q] quit  [?] help`
 - Plan mode: `[↑↓] navigate  [Enter] toggle  [Tab] focus diff  [P] re-plan  [A] apply  [Esc] back  [?] help`
 - Plan loading: `[Esc] cancel  [?] help`
 - Small terminal (`height < 15`): `[?] help` only.
-- Hints for `[F]`, `[R]`, `[A]`, `[S]`, `[W]`, `[D]` appear only when the
+- Hints for `[R]`, `[A]`, `[S]`, `[W]`, `[D]` appear only when the
   corresponding feature is available.
 - In multi-module wrappers, the footer shows the active module context
-  (e.g. `[cos_lite]`) so the user always knows which module `R` and `F`
-  will target.
+  (e.g. `[cos_lite]`) so the user always knows which module `R` will target.
 
 - When a plan or validation emits errors, the first line of the error is shown
   in the footer. Terraform's full output for a plan is in `.atelier/logs/`
@@ -1272,10 +1269,10 @@ Presets are named `.tfvars` bundles. Atelier discovers them from two sources
   older `<module>/examples/` location is still supported for runnable examples
   and existing value files, and `presets/` wins on a name collision).
 
-The TUI `F` picker lists both sources (source-labelled, with the description
-from each file's leading comment) and applies the selected bundle; `S` saves
-the current non-default configuration as a new
-`atelier.presets/<name>.tfvars`. The CLI equivalent is `--var-file <name>`
+`--list-var-files` lists both sources (source-labelled, with the description
+from each file's leading comment) and `--var-file <name>` applies one. The TUI
+writes bundles with `S`, which saves the current non-default configuration as a
+new `atelier.presets/<name>.tfvars`.
 (§6.8); `--list-var-files` prints what is available.
 
 Personal bundles are found at the wrapper directory itself and at every ancestor

@@ -112,12 +112,6 @@ type Model struct {
 	// auto-save path that ends each Update tick.
 	dirty bool
 
-	// presets holds resolved `.tfvars` bundles (personal walk-up + repo
-	// examples). When non-empty, the user can press F to open the picker.
-	presets      []ResolvedPreset
-	presetPicker bool // true when the picker overlay is visible
-	presetCursor int  // cursor within the picker list
-
 	// savePreset modal state: captures the current wrapper configuration into
 	// a new atelier.presets/<name>.tfvars bundle (ADR-0031). The snapshot is
 	// taken when the modal opens; name and description are collected via two
@@ -255,12 +249,6 @@ func (m *Model) AddModule(state *wrapper.State, name string) {
 func (m *Model) AddModuleEntry(e ModuleEntry) {
 	m.Modules = append(m.Modules, e)
 	m.recomputeRows()
-}
-
-// SetPresets installs resolved `.tfvars` presets. When non-empty, the user can
-// press F from the left pane to open the preset picker.
-func (m *Model) SetPresets(p []ResolvedPreset) {
-	m.presets = p
 }
 
 // SetTFState sets the parsed terraform state for display in the plan view.
@@ -490,9 +478,6 @@ func (m *Model) View() string {
 	}
 	if m.planState == planReady {
 		return m.renderPlanScreen()
-	}
-	if m.presetPicker {
-		return m.renderPresetPicker()
 	}
 	if m.savePresetModal {
 		return m.renderSavePresetModal()

@@ -5,61 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
-
-// handlePresetKey routes keys while the preset picker overlay is visible.
-func (m *Model) handlePresetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q":
-		m.presetPicker = false
-		return m, nil
-	case "up":
-		if m.presetCursor > 0 {
-			m.presetCursor--
-		}
-		return m, nil
-	case "down":
-		if m.presetCursor < len(m.presets)-1 {
-			m.presetCursor++
-		}
-		return m, nil
-	case "enter":
-		cmd := m.applyPresetCmd(m.presetCursor)
-		m.presetPicker = false
-		return m, cmd
-	}
-	return m, nil
-}
-
-// applyPreset applies the preset at index i: merges its values into
-// state.Values, refreshes the editor, and flashes a status message.
-func (m *Model) applyPreset(i int) {
-	if i < 0 || i >= len(m.presets) {
-		return
-	}
-	p := m.presets[i]
-	for name, val := range p.Values {
-		m.State.Values[name] = val
-		// The preset value supersedes any reference expression on this var,
-		// but we keep the preserved raw form so a later reset can restore it.
-	}
-	m.refreshEditor()
-	m.status = fmt.Sprintf("Applied preset: %s", p.Name)
-	m.statusLvl = statusInfo
-	m.statusAt = time.Now()
-	m.dirty = true
-}
-
-// applyPresetCmd wraps applyPreset and returns a validate debounce command.
-func (m *Model) applyPresetCmd(i int) tea.Cmd {
-	m.applyPreset(i)
-	return m.scheduleValidate()
-}
 
 // openSavePreset opens the save-preset modal, refusing early when the current
 // configuration has no non-default values (the bundle would be empty). The
@@ -155,13 +105,6 @@ func (m *Model) commitSavePreset() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Make the new bundle available in the picker immediately.
-	m.presets = append(m.presets, ResolvedPreset{
-		Name:        stem,
-		Description: desc,
-		Values:      values,
-		Source:      "local",
-	})
 	m.savePresetModal = false
 	m.flashStatus(fmt.Sprintf("Saved preset %q (%d vars) to %s", name, len(values), path), statusInfo)
 	return m, nil

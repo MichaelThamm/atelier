@@ -28,7 +28,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -286,17 +285,11 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		return nil
 	}
 
-	// Load presets (`.tfvars` bundles) for the left pane: personal walk-up
-	// bundles from atelier.presets/ ancestors, plus presets committed to the
-	// module repo (ADR-0031).
-	presets := presetsFromBundles(state, wrapperDir, res.CloneDir, res.ModulePath)
-
 	m := tui.New(state, state.ModuleBlockName)
 	m.LiteralRef = res.LiteralRef
 	m.ResolvedSHA = res.ResolvedSHA
 	m.SourceURL = modulesource.Remote(state.Source)
 	m.WrapperDir = wrapperDir
-	m.SetPresets(presets)
 
 	// When the wrapper opened with an unresolvable ref, carry the marker into
 	// the model so Init auto-opens the ref-switch modal with a recovery banner.
@@ -385,33 +378,6 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 		return err
 	}
 	return nil
-}
-
-// presetsFromBundles discovers the `.tfvars` presets the TUI picker offers:
-// personal walk-up bundles (atelier.presets/) and presets committed to the
-// module repo, read against the primary module's schema. Undeclared names and
-// type mismatches are excluded and surfaced as an "(N ignored)" note on the
-// description (ADR-0031).
-func presetsFromBundles(state *wrapper.State, wrapperDir, cloneDir, modulePath string) []tui.ResolvedPreset {
-	var out []tui.ResolvedPreset
-	for _, b := range bootstrap.ListAllVarFiles(wrapperDir, cloneDir, modulePath) {
-		vals, diags, err := wrapper.ReadTFVarsFileChecked(b.Path, state.Vars)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "warning:", err)
-			continue
-		}
-		desc := b.Description
-		if skipped := len(diags.Unknown) + len(diags.Mismatched); skipped > 0 {
-			desc = strings.TrimSpace(fmt.Sprintf("%s (%d ignored)", desc, skipped))
-		}
-		out = append(out, tui.ResolvedPreset{
-			Name:        b.Name,
-			Description: desc,
-			Values:      vals,
-			Source:      b.Source,
-		})
-	}
-	return out
 }
 
 // loadingMessage returns the startup spinner label for a wrapper, reflecting
@@ -534,7 +500,7 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	// user's values for variables that still exist — required variables must be
 	// present in the HCL for init to succeed. Values not in the new schema are
 	// dropped (reported as OrphanedVars below).
-	state, cloneDir, sha, err := bootstrap.LoadRefState(ctx, bootstrap.InitOptions{
+	state, _, sha, err := bootstrap.LoadRefState(ctx, bootstrap.InitOptions{
 		WrapperDir: s.wrapperDir,
 		Source:     s.sourceURL,
 		Ref:        newRef,
@@ -623,11 +589,6 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		}
 	}
 
-	// Refresh the preset picker for the new ref: a repo can ship preset
-	// bundles on one ref but not another (e.g. a presets/ directory added on
-	// a feature branch), and the list is otherwise only built at launch.
-	presets := presetsFromBundles(state, s.wrapperDir, cloneDir, s.modulePath)
-
 	return &tui.RefSwitchResult{
 		State:          state,
 		ResolvedSHA:    sha,
@@ -635,7 +596,6 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		OrphanedVars:   orphaned,
 		NewVars:        newVars,
 		InitIncomplete: initIncomplete,
-		Presets:        presets,
 	}, nil
 }
 
