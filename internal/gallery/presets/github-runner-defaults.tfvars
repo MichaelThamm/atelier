@@ -1,10 +1,8 @@
-# The GitHub runner product module takes its image builder and its runner list
-# as variables without defaults; every attribute of each is optional, so this
-# takes the module's own defaults.
-#
-# One runner at the module's defaults, because the module requires a non-empty
-# list. The image builder has to be deployed before that runner can register,
-# so the user adds further runners after applying.
+# One runner at the module's defaults, with everything else left to the module.
 
 github_runner_image_builder = {}
 github_runners              = [{ app_name = "github-runner" }]
+
+# The image builder and the runner list have no defaults and the module rejects
+# an empty list, so both are set here. The image builder has to be running before
+# the runner registers, so the user adds further runners after applying.

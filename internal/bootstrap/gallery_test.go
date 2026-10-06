@@ -31,6 +31,27 @@ func TestResolveVarFile_localShadowsGallery(t *testing.T) {
 	}
 }
 
+// TestGalleryVarFiles_descriptionsAreOneSentence pins the text a gallery preset
+// puts in the picker row: its leading comment, read as the description. One
+// sentence keeps the row one line, so any rationale about the values belongs
+// below them, which the picker never reads.
+func TestGalleryVarFiles_descriptionsAreOneSentence(t *testing.T) {
+	files := GalleryVarFiles()
+	if len(files) == 0 {
+		t.Fatal("no gallery presets resolved")
+	}
+	for _, f := range files {
+		switch {
+		case strings.Contains(f.Description, ". "):
+			t.Errorf("%s: more than one sentence: %q", f.Name, f.Description)
+		case strings.Contains(f.Description, "  "):
+			t.Errorf("%s: a second paragraph reached the description: %q", f.Name, f.Description)
+		case len(f.Description) > 100:
+			t.Errorf("%s: %d characters is too long for one row: %q", f.Name, len(f.Description), f.Description)
+		}
+	}
+}
+
 func TestListAllVarFiles_includesGallery(t *testing.T) {
 	got := ListAllVarFiles(t.TempDir(), "", "")
 	for _, f := range got {
