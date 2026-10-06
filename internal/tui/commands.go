@@ -18,11 +18,7 @@ func (m *Model) startPlan() tea.Cmd {
 			return planErrorMsg{err: fmt.Errorf("plan unavailable: planner not configured")}
 		}
 	}
-	// Create a fresh progress tracker and attach it to the planner.
-	m.progress = NewProgressTracker()
-	if tp, ok := m.Planner.(*TfexecPlanner); ok {
-		tp.Progress = m.progress
-	}
+	m.beginOp("Running terraform plan…")
 	modules := m.Modules
 	planner := m.Planner
 	return func() tea.Msg {
@@ -42,6 +38,13 @@ func (m *Model) startPlan() tea.Cmd {
 	}
 }
 
+// beginOp labels an in-flight terraform operation so the footer spinner can
+// show it and time it.
+func (m *Model) beginOp(phase string) {
+	m.opPhase = phase
+	m.opStarted = time.Now()
+}
+
 // spinnerTick schedules the next animation frame. Cheap: a single timer.
 func spinnerTick() tea.Cmd {
 	return tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg {
@@ -49,27 +52,17 @@ func spinnerTick() tea.Cmd {
 	})
 }
 
-// startApply runs `terraform apply` using the cached plan file.
+// startApply applies the cached plan file. The command it returns hands the
+// terminal back to terraform, so this only has to mark the flow in flight;
+// the outcome arrives as applyResultMsg/applyErrorMsg from the callback.
 func (m *Model) startApply() tea.Cmd {
 	if m.Applier == nil {
 		return func() tea.Msg {
 			return applyErrorMsg{err: fmt.Errorf("apply unavailable: applier not configured")}
 		}
 	}
-	// Create a fresh progress tracker and attach it to the applier.
-	m.progress = NewProgressTracker()
-	if tp, ok := m.Applier.(*TfexecPlanner); ok {
-		tp.Progress = m.progress
-	}
-	applier := m.Applier
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-		if err := applier.Apply(ctx); err != nil {
-			return applyErrorMsg{err: err}
-		}
-		return applyResultMsg{}
-	}
+	m.beginOp("Running terraform apply…")
+	return m.Applier.ApplyCmd()
 }
 
 // scheduleValidate bumps the generation counter and returns a debounce
@@ -106,11 +99,8 @@ func (m *Model) startValidate() tea.Cmd {
 // startRefSwitch runs the ref switch in a goroutine and returns result/error
 // messages to the TUI.
 func (m *Model) startRefSwitch(newRef string) tea.Cmd {
-	m.progress = NewProgressTracker()
+	m.beginOp("Switching ref…")
 	switcher := m.switcherForIdx(m.refModuleIdx)
-	if pa, ok := switcher.(ProgressAware); ok {
-		pa.SetProgress(m.progress)
-	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()

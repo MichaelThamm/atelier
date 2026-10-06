@@ -49,22 +49,14 @@ type Model struct {
 	editor       Editor
 	editorScroll int // scroll offset for the right pane content
 
-	// activeView switches the body between the editor and live logs.
-	activeView viewMode
-	logScroll  int // scroll offset for the logs view
-
-	// logAutoScroll is true while the logs view should follow new output.
-	// Disabled when the user scrolls up, re-enabled on G/end or re-entering.
-	logAutoScroll bool
-
-	// logsTab tracks which tab is active in the unified logs view
-	logsTab logsTabMode
-
+	// opPhase labels the in-flight terraform operation ("Running terraform
+	// plan…") and opStarted is when it began, for the footer spinner.
+	opPhase   string
+	opStarted time.Time
 	// status text shown at the bottom. Cleared when a new edit lands.
-	status       string
-	statusLvl    statusLevel
-	statusAt     time.Time
-	statusDetail string // full multi-line error shown in the logs view
+	status    string
+	statusLvl statusLevel
+	statusAt  time.Time
 
 	// checkWarnings holds failed `check` block assertions from the most
 	// recent plan. Populated on planResultMsg, cleared on the next plan/apply.
@@ -102,13 +94,10 @@ type Model struct {
 	planDiffScroll   int  // scroll offset for the plan diff pane
 	planDiffFocus    bool // true when the diff pane is focused (Tab toggle)
 	planShowState    bool // true when left+right panes show state instead of diff
-	planErr          string
 	planSpinnerFrame int
-	progress         *ProgressTracker // live progress from terraform subprocess
 
 	// applyState tracks the apply flow (idle → loading → done/error).
 	applyState applyState
-	applyErr   string
 
 	// validateGen is a generation counter incremented on every edit. The
 	// debounce tick carries the generation at scheduling time; if the model's
@@ -210,22 +199,6 @@ type focusPane int
 const (
 	focusLeft focusPane = iota
 	focusRight
-)
-
-// viewMode controls which body content is displayed in the default layout.
-type viewMode int
-
-const (
-	viewEditor viewMode = iota
-	viewLogs
-)
-
-// logsTabMode controls which tab is active in the unified logs view.
-type logsTabMode int
-
-const (
-	logsTabErrors logsTabMode = iota // default: show stderr
-	logsTabLogs                      // show stdout
 )
 
 type statusLevel int
@@ -514,12 +487,6 @@ func (m *Model) View() string {
 	}
 	if m.refDetail {
 		return m.renderRefDetail()
-	}
-	if m.activeView == viewLogs {
-		header := m.renderHeader()
-		logs := m.renderLogsView()
-		footer := m.renderFooter()
-		return lipgloss.JoinVertical(lipgloss.Left, header, logs, footer)
 	}
 	if m.planState == planReady {
 		return m.renderPlanScreen()

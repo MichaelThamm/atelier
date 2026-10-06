@@ -314,14 +314,21 @@ func runBatchUntil(t *testing.T, cmd tea.Cmd, want func(tea.Msg) bool) tea.Msg {
 // --- apply tests ---
 
 // stubApplier is an Applier implementation for tests.
+// stubApplier is an Applier implementation for tests: it records that the
+// apply flow was started and then reports the configured outcome.
 type stubApplier struct {
 	err    error
 	called bool
 }
 
-func (s *stubApplier) Apply(ctx context.Context) error {
-	s.called = true
-	return s.err
+func (s *stubApplier) ApplyCmd() tea.Cmd {
+	return func() tea.Msg {
+		s.called = true
+		if s.err != nil {
+			return applyErrorMsg{err: s.err}
+		}
+		return applyResultMsg{}
+	}
 }
 
 func TestPlanMode_pressA_triggersApply(t *testing.T) {
@@ -371,8 +378,10 @@ func TestPlanMode_pressA_applyError(t *testing.T) {
 	if mm.applyState != applyIdle {
 		t.Errorf("after apply error, applyState = %v; want applyIdle", mm.applyState)
 	}
-	if !strings.Contains(mm.status, "kaboom") {
-		t.Errorf("status = %q; expected error text", mm.status)
+	// A hands the terminal to terraform, so the failure is on screen already and
+	// the footer only has to say it failed.
+	if !strings.Contains(mm.status, "apply failed") {
+		t.Errorf("status = %q; expected failure message", mm.status)
 	}
 	if mm.statusLvl != statusError {
 		t.Errorf("statusLvl should be error after apply failure")
@@ -496,21 +505,17 @@ func TestValidate_invalidSetsStatusDetailForEKey(t *testing.T) {
 	out, _ := m.Update(validateResultMsg{output: vo})
 	mm := out.(*Model)
 
+	// SPEC §9: the status pane names the first diagnostic's message; the
+	// header keeps the count.
 	if mm.statusLvl != statusError {
 		t.Errorf("statusLvl = %v; want statusError", mm.statusLvl)
 	}
-	if mm.statusDetail == "" {
-		t.Fatal("statusDetail should be set for error display")
+	if !strings.Contains(mm.status, "Missing required argument") {
+		t.Errorf("status should name the first diagnostic: %q", mm.status)
 	}
-	if !strings.Contains(mm.statusDetail, "Missing required argument") {
-		t.Errorf("statusDetail missing diagnostic summary: %q", mm.statusDetail)
+	if strings.Contains(mm.status, "must be a string") {
+		t.Errorf("status should stay to one diagnostic: %q", mm.status)
 	}
-	if !strings.Contains(mm.statusDetail, "must be a string") {
-		t.Errorf("statusDetail missing diagnostic detail: %q", mm.statusDetail)
-	}
-
-	// Errors are now displayed in the unified logs view via [L] key,
-	// not via the old [E] error detail modal.
 }
 
 // TestPlanTree_heightConsistency verifies that the rendered tree and diff

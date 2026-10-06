@@ -61,6 +61,7 @@ func TestTheme_statusBar_planLoadingShowsSpinner(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.planState = planLoading
+	m.beginOp("Running terraform plan…")
 	bar := m.renderFooter()
 	if !strings.Contains(bar, "Running terraform plan") {
 		t.Errorf("loading bar missing running-plan text; got: %q", bar)

@@ -66,11 +66,12 @@ Concretely:
 These have a clear shape but are out of the current scope to keep the surface
 small.
 
-### Streaming apply logs and cancellation
+### Apply cancellation and partial-apply recovery
 
-Apply and plan now stream terraform stdout to a `ProgressTracker` buffer,
-visible via `L` (live logs view). Remaining work: `Ctrl+C` cancellation
-during apply, partial-apply recovery, and post-apply state inspection.
+Apply from the plan view hands the terminal to terraform, so its own output and
+prompt are visible and `Ctrl+C` reaches terraform directly. Remaining work:
+detecting a partially-applied apply on the next plan, and post-apply state
+inspection.
 
 ### Authenticated git access
 

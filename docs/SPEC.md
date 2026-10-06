@@ -801,7 +801,7 @@ Rules:
   deployed. `2` Terraform ran and reported failure: the wrapper on disk is
   current and infrastructure may be partly applied, so this is not a safe blind
   re-run. Every other command exits `0` or `1` and carries its reason in the
-  `--json` payload or on stderr ([ADR-0051](adr/0051-apply-exit-codes.md)).
+  `--json` payload or on stderr ([ADR-0052](adr/0051-apply-exit-codes.md)).
 - The target directory must be new, empty, or already hold a `main.tf`. Any
   other non-empty target is refused (naming `--dir`/`--as`) instead of
   scaffolded over. A target holding a `main.tf` composes rather than scaffolds,
@@ -989,20 +989,19 @@ elements (panel borders, summary lines) subtract from this budget.
 - Validation indicator: `✓ valid` or `✗ N error(s), M warning(s)`.
 
 **Footer** (contextual hints change by mode):
-- Editor mode: `[cos_lite] [Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [R] ref  [L] logs  [Q] quit  [?] help`
-- Plan mode: `[↑↓] navigate  [Enter] toggle  [P] re-plan  [A] apply  [L] logs  [Esc] back  [?] help`
-- Logs view: `[↑↓] scroll  [L/Tab/Esc] back  [?] help`
-- Plan loading: `[L] logs  [Esc] cancel  [?] help`
+- Editor mode: `[cos_lite] [Tab] pane  [↑↓] navigate  [P] plan  [F] preset  [S] save  [R] ref  [Q] quit  [?] help`
+- Plan mode: `[↑↓] navigate  [Enter] toggle  [Tab] focus diff  [P] re-plan  [A] apply  [Esc] back  [?] help`
+- Plan loading: `[Esc] cancel  [?] help`
 - Small terminal (`height < 15`): `[?] help` only.
-- Hints for `[F]`, `[R]`, `[A]` appear only when the
+- Hints for `[F]`, `[R]`, `[A]`, `[S]`, `[W]`, `[D]` appear only when the
   corresponding feature is available.
 - In multi-module wrappers, the footer shows the active module context
   (e.g. `[cos_lite]`) so the user always knows which module `R` and `F`
   will target.
 
-- When validation or plan emits errors, the first line of the error is shown
-  in the footer. Pressing `L` opens the unified logs view (§7.7) showing
-  stderr with the full error output.
+- When a plan or validation emits errors, the first line of the error is shown
+  in the footer. Terraform's full output for a plan is in `.atelier/logs/`
+  (§7.7).
 - On the first plan of each session, Atelier runs `terraform init` to
   ensure the module cache matches the wrapper's current source. After a ref
   switch, it uses `terraform init -upgrade` instead.
@@ -1075,17 +1074,24 @@ Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 m
   shows the full resource tree from the current state with attribute values
   in the right pane. When the plan has no changes, the state view is shown
   automatically.
-- Pressing `A` from the plan view runs `terraform apply` using the cached
-  plan file. A spinner shows progress; success invalidates the plan (since
-  the infrastructure now matches) and reloads the state. Errors are surfaced
-  in the status bar and viewable via `L` (§7.7).
-- Pressing `L` shows the logs view (see §7.7).
+- Pressing `A` from the plan view applies the cached plan file. The TUI
+  releases the terminal so Terraform prints its own progress and any provider
+  prompts, then returns to the plan view. Success invalidates the plan (since
+  the infrastructure now matches) and reloads the state. `A` is the
+  confirmation — the plan has already been read in the tree — so the apply
+  runs `terraform apply -auto-approve -input=false <plan file>` and does not
+  prompt a second time. The flags come before the plan file: Terraform accepts
+  one positional argument and treats a trailing flag as a second. A failure is
+  already on screen; the status bar says only that it failed.
+- A failed `P` sets the status bar to `plan failed: <terraform's first line>`.
+  Terraform's full output for the run is appended to `.atelier/logs/` (§7.7).
 - `Esc` returns to the editor.
 - Inline per-attribute diffs *inside* tree nodes are not yet implemented; see
   [ADR-0011](adr/0011-plan-output-tree.md).
 
 See [ADR-0006](adr/0006-two-pane-ui-layout.md), [ADR-0011](adr/0011-plan-output-tree.md),
-and [ADR-0014](adr/0014-unified-layout-budget.md).
+[ADR-0014](adr/0014-unified-layout-budget.md), and
+[ADR-0052](adr/0052-hand-the-terminal-to-terraform.md).
 
 ### 7.6 Output view
 
@@ -1094,82 +1100,30 @@ generated `outputs.tf`; neither exists in the code today. `terraform output`
 still works by running it directly in the wrapper. Tracked in
 [ROADMAP.md](ROADMAP.md).
 
-### 7.7 Logs view
+### 7.7 Terraform output
 
-Triggered by `L` from the editor, plan view, or plan-loading state. Replaces
-the body with a scrollable panel showing terraform output captured during the
-most recent plan, apply, or ref-switch operation.
+There is no in-TUI logs view. Apply output reaches the user because `A` releases
+the terminal to Terraform ([ADR-0052](adr/0052-hand-the-terminal-to-terraform.md)),
+and a plan the TUI runs on the user's behalf leaves its output on disk:
 
-The logs view is a **unified interface** with two tabs:
-
-- **Errors** (default): shows stderr lines — terraform errors, warnings, and diagnostics.
-- **Logs**: shows stdout lines — phase progress, provider operations, resource updates.
-
-**Tab bar**: displayed at the top of the panel with counts and action start time:
 ```
-Errors (3)  Logs (15)  (started 14:32:05)
+.atelier/logs/tf-stderr.log    errors, warnings, diagnostics
+.atelier/logs/tf-stdout.log    phase progress and resource operations
+.atelier/logs/tf-trace.log     terraform's own TRACE log (ATELIER_DEBUG only)
 ```
 
-- The active tab is highlighted with `styleTabActive` (bold, primary colour).
-- Empty tabs show a descriptive message ("No errors captured." / "No logs captured.").
+Both files are appended, never truncated, so a record survives across sessions.
+Each action the TUI drives (`init`, `plan`, the ref-switch `init -upgrade`)
+writes a timestamp header (`=== action started at HH:MM:05 ===`) before its
+output, so a session's blocks stay delimited.
 
-**Log path banner**: below the tab bar, a one-line banner names the wrapper's
-persistent diagnostics directory with its **absolute** path, e.g.
-```
-Files: /home/me/proj/.atelier/logs/  (tf-stderr.log · tf-stdout.log)
-```
-The absolute path lets the user open the files outside the TUI without
-guessing where the wrapper is. Only files that exist on disk are named, so
-`tf-trace.log` appears only when `ATELIER_DEBUG` was set. On a narrow terminal
-the path middle-truncates (root and tail survive) before the filename list is
-dropped, so the more specific information survives the longest. On a panel too
-short to fit the tab bar, the banner, and at least one content line, the banner
-is omitted.
+A failed plan is reported in the status bar as `plan failed: <terraform's first
+line>`; the rest of the diagnostics are in `tf-stderr.log`. `.atelier/` is
+internal and regenerable state — deleting it loses the logs, not the wrapper.
 
-**Navigation**:
-- `Tab` switches between Errors and Logs tabs (scroll resets to bottom).
-- `↑`/`↓` scroll line-by-line, `PgDn`/`PgUp` for half-page jumps,
-  `Home`/`End` for top/bottom.
-- `L`, `Tab`, or `Esc` returns to the previous view (plan view if
-  `planState == planReady`, editor otherwise). `Esc` during plan loading
-  cancels the plan and returns to the editor.
-
-**Footer hints**: `[↑↓] scroll  [Tab] switch tab  [L/Esc] back  [?] help`
-
-- The `[L] logs` footer hint appears whenever the `ProgressTracker` has
-  buffered output lines (stdout or stderr), including after plan/apply
-  completes (post-mortem review).
-- The footer during plan/apply loading shows a spinner with elapsed time;
-  full output is available via `L` rather than truncating the phase string
-  in the footer.
-- When the terminal is small (`height < 15`), the footer collapses to
-  `[?] help` only.
-
-**Log capture**:
-
-The `ProgressTracker` accumulates terraform output via two writers:
-- `ProgressWriter` (stdout): captures phase progress and resource operations,
-  and tees them to `tf-stdout.log`.
-- `ErrorLogWriter` (stderr): captures errors and diagnostics, and tees them to
-  `tf-stderr.log`.
-
-Both writers feed into a unified `LogLine` buffer (with `IsStderr` flag and
-timestamp). Lines persist after the operation completes, so logs remain
-available for review until the next operation replaces the tracker.
-
-**Log files** (`.atelier/logs/`):
-
-Terraform's stdout and stderr are also written to persistent log files,
-`tf-stdout.log` and `tf-stderr.log`. Each action (init, plan, apply) appends a
-timestamp header (`=== action started at HH:MM:SS ===`) followed by the raw
-output. This provides a durable record across sessions, so the Logs tab is
-backed by a file as well as the in-memory buffer.
-
-The opt-in `tf-trace.log` (written only when `ATELIER_DEBUG` is truthy) lives in
-the same directory. The log path banner above names each of these files, with
-the directory's absolute path, but only those that exist on disk.
-
-See [ADR-0029](adr/0029-live-logs-view.md).
+See [ADR-0029](adr/0029-live-logs-view.md) for the superseded in-TUI view and
+[ADR-0052](adr/0052-hand-the-terminal-to-terraform.md) for the decision that
+replaced it.
 
 ## 8. Type-to-widget mapping
 
@@ -1215,8 +1169,9 @@ debounced `terraform validate`:
 - After the user finishes editing (no edits for 500ms), Atelier runs
   `terraform validate` in the wrapper directory.
 - Errors are surfaced in the status pane with the `error_message` from the
-  validation block.
-- A persistent `✓ Valid` / `N errors` indicator shows in the status pane.
+  validation block — the first diagnostic's summary and severity, prefixed
+  `validate: `. The header carries the persistent `✓ Valid` / `N errors`
+  indicator.
 - Validation does not block editing; the user can save invalid states.
   `terraform plan` will surface the same errors.
 
@@ -1367,8 +1322,8 @@ that succeeded, so a failed one retries as an `-upgrade`.
 | `terraform` binary missing or version too old    | CLI-level error before TUI launch.                                                              |
 | `git clone` fails (network / not found)          | CLI-level error before TUI launch.                                                              |
 | `terraform init` fails at bootstrap              | CLI-level error before TUI launch.                                                              |
-| `terraform validate` errors in session           | Surface in status pane; non-blocking.                                                           |
-| `terraform plan` fails in session                | Surface in status pane with the error text; non-blocking; user re-plans after fixing.           |
+| `terraform validate` errors in session           | Surface the first diagnostic in the status pane; non-blocking.                                   |
+| `terraform plan` fails in session                | Surface the first line of the error in the status pane; the full output is in `.atelier/logs/`; non-blocking; user re-plans after fixing. |
 | `git ls-remote` fails when resolving ref         | Show the literal ref but hide the resolved SHA; warn in status pane; user can retry.            |
 
 ## 14. Implementation notes

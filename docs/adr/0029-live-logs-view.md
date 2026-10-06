@@ -2,11 +2,17 @@
 
 ## Status
 
-Accepted (amended) — adds a unified logs view mode to the TUI with tabbed
-stderr/stdout, wall-clock timestamps, and persistent log files. Touches
-`internal/tui` (model, view, progress, theme) and `internal/tfexec`.
-Amends [ADR-0014](0014-unified-layout-budget.md) (height derivation and
-scroll support tables).
+Superseded by [ADR-0052](0052-hand-the-terminal-to-terraform.md) — the in-TUI
+logs view is removed and `A` hands the terminal to Terraform for apply. The
+persistent log files decided here are kept and remain the record for a failed
+plan.
+
+This ADR was originally Accepted (amended): it added a unified logs view mode
+to the TUI with tabbed stderr/stdout, wall-clock timestamps, and persistent log
+files, touching `internal/tui` (model, view, progress, theme) and
+`internal/tfexec`, and amending
+[ADR-0014](0014-unified-layout-budget.md) (height derivation and scroll
+support tables). It is kept unedited below.
 
 ## Context
 

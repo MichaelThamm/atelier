@@ -180,6 +180,10 @@ func debugEnabled() bool {
 // advanced configuration (e.g. logging).
 func (t *Terraform) Inner() *tfexec.Terraform { return t.tf }
 
+// ExecPath is the absolute path of the resolved terraform binary, for callers
+// that exec it directly rather than through this wrapper.
+func (t *Terraform) ExecPath() string { return t.tf.ExecPath() }
+
 // Version returns the resolved terraform version string.
 func (t *Terraform) Version(ctx context.Context) (string, error) {
 	v, _, err := t.tf.Version(ctx, true)
@@ -272,20 +276,9 @@ func (t *Terraform) Plan(ctx context.Context, planFile string, stdout io.Writer)
 	return plan, hasChanges, nil
 }
 
-// Apply runs `terraform apply <planFile>` using a previously saved plan.
-// If stdout is non-nil, terraform's progress output is streamed to it.
-func (t *Terraform) Apply(ctx context.Context, planFile string, stdout io.Writer) error {
-	if stdout != nil {
-		t.tf.SetStdout(stdout)
-		defer t.tf.SetStdout(nil)
-	}
-	return t.tf.Apply(ctx, tfexec.DirOrPlan(planFile))
-}
-
 // ApplyDirect runs `terraform apply` in the wrapper with the process's terminal
 // attached, so Terraform prints the plan and reads the approval answer from
-// stdin. Unlike the plan-file Apply (which routes through terraform-exec and so
-// always passes -auto-approve/-input=false), it deliberately omits both when
+// stdin. It deliberately passes neither -auto-approve nor -input=false when
 // interactive: the user reviews and confirms the plan, which is the point of
 // `atelier apply` (ADR-0034).
 //

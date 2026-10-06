@@ -24,24 +24,6 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Switch focus to the diff pane.
 		m.planDiffFocus = true
 		return m, nil
-	case "l", "L":
-		if m.progress != nil {
-			m.activeView = viewLogs
-			m.logAutoScroll = true
-			var lines []LogLine
-			switch m.logsTab {
-			case logsTabErrors:
-				lines = m.progress.StderrLines()
-			case logsTabLogs:
-				lines = m.progress.StdoutLines()
-			}
-			h := m.panelHeight() - 1
-			if h < 1 {
-				h = 1
-			}
-			m.logScroll = max(0, len(lines)-h)
-			return m, nil
-		}
 	case "s", "S":
 		// Toggle between diff view and state values view.
 		if m.tfState != nil && m.stateTree != nil {
@@ -54,7 +36,6 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "p", "P":
 		// Re-run plan.
 		m.planState = planLoading
-		m.planErr = ""
 		m.checkWarnings = nil
 		return m, tea.Batch(m.startPlan(), spinnerTick())
 	case "w", "W":
@@ -67,7 +48,6 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Apply the current plan.
 		if m.Applier != nil && m.applyState != applyLoading {
 			m.applyState = applyLoading
-			m.applyErr = ""
 			return m, tea.Batch(m.startApply(), spinnerTick())
 		}
 	case "d", "D":
