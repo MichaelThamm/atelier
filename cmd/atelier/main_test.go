@@ -18,7 +18,6 @@ func TestResolveCommand(t *testing.T) {
 		{[]string{"wrappers"}, cmdWrappers, nil},
 		{[]string{"wrappers", "tf-testing"}, cmdWrappers, []string{"tf-testing"}},
 		{[]string{"purge"}, cmdPurge, nil},
-		{[]string{"tidy", "--write"}, cmdTidy, []string{"--write"}},
 		{[]string{"import", "juju"}, cmdImport, []string{"juju"}},
 		{[]string{"presets", "lint", "--module", "m"}, cmdPresets, []string{"lint", "--module", "m"}},
 		{[]string{"gallery", "list"}, cmdGallery, []string{"list"}},

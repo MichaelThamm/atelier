@@ -25,6 +25,10 @@ and presets for reusable configurations.
   It is version-controllable, shareable, runnable without Atelier installed, and
   CI-compatible. Atelier's internal state lives in a `.atelier/` subdirectory
   that is regenerable from the wrapper.
+- **Only what you change.** Atelier writes an input only when its value differs
+  from the default the module declares, so the wrapper stays short and the
+  module's own defaults handle the rest. Inputs with no default are always
+  written, because Terraform needs a value for them.
 - **Plan and apply in the TUI.** Atelier owns the configure → plan iteration
   loop and supports `terraform apply` from the plan view (`A` key).
 - **Presets are plain Terraform.** Reusable value bundles are `.tfvars` files,
@@ -79,7 +83,8 @@ cd cos-lite
 
 Redirecting stdin (`< /dev/null`) skips the TUI, so the command works unattended
 in scripts and CI. Without it, `atelier add` opens the TUI, where you review the
-module's variables and fill in any it requires.
+module's variables, fill in any it requires, and press `[P]` to run a plan and
+`[A]` to apply it.
 
 What Atelier wrote is a normal Terraform project — Atelier is not needed to run
 it:
@@ -104,10 +109,8 @@ atelier add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
 `cos-lite`) unless `--dir`/`--as` names one, so there is no `mkdir`/`cd` to do
 first. When the target — `--dir`, else the current directory — already holds a
 wrapper, it appends a module block instead; when it creates its own directory, a
-non-empty target is refused rather than scaffolded over
-([ADR-0030](docs/adr/0030-target-directory-preflight.md),
-[ADR-0034](docs/adr/0034-module-apply-one-liner.md)). Run `atelier wrappers` to
-list the wrappers sharing a parent directory (e.g. a `tf-testing/` scratch
+non-empty target is refused rather than scaffolded over. Run `atelier wrappers`
+to list the wrappers sharing a parent directory (e.g. a `tf-testing/` scratch
 dir).
 
 ### Compose several modules
@@ -131,8 +134,7 @@ The TUI groups each module's variables under its own header and switches the
 ref, plan, and apply target to whichever one you are on, so a multi-module
 wrapper is edited as one document. Modules are ordinary Terraform blocks, so
 wire one module's output into another's input the way you would by hand —
-`greeting = module.cos_lite.greeting`. See
-[ADR-0044](docs/adr/0044-dir-names-the-wrapper.md).
+`greeting = module.cos_lite.greeting`.
 
 ### Just apply it
 
@@ -156,7 +158,7 @@ it, and a non-empty target with no `main.tf` is refused rather than scaffolded
 over. A `--dir` (or CWD) that already holds a wrapper composes into it instead —
 see [Compose several modules](#compose-several-modules). The result is an
 ordinary wrapper — `cd` into it and run `atelier` to configure further, or
-`terraform` directly. See [ADR-0034](docs/adr/0034-module-apply-one-liner.md).
+`terraform` directly.
 
 Run the same command again and it converges rather than complaining or
 duplicating:
@@ -171,8 +173,7 @@ first one set. Changing `--ref` re-points the same block instead of adding a
 second one, and inputs the new revision no longer declares are dropped with a
 note. `--as` names the block to work on when the wrapper declares the same module
 more than once; a name that matches nothing falls back to the block that does,
-which is why a gallery entry's own block name never gets in the way. See
-[ADR-0050](docs/adr/0050-tolerant-apply-converges.md).
+which is why a gallery entry's own block name never gets in the way.
 
 Re-open an existing wrapper (run with no arguments in the wrapper dir):
 ```bash
@@ -180,33 +181,7 @@ atelier
 ```
 
 > **Note:** run `atelier --help` for the full command list, including `atelier
-> add|rm|ls`, `atelier wrappers`, `atelier tidy`, and `atelier purge`.
-
-> **Note:** the demos below use
-> [loki-operators](https://github.com/canonical/loki-operators/tree/main/terraform):
-> its module has many inputs, so it shows the variable list well.
-
-<details>
-<summary>Demo: adding a module</summary>
-
-1. `atelier add https://github.com/canonical/loki-operators.git`
-2. Browse the module's variables
-
-![Adding a module](docs/gifs/module-add.gif)
-
-</details>
-
-<details>
-<summary>Demo: plan a module deployment</summary>
-
-1. `atelier`
-2. Press `[P]` to begin the plan
-3. Investigate the Terraform state changes
-4. Optionally press `[A]` to apply the state
-
-![Plan a module deployment](docs/gifs/plan.gif)
-
-</details>
+> add|rm|ls`, `atelier wrappers`, and `atelier purge`.
 
 ## Presets
 
@@ -220,15 +195,13 @@ one action, then customise. Atelier finds them in two places:
   `terraform/cos/presets/single-unit.tfvars`.
 
 Atelier reads only Terraform-native `.tfvars` files, and only when you name
-them. See [ADR-0031](docs/adr/0031-presets-as-tfvars-bundles.md).
+them.
 
 Atelier also bundles a gallery of quick starts for real modules. Run `atelier
 gallery list` to see each module, its pinned ref, the presets it composes (if
 any), and the command to deploy it. An entry also lists the inputs it leaves to
 you, so you see them before running. `atelier gallery lint` checks that every
-entry covers the required inputs its module declares. See
-[ADR-0035](docs/adr/0035-bundled-module-gallery.md) and
-[ADR-0039](docs/adr/0039-composed-gallery-presets.md).
+entry covers the required inputs its module declares.
 
 The TUI lists both sources with `F` (source-labelled `[local]`/`[repo]`, with
 the description taken from each file's leading comment); `Enter` applies the
@@ -281,30 +254,8 @@ atelier add https://github.com/canonical/observability-stack.git \
 Redirecting stdin (`< /dev/null`) makes these examples non-interactive, so they
 run unattended. When `atelier add` creates its own directory there is no prompt;
 `--yes` is for the additive case, where the current directory already holds
-files but no wrapper and Atelier asks before appending a module block
-([ADR-0030](docs/adr/0030-target-directory-preflight.md)). Without a terminal on
-stdin the preflight fails, naming `--yes`.
-
-<details>
-<summary>Demo: saving a preset</summary>
-
-1. `atelier`
-2. Fill in all the required variables
-3. Press `[S]` to save an `atelier.presets/<name>.tfvars` bundle
-
-![Saving a preset](docs/gifs/save-preset.gif)
-
-</details>
-
-<details>
-<summary>Demo: applying a preset</summary>
-
-1. `atelier`
-2. `[F]` to select and apply a bundle from a parent directory
-
-![Applying a preset](docs/gifs/apply-preset.gif)
-
-</details>
+files but no wrapper and Atelier asks before appending a module block. Without a
+terminal on stdin the preflight fails, naming `--yes`.
 
 ## Importing live infrastructure
 
@@ -316,16 +267,6 @@ match — a state-only operation that cannot change your infrastructure. Use
 create, without touching state. See
 [docs/how-to/import-juju.md](docs/how-to/import-juju.md) for a step-by-step Juju
 walkthrough.
-
-<details>
-<summary>Demo: importing a live deployment</summary>
-
-1. `atelier import`
-2. `atelier`
-
-![Importing a live deployment](docs/gifs/import.gif)
-
-</details>
 
 ### From bundle to import
 
@@ -429,7 +370,7 @@ safe to re-run, so a CI retry needs no `git diff` check first.
 import json, subprocess
 from pathlib import Path
 
-def run(*args, cwd="."):
+def atelier(*args, cwd="."):
     """Run Atelier non-interactively, with stdin closed and output separated.
 
     stdin is /dev/null so nothing waits on a prompt, and Atelier's own report
@@ -444,12 +385,12 @@ def run(*args, cwd="."):
     return json.loads(done.stdout)["data"]
 
 # Declare the wrapper once.
-run("add", COS_REPO, "--module", "terraform/cos-lite",
+atelier("add", COS_REPO, "--module", "terraform/cos-lite",
     "--dir", "stack", "--yes", "--json")
 
 # Deploy it, and deploy it again on every later run of the job. Both converge on
 # the same block; --var merges into whatever the wrapper already holds.
-run("apply", COS_REPO, "--module", "terraform/cos-lite",
+atelier("apply", COS_REPO, "--module", "terraform/cos-lite",
     "--dir", "stack", "--var", "model_uuid=...")
 
 print(Path("stack/main.tf").read_text())   # the wrapper is yours to read
@@ -458,8 +399,7 @@ print(Path("stack/main.tf").read_text())   # the wrapper is yours to read
 `atelier apply` exits `2` rather than `1` when Terraform ran and failed, so a job
 can branch without reading stderr: `2` means look at the infrastructure (the
 wrapper is current, and the deployment may be partly applied), `1` means fix the
-command line or the wrapper. Everything else exits `0` or `1`. See
-[ADR-0051](docs/adr/0051-apply-exit-codes.md).
+command line or the wrapper. Everything else exits `0` or `1`.
 
 To assert on what Terraform actually did — state, plan changes — reach for
 `terraform` directly: no Atelier command reports state.
@@ -472,23 +412,12 @@ Atelier API.
 Press `R` to switch the module ref without leaving the TUI. Atelier
 re-clones the module, carries your values forward, runs
 `terraform init -upgrade`, and flags any orphaned or newly required
-variables.
+variables. `[D]` opens a detail modal naming each one.
 
 The ref field filters the remote's branches and tags as you type, so a big
 repo's 50-plus refs narrow to the few you mean. Free text (an arbitrary SHA, an
 unlisted ref) is always accepted. Press `?` in the modal for its navigation
 keys.
-
-<details>
-<summary>Demo: switch module ref</summary>
-
-1. `atelier`
-2. `[R]` to browse module refs
-3. Apply and inspect module changes with `[D]`
-
-![Switch module ref](docs/gifs/switch-ref.gif)
-
-</details>
 
 ## Keyboard shortcuts
 
@@ -498,8 +427,7 @@ keymap (`Ctrl+A`/`Ctrl+E`, `Ctrl+W`, `Alt+B`/`Alt+F`, …), so editing feels lik
 `bash`.
 
 Press `?` anywhere for the complete, context-aware keymap — it lists the keys for
-the view you are in and is the single source of truth for shortcuts. The demo
-GIFs in the feature sections show each flow end to end.
+the view you are in and is the single source of truth for shortcuts.
 
 ## Validate on save
 
@@ -507,45 +435,6 @@ Every edit is saved to disk immediately, and Atelier runs a background
 `terraform validate`. Errors appear inline in the status bar; press `L` for the
 live logs, whose Errors tab holds the full diagnostics. Validation runs
 `terraform init` automatically if the workspace isn't initialised yet.
-
-## Tidying a wrapper
-
-Atelier writes sparse `main.tf` files — only values that differ from the
-module's defaults appear (see [ADR-0007](docs/adr/0007-sparse-wrapper-write-rule.md)).
-But a wrapper that was hand-authored or seeded from an upstream example often
-carries arguments set to their default value, which is just noise:
-
-```hcl
-module "cos_lite" {
-  source  = "git::https://github.com/canonical/observability-stack.git//terraform/cos-lite?ref=main"
-  model   = { name = "cos-lite-two" }
-  grafana = { units = 1 }          # 1 is already the default
-  catalogue = { app_name = "catalogue" }  # also the default
-}
-```
-
-`atelier tidy` prunes those redundant arguments back to sparse form:
-
-```bash
-atelier tidy            # dry run: print the diff, change nothing
-atelier tidy --write    # apply it (backs up main.tf first)
-```
-
-It is **dry-run by default**. With `--write` it copies the current `main.tf`
-to `.atelier/backups/main.tf.<timestamp>.bak` before rewriting. Tidy reuses
-the same writer the TUI uses, so the change is apply-neutral: `terraform plan`
-is identical before and after. Arguments whose value is an expression
-(`var.x`, `module.y.z`) are never pruned. See
-[ADR-0021](docs/adr/0021-tidy-command.md) for the design.
-
-Every Atelier write applies the same rule, so you will sometimes see an
-at-default argument disappear without asking: the TUI when you save, and
-`atelier apply` when it rewrites a module's block — which it names on stderr.
-What those do not offer is a chance to look first. Tidy is how you see a prune
-before it happens: it shows the diff, changes nothing unless you pass `--write`,
-keeps a backup, and reports an unpinned ref (where "default" is only whatever
-upstream says today) before it prunes against it. It also prunes the whole
-wrapper, including modules you are not about to deploy.
 
 ## Troubleshooting
 

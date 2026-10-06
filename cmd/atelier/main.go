@@ -12,7 +12,6 @@
 //	atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH]
 //	                                            compose into the wrapper the target holds and deploy
 //	                                            it, or scaffold a new one and init and apply it
-//	atelier tidy [PATH] [--write]               prune arguments left at their default
 //	atelier purge [PATH] [--force]              remove .atelier/ and .clone/
 //	atelier gallery list [--commands]           list the bundled gallery quick starts
 //	atelier presets lint --module <dir> <f>...  check preset bundles against a module
@@ -99,8 +98,6 @@ Usage:
                                                Terraform's prompt; with no terminal it applies with
                                                -auto-approve.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
-  atelier tidy [PATH] [--write]                Prune module arguments left at their default value.
-                                               Dry-run by default; --write applies it (backs up main.tf first).
   atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
         [--dir PATH] [--type T] [--var K=V] [--var-file PATH|NAME]
         [--list-var-files] [--query-var K=V] [--dry-run] [--list] [--yes] [--json]
@@ -172,7 +169,6 @@ const (
 	cmdApply    command = "apply"
 	cmdWrappers command = "wrappers"
 	cmdPurge    command = "purge"
-	cmdTidy     command = "tidy"
 	cmdImport   command = "import"
 	cmdPresets  command = "presets"
 	cmdGallery  command = "gallery"
@@ -197,8 +193,6 @@ func resolveCommand(args []string) (command, []string) {
 		return cmdWrappers, args[1:]
 	case "purge":
 		return cmdPurge, args[1:]
-	case "tidy":
-		return cmdTidy, args[1:]
 	case "import":
 		return cmdImport, args[1:]
 	case "presets":
@@ -237,8 +231,6 @@ func run(args []string) error {
 		return runWrappers(rest)
 	case cmdPurge:
 		return runPurge(rest)
-	case cmdTidy:
-		return runTidy(rest)
 	case cmdImport:
 		return runImport(rest)
 	case cmdPresets:

@@ -263,11 +263,10 @@ def test_apply_reports_a_new_required_input_from_the_new_ref(tmp_path, module_re
 
 
 def test_apply_reports_an_argument_it_pruned_for_being_at_its_default(tmp_path, module_repo):
-    # GIVEN a wrapper with a hand-written argument set to the module's default —
-    # the noise `atelier tidy` exists to remove. Passing it with --var does not
-    # produce this state: Atelier's own writer never emits an at-default
-    # argument, so the argument has to be written into main.tf by hand or seeded
-    # from an upstream example.
+    # GIVEN a wrapper with a hand-written argument set to the module's default.
+    # Passing it with --var does not produce this state: Atelier's own writer
+    # never emits an at-default argument, so the argument has to be written into
+    # main.tf by hand or seeded from an upstream example.
     wrapper = tmp_path / "wrapper"
     wrapper.mkdir()
     apply_repo(tmp_path, module_repo, REPO_V1, "--var model_uuid=u1 --var units=1")

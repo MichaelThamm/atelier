@@ -92,6 +92,6 @@ installed base, so the trade is taken knowingly rather than avoided.
 - `2` is deliberately *not* a safe blind re-run: a partly applied deployment is
   the case where reading the plan first matters, which is the reason the two are
   worth separating.
-- Only `atelier apply` is affected. `add`, `ls`, `wrappers`, `tidy`, `rm`,
+- Only `atelier apply` is affected. `add`, `ls`, `wrappers`, `rm`,
   `purge`, `import` and the TUI keep exiting `0` or `1`.
 - Nothing about the wrapper format changes, and no new flag is introduced.

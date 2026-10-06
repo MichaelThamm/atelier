@@ -70,7 +70,6 @@ Entry point is `cmd/atelier` (package `main`). Product logic lives under
 | `internal/session` | Persists in-band metadata to `.atelier/session.json`. |
 | `internal/tfexec` | Narrow wrapper over `hashicorp/terraform-exec`. |
 | `internal/tui` | The Bubble Tea TUI (model, view, editors, plan/preset views). |
-| `internal/tidy` | `atelier tidy` — headless prune to sparse form. |
 | `internal/importer` | `atelier import` runtime; `providers/juju` is the only provider today. |
 
 Design rules that recur in the ADRs and must stay true:
@@ -121,7 +120,7 @@ converts, clones, or writes, find the one that already does it:
 | parse a module source (`git::`, `//subpath`, `?ref=`, local path) | `internal/modulesource` (`Decompose`, `Remote`, `ModulePath`, `Compose`, `IsLocal`, `IsFullSHA`) |
 | apply `--var` / `--var-file` values, or convert a string to a variable's type | `wrapper.ApplyVarOverrides`, `wrapper.ApplyVarFiles`, `wrapper.ConvertStringToCty` |
 | clone + read a module block's schema and values, or re-read after a ref change | `bootstrap.BlockLoader.LoadModuleBlock`, `bootstrap.LoadRefState` |
-| write `main.tf` / any file atomically | `wrapper.WriteMain`; leaf packages that cannot import `wrapper` (session, state) keep their own |
+| write `main.tf` / any file atomically | `wrapper.RenderMain` + `State.Write`; leaf packages that cannot import `wrapper` (session, state) keep their own |
 | decide whether a variable is emitted | `wrapper.ShouldEmit` / `wrapper.SparseValue` |
 
 If you cannot name the existing function, search before writing a new one.
@@ -143,7 +142,7 @@ Dependencies point downward only. The intended direction is:
 leaves (gitops, session, state, tfexec, tftypes, tfvars, modulesource, candidate)
    → domain (wrapper)
    → orchestration (bootstrap)
-   → adapters (cmd/atelier, internal/tui, internal/importer, internal/tidy)
+   → adapters (cmd/atelier, internal/tui, internal/importer)
 ```
 
 `cmd/atelier` and `internal/tui` are **adapters**: flag parsing, presentation,

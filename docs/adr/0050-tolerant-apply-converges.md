@@ -124,9 +124,9 @@ modelling it.
 Nothing is lost by not carrying it. Every write is AST-backed on the existing
 `main.tf`, so an attribute already in the file is never rewritten, and
 `RenderMain`'s orphan prune keeps the meta-argument names unconditionally. A
-hand-written `depends_on` therefore survives a TUI ref switch, an `atelier apply`
-re-point, and `atelier tidy` — checked on the previous release for all three, and
-pinned by `TestAdoptPrior_dependsOnReachesTheBlock`.
+hand-written `depends_on` therefore survives a TUI ref switch and an `atelier
+apply` re-point — checked on the previous release for both, and pinned by
+`TestAdoptPrior_dependsOnReachesTheBlock`.
 
 An earlier draft of this ADR claimed the carry-over was a data-loss fix here. It
 was not, and the claim is withdrawn: the previous filter dropped meta-arguments
@@ -180,20 +180,6 @@ otherwise:
 Both are pre-existing writer behaviour, not something this change introduces; what
 it adds is that `apply` can now trigger them on a block you already have. The run
 reports the prune by name; it does not report the constant fold.
-
-**That does not retire `atelier tidy`** (ADR-0021), which differs in scope and in
-consent rather than in rule. It shows the diff and changes nothing without
-`--write`; it backs `main.tf` up first; it warns when the ref is unpinned, where
-"default" is only whatever upstream says today; and it prunes the whole wrapper,
-including modules you are not about to deploy. A deploy command cannot offer any
-of those, and a change you did not ask for is what tidy exists to make reviewable.
-
-One thing this change does not do is fix tidy's own limits. It refuses a
-multi-module wrapper outright, on a guardrail ADR-0021 justifies as "outside v1's
-one-module-per-wrapper model" — a premise ADR-0015 and ADR-0044 have since
-retired. So for a composed wrapper, the one case where `apply` will now normalise
-a block on deploy, there is no headless prune at all. That is a gap in `tidy`,
-not a reason to drop it, and it is left alone here.
 
 ## Alternatives considered
 
