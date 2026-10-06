@@ -9,9 +9,9 @@ detection, discovery, matching, and import-ID construction.
 
 Two things keep it from being a happy path. The module is configured from the
 upstream ``no-ingress`` preset as well as a local bundle, so a preset resolved
-from the clone is exercised too. And the final check is the plan against the
-imported state rather than the import report: the state must match reality, not
-merely be non-empty. Drift in ``terraform_data`` and secrets is expected — see
+from the clone is exercised too. And the final check is a plan of the imported
+state rather than the import report: the state must match reality, not merely be
+non-empty. Drift in ``terraform_data`` and secrets is expected — see
 ``PRESERVED_TYPES`` for why it is tolerated.
 """
 
@@ -73,7 +73,7 @@ def _arg_block(main_tf: str, name: str) -> str:
 
 
 @pytest.mark.cloud
-def test_import_cos_lite_roundtrip(juju: jubilant.Juju, tmp_path):
+def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # GIVEN a running Juju model
     model_uuid = juju.show_model(juju.model).model_uuid
 
@@ -165,17 +165,30 @@ def test_import_cos_lite_roundtrip(juju: jubilant.Juju, tmp_path):
     # to change for those core resources. Drift in other types is tolerated —
     # see PRESERVED_TYPES for why.
     #
-    # Read from the import's own payload rather than by planning again: the run
-    # already planned the imported state to produce this, so a second plan would
-    # measure the same thing twice.
+    # Asked twice, by two routes that should agree. Terraform is asked directly
+    # because a report of drift is worth only as much as the plan behind it, and
+    # the payload is asked because that is the surface a CI job actually reads.
+    # Ground truth comes first so that a payload which disagrees with Terraform
+    # fails here naming the disagreement, rather than the reverse: pytest stops
+    # at the first failure, so judging the payload first would let a reporting
+    # bug hide the state it misreported.
+    tf_manager.latch(wrapper_dir)
+    drifted = sorted(c for c in tf_manager.plan_changes() if c[1] in PRESERVED_TYPES)
+    assert not drifted, (
+        "a plan of the imported state still changes these core resources "
+        f"(address, type, actions): {drifted}"
+    )
+
     drift = result["postImportPlan"]
-    assert drift is not None, f"no post-import plan was reported: {result}"
-    drifted = [
+    assert drift is not None, (
+        f"no post-import plan was reported, though Terraform plans clean: {result}"
+    )
+    reported_drift = [
         addr
         for addr in drift["addAddresses"] + drift["changeAddresses"]
         if any(f".{kind}." in addr for kind in PRESERVED_TYPES)
     ]
-    assert not drifted, (
-        "import did not preserve these core resources (address, action): "
-        f"{drifted}"
+    assert not reported_drift, (
+        "import --json reported these core resources as still changing, though a "
+        f"plan of the imported state does not (address, action): {reported_drift}"
     )

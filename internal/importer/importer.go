@@ -589,40 +589,86 @@ func Generate(ctx context.Context, opts Options) (_ *Result, rerr error) {
 		})
 	}
 
-	// Run provider-specific post-import normalization steps.
-	// The post-import plan is shared and lazy: steps that need to know what the
-	// configuration wants get one plan between them, and a run whose steps never
-	// ask pays nothing.
-	var (
-		postPlan     *tfjson.Plan
-		postPlanErr  error
-		postPlanOnce sync.Once
-	)
-	pctx := PostImportContext{
-		Dir:          opts.Dir,
-		Imported:     res.Imported,
-		WrapperState: opts.WrapperState,
-		Plan: func() (*tfjson.Plan, error) {
-			postPlanOnce.Do(func() {
-				var pr *PlanResult
-				pr, postPlanErr = PlanCreates(ctx, opts)
-				if pr != nil {
-					postPlan = pr.Plan
-				}
-			})
-			return postPlan, postPlanErr
-		},
+	summary, err := postImportPhase{
+		Dir:      opts.Dir,
+		Steps:    opts.PostImportSteps,
+		Report:   opts.ReportPostImportPlan,
+		Imported: res.Imported,
+		Wrapper:  opts.WrapperState,
+		Stderr:   os.Stderr,
+		Plan:     func() (*PlanResult, error) { return PlanCreates(ctx, opts) },
+	}.run(ctx)
+	if err != nil {
+		return res, err
 	}
-	for _, step := range opts.PostImportSteps {
+	res.PostImportPlan = summary
+
+	return res, nil
+}
+
+// postImportPhase is the tail of an import run: the provider's normalization
+// steps, then the drift report. Its own type so the ordering between the two —
+// which is the whole correctness of the report — is testable without Terraform.
+type postImportPhase struct {
+	Dir      string
+	Steps    []PostImportStep
+	Report   bool
+	Imported []ImportResult
+	Wrapper  *wrapper.State
+	Stderr   io.Writer
+	// Plan plans the module as it stands. Production passes PlanCreates.
+	Plan func() (*PlanResult, error)
+}
+
+// run executes the steps, then summarises the plan against the state they left.
+//
+// The two need different plans. A step asks for the plan to learn what the
+// configuration wants and then rewrites state to match, so by the time the last
+// step returns, the plan the steps shared describes a state that no longer
+// exists. Reporting that one reports the drift the steps were just asked to fix.
+func (p postImportPhase) run(ctx context.Context) (*PlanSummary, error) {
+	// Shared and lazy: steps that need to know what the configuration wants get
+	// one plan between them, and a run whose steps never ask pays nothing.
+	shared := &lazyPlan{run: p.Plan}
+	pctx := PostImportContext{
+		Dir:          p.Dir,
+		Imported:     p.Imported,
+		WrapperState: p.Wrapper,
+		Plan:         shared.plan,
+	}
+	for _, step := range p.Steps {
 		if err := step.Run(ctx, pctx); err != nil {
-			return res, fmt.Errorf("%s: %w", step.Name(), err)
+			return nil, fmt.Errorf("%s: %w", step.Name(), err)
 		}
 	}
 
-	// Taken after the steps, because they normalise what the plan sees.
-	res.PostImportPlan = postImportSummary(opts.ReportPostImportPlan, pctx.Plan, os.Stderr)
+	shared.invalidate()
+	return postImportSummary(p.Report, shared.plan, p.Stderr), nil
+}
 
-	return res, nil
+// lazyPlan memoises a plan for the post-import steps to share.
+//
+// It can be invalidated because the memo outlives its validity: a step that
+// writes state invalidates the plan the steps read, and the next caller re-plans
+// against what is on disk now.
+type lazyPlan struct {
+	run  func() (*PlanResult, error)
+	once sync.Once
+	res  *PlanResult
+	err  error
+}
+
+func (l *lazyPlan) plan() (*tfjson.Plan, error) {
+	l.once.Do(func() { l.res, l.err = l.run() })
+	if l.res == nil {
+		return nil, l.err
+	}
+	return l.res.Plan, l.err
+}
+
+// invalidate discards the memoised plan, so the next plan call runs again.
+func (l *lazyPlan) invalidate() {
+	l.once, l.res, l.err = sync.Once{}, nil, nil
 }
 
 // postImportSummary summarises the plan against the state the imports produced,
