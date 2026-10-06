@@ -52,7 +52,7 @@ Usage:
   atelier                                      Open the wrapper in the current directory.
   atelier add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR]
                                 [--dir PATH] [--var-file PATH|NAME] [--var KEY=VALUE]
-                                [--list-var-files] [--strict] [--yes] [--json]
+                                [--list-var-files] [--all] [--strict] [--yes] [--json]
                                                Add a module and open the editor on it. If the target
                                                (--dir, else the current directory) already holds a
                                                wrapper, appends a module block to it; otherwise creates
@@ -66,7 +66,12 @@ Usage:
                                                committed to the module repo. Comma-separate or repeat for several.
                                                --var sets a single module input (repeatable); --var wins over
                                                --var-file.
-                                               --list-var-files prints the local and repo .tfvars bundles available.
+                                               --list-var-files prints the .tfvars bundles this module can
+                                               use: the repo's own, yours from an ancestor
+                                               atelier.presets/, and the bundled presets that
+                                               deploy this module. --all also prints every
+                                               bundled preset, for when you want the whole
+                                               gallery.
                                                --strict makes var-file binding warnings fatal.
                                                --json writes the result to stdout as JSON: where the wrapper
                                                went, the block as written, and every block in it.
@@ -81,7 +86,7 @@ Usage:
                                                Read-only and one level only.
   atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--as NAME]
                                 [--dir PATH] [--var-file PATH|NAME]
-                                [--var KEY=VALUE] [--list-var-files]
+                                [--var KEY=VALUE] [--list-var-files] [--all]
                                                Compose into the wrapper the target already holds
                                                (--dir, else the current directory) and deploy that
                                                root; otherwise scaffold a wrapper in a new directory
@@ -118,8 +123,9 @@ Usage:
                                                 must still be supplied via --var or --var-file.
                                                 --dir creates the directory when it is missing; without
                                                 --source it must already be an initialised Terraform root.
-                                                --list-var-files prints the local and repo .tfvars bundles
-                                                available (requires --source) and exits without importing.
+                                                --list-var-files prints the .tfvars bundles the module can
+                                                use; --all also prints every bundled preset. Requires
+                                                --source; exits without importing.
                                                 --dry-run writes an imports.tf artifact and previews the plan
                                                 without touching state.
                                                 --json writes the report to stdout as JSON: what matched,

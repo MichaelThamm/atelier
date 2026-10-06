@@ -164,7 +164,7 @@ func TestListAllVarFiles_bothSources(t *testing.T) {
 	writeAt(t, filepath.Join(clone, "terraform", "cos", "examples", ".terraform", "v.tfvars"), "z = 1\n")
 	writeAt(t, filepath.Join(clone, "terraform", "cos", ".git", "x.tfvars"), "z = 1\n")
 
-	got := ListAllVarFiles(wrap, clone, "terraform/cos")
+	got := ListAllVarFiles(wrap, clone, "terraform/cos", nil)
 	sources := map[string]string{}
 	for _, f := range got {
 		sources[f.Name] = f.Source

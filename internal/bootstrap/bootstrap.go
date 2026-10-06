@@ -38,6 +38,11 @@ type InitOptions struct {
 	ModulePath  string // candidate path within the cloned repo; empty → pick interactively / auto-pick if one
 	GitRunner   gitops.Runner
 
+	// AllGalleryVar widens a ListVarFiles call to every bundle Atelier ships,
+	// not just the ones that deploy Source//ModulePath. Only --list-var-files
+	// reads it.
+	AllGalleryVar bool
+
 	// SourceBaseDir resolves a relative LocalSource path against a directory
 	// other than WrapperDir. `apply` stages the clone under a temp
 	// directory before the wrapper's final home is known, so it passes the

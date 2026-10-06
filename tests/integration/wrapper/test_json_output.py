@@ -16,6 +16,8 @@ from helpers import atelier
 
 PROM_REPO = "https://github.com/canonical/prometheus-k8s-operator.git"
 LOKI_REPO = "https://github.com/canonical/loki-operators.git"
+OBS_REPO = "https://github.com/canonical/observability-stack.git"
+COS_LITE = "terraform/cos-lite"
 PROM_MODULE = "terraform"
 PROM_REF = "main"
 # `terraform` is a generic directory name, so the block is named after the
@@ -184,16 +186,29 @@ def test_wrappers_json_lists_absolute_paths(tmp_path):
 
 def test_list_var_files_json(tmp_path):
     # WHEN the bundles a module can be configured from are listed with --json
+    # cos-lite is used because it declares bundled presets; the listing is
+    # narrowed to the module named, so a module with none reports none.
     data = _json_atelier(
         _empty_dir(tmp_path, "json-vars"),
-        f"add {LOKI_REPO} --module {PROM_MODULE} --list-var-files",
+        f"add {OBS_REPO} --module {COS_LITE} --list-var-files",
     )
 
     # THEN each one carries the name to pass to --var-file
-    assert data["bundles"], "the loki module ships presets"
+    assert data["bundles"], "cos-lite declares bundled presets"
     for bundle in data["bundles"]:
         assert bundle["name"]
         assert bundle["source"] in ("local", "repo", "gallery")
+
+
+def test_list_var_files_json_is_empty_for_a_module_with_no_bundles(tmp_path):
+    # WHEN a module that ships no .tfvars and has no bundled presets is listed
+    data = _json_atelier(
+        _empty_dir(tmp_path, "json-vars-none"),
+        f"add {LOKI_REPO} --module {PROM_MODULE} --list-var-files",
+    )
+
+    # THEN nothing is offered, rather than every other product's presets
+    assert data["bundles"] == []
 
 
 def test_json_does_not_suppress_the_human_report(tmp_path):

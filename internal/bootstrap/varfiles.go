@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/MichaelThamm/atelier/internal/gallery"
+	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
@@ -122,17 +123,75 @@ func RepoVarFiles(cloneDir, modulePath string) []VarFile {
 // ListAllVarFiles returns the union of local (walk-up), repo, and gallery
 // bundles, in that order. Names present in more than one source are shown once
 // per source so `--list-var-files` makes the override relationship visible.
-func ListAllVarFiles(wrapperDir, cloneDir, modulePath string) []VarFile {
+//
+// Gallery bundles are narrowed to the entries that deploy this module (see
+// GalleryVarFilesFor); pass a nil filter to list every bundled bundle.
+func ListAllVarFiles(wrapperDir, cloneDir, modulePath string, gallery *ModuleFilter) []VarFile {
 	out := LocalVarFiles(wrapperDir)
 	out = append(out, RepoVarFiles(cloneDir, modulePath)...)
-	out = append(out, GalleryVarFiles()...)
+	out = append(out, GalleryVarFilesFor(gallery)...)
 	return out
 }
 
-// GalleryVarFiles returns the presets bundled with Atelier (ADR-0035), as
-// entries whose Path points into the materialized cache directory. They are the
-// lowest-precedence source: a local or module-repo bundle of the same name wins.
-func GalleryVarFiles() []VarFile {
+// ModuleFilter selects the gallery entries that deploy a given module. It is
+// built from the module source and subdirectory rather than a gallery name, so
+// it also matches a URL the user typed directly.
+type ModuleFilter struct {
+	Remote     string // repository URL, normalised for comparison
+	ModulePath string // subdirectory within the repository, "" for the root
+}
+
+// NewModuleFilter builds a filter for a module source and its subdirectory. The
+// source is decomposed first, so a `git::` prefix or a `?ref=` query is
+// ignored — a gallery entry pins its own revision, and the user need not match
+// it. A local source has no remote, so the filter never matches.
+func NewModuleFilter(source, modulePath string) *ModuleFilter {
+	return &ModuleFilter{
+		Remote:     normaliseRemote(remoteOf(source)),
+		ModulePath: strings.Trim(strings.TrimSpace(modulePath), "/"),
+	}
+}
+
+// Matches reports whether a gallery entry's module and subdirectory are the
+// ones this filter names. The ref is deliberately ignored: an entry pins a
+// revision, but the user may be on another, and the presets are the same.
+func (f *ModuleFilter) Matches(module, subdir string) bool {
+	if f == nil || f.Remote == "" {
+		return false
+	}
+	if normaliseRemote(remoteOf(module)) != f.Remote {
+		return false
+	}
+	return strings.Trim(strings.TrimSpace(subdir), "/") == f.ModulePath
+}
+
+func remoteOf(source string) string {
+	remote, _ := modulesource.Decompose(source)
+	return remote
+}
+
+// normaliseRemote reduces a git remote URL to a comparable form. Host and path
+// case, a trailing slash, and a .git suffix are all noise here.
+func normaliseRemote(remote string) string {
+	s := strings.ToLower(strings.TrimSpace(remote))
+	s = strings.TrimSuffix(s, "/")
+	s = strings.TrimSuffix(s, ".git")
+	return strings.TrimSuffix(s, "/")
+}
+
+// GalleryVarFiles returns the presets bundled with Atelier (ADR-0035) for every
+// entry. They are the lowest-precedence source: a local or module-repo bundle
+// of the same name wins.
+func GalleryVarFiles() []VarFile { return GalleryVarFilesFor(nil) }
+
+// GalleryVarFilesFor returns the bundled presets, narrowed to the entries whose
+// module and subdirectory match filter. A nil filter lists them all, which is
+// what a caller with no module in hand wants.
+//
+// Narrowing matters because the gallery spans every product Atelier ships: for
+// `cos-lite` it is the difference between one bundle and ten, nine of which
+// name inputs the module does not declare.
+func GalleryVarFilesFor(filter *ModuleFilter) []VarFile {
 	entries, err := gallery.List()
 	if err != nil {
 		return nil
@@ -140,6 +199,9 @@ func GalleryVarFiles() []VarFile {
 	var out []VarFile
 	seen := map[string]bool{}
 	for _, e := range entries {
+		if filter != nil && !filter.Matches(e.Module, e.Subdir) {
+			continue
+		}
 		// An entry composes all of its presets and offers others for the user
 		// to opt into, and several entries may name the same bundle, so emit
 		// each one once.
@@ -188,7 +250,14 @@ func ListVarFiles(ctx context.Context, opts InitOptions) ([]VarFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ListAllVarFiles(wrapperDir, prep.CloneDir, prep.ModulePath), nil
+	// Narrow the gallery to the module in hand: ListVarFiles knows the source
+	// and subdirectory, so a `cos-lite` listing is one bundle rather than every
+	// product Atelier ships. AllGalleryVar opts back out.
+	var filter *ModuleFilter
+	if !opts.AllGalleryVar {
+		filter = NewModuleFilter(opts.Source, prep.ModulePath)
+	}
+	return ListAllVarFiles(wrapperDir, prep.CloneDir, prep.ModulePath, filter), nil
 }
 
 // VarFileSearchDirs returns the directories searched for a repo-local
