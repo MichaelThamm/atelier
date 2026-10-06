@@ -124,8 +124,8 @@ Usage:
                                                 --dry-run writes an imports.tf artifact and previews the plan
                                                 without touching state.
                                                 --json writes the report to stdout as JSON: what matched,
-                                                what was imported, and what a later apply would create.
-                                                The human report still goes to stderr.
+                                                what was imported, and what a later apply would still
+                                                change. The human report still goes to stderr.
   atelier gallery list [--commands]            List Atelier's bundled gallery of module quick starts:
                                                 module, pinned ref, preset, and the command to deploy them.
                                                 --commands prints the non-applying scaffold command per entry.

@@ -82,8 +82,13 @@ type PlanSummary struct {
 	Destroy int
 	// AddAddresses lists the addresses counted in Add, excluding types that
 	// have no live counterpart by definition (see unimportableTypes). These
-	// are the ones worth a user's attention.
+	// are the ones worth a user's attention. A replaced address is listed here
+	// and counted in Destroy as well, since Terraform does both to it.
 	AddAddresses []string
+	// ChangeAddresses lists the addresses counted in Change, on the same terms as
+	// AddAddresses: types that can never be imported are left out, because a
+	// plan that expects to rewrite them is reporting bookkeeping, not drift.
+	ChangeAddresses []string
 	// UnimportableAdds counts Add entries whose type can never be imported
 	// (e.g. terraform_data). They are expected and benign.
 	UnimportableAdds int
@@ -104,22 +109,30 @@ func SummarizePlan(plan *tfjson.Plan) PlanSummary {
 		if rc.Change.Importing != nil {
 			s.Import++
 		}
-		switch {
-		case rc.Change.Actions.Delete():
+		// Actions' predicates are all single-action, so a replace — one action
+		// set holding both a delete and a create — matches none of them and would
+		// land in no bucket and no address list. It is counted as both halves,
+		// which is what Terraform will do and what its own plan summary reports,
+		// and its address goes under Add because that is what the address will do.
+		// Skipping it would hide the one shape a reader must never miss: the live
+		// object is destroyed to be made to match.
+		importing := rc.Change.Importing != nil
+		replace := rc.Change.Actions.Replace()
+		if rc.Change.Actions.Delete() || replace {
 			s.Destroy++
-		case rc.Change.Actions.Create():
-			if rc.Change.Importing != nil {
-				continue // being imported, not created
-			}
+		}
+		if !importing && (rc.Change.Actions.Create() || replace) {
 			s.Add++
 			if unimportableTypes[rc.Type] {
 				s.UnimportableAdds++
-				continue
+			} else {
+				s.AddAddresses = append(s.AddAddresses, rc.Address)
 			}
-			s.AddAddresses = append(s.AddAddresses, rc.Address)
-		case rc.Change.Actions.Update():
-			if rc.Change.Importing == nil {
-				s.Change++
+		}
+		if !importing && rc.Change.Actions.Update() {
+			s.Change++
+			if !unimportableTypes[rc.Type] {
+				s.ChangeAddresses = append(s.ChangeAddresses, rc.Address)
 			}
 		}
 	}

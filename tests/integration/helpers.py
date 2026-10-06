@@ -80,9 +80,13 @@ class TfDirManager:
     """Asks Terraform what became of a wrapper Atelier wrote. Verification, not authoring.
 
     The wrapper is the artifact (ADR-0001), so this attaches to the directory
-    Atelier wrote and answers only the questions Atelier has no command for: is it
-    valid, what is in state, and would a plan change anything. Editing the wrapper
+    Atelier wrote and answers the questions Atelier has no command for: does
+    Terraform accept it, and would a plan change anything? Editing the wrapper
     afterwards is the test's own business.
+
+    Asking Terraform directly is Atelier CI's own business, not a user's: it
+    checks what Atelier claims about a wrapper against the tool the wrapper has
+    to survive, independently of whatever Atelier reported about itself.
     """
 
     def __init__(self) -> None:
@@ -105,11 +109,6 @@ class TfDirManager:
         """Check the configuration parses — still without deploying."""
         self._run("validate")
 
-    def state_list(self) -> list[str]:
-        """Addresses currently in state. Complements :meth:`plan_changes`, which is
-        empty once they exist."""
-        return [line for line in self._run("state", "list").stdout.splitlines() if line.strip()]
-
     def plan_changes(self) -> list[tuple[str, str, list[str]]]:
         """Managed resources a plan would ``(address, type, actions)``, no-ops omitted.
 
@@ -117,6 +116,11 @@ class TfDirManager:
         ``terraform_data`` bookkeeping, which has no live counterpart and can never
         be imported. An import report gives counts; a drift assertion needs
         addresses.
+
+        Deliberately the same question `atelier import --json` answers in
+        ``postImportPlan``, reached without reading that payload. A report of drift
+        is worth only as much as the plan behind it, so the CI test asserts both
+        and is free to catch the two disagreeing.
         """
         plan_file = os.path.join(self.dir, ".atelier-integration.tfplan")
         try:

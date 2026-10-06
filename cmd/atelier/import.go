@@ -307,6 +307,10 @@ func runImport(args []string) error {
 		Config:          config,
 		QueryConfig:     queryConfig,
 		WrapperState:    wrapperState,
+		// A payload is the one reader that can act on "would a later apply
+		// change anything?", so it pays for the extra plan; the text report
+		// does not ask the question.
+		ReportPostImportPlan: asJSON,
 	}
 
 	// Wire provider-specific steps and the import ID builder. Provider support
