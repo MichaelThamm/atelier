@@ -86,6 +86,11 @@ func TestSummarizePlan(t *testing.T) {
 	if got.Change != 1 {
 		t.Errorf("Change = %d, want 1", got.Change)
 	}
+	// An update is drift for a caller checking the imported state, so it needs an
+	// address the way a create does — not only a count.
+	if len(got.ChangeAddresses) != 1 || got.ChangeAddresses[0] != "juju_application.e" {
+		t.Errorf("ChangeAddresses = %v, want [juju_application.e]", got.ChangeAddresses)
+	}
 	if got.Destroy != 1 {
 		t.Errorf("Destroy = %d, want 1", got.Destroy)
 	}
@@ -94,6 +99,48 @@ func TestSummarizePlan(t *testing.T) {
 func TestSummarizePlanNil(t *testing.T) {
 	if got := SummarizePlan(nil); got.Import != 0 || got.Add != 0 {
 		t.Errorf("nil plan should summarise to zero, got %+v", got)
+	}
+}
+
+// A replace is one action set holding a delete and a create, so every
+// single-action predicate is false for it. Counted as both halves, the way
+// Terraform's own plan summary counts it, and surfaced as an address: a plan
+// that destroys and recreates a live object is the drift a reader must not miss.
+func TestSummarizePlan_countsAReplace(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		actions tfjson.Actions
+	}{
+		{"destroy before create", tfjson.Actions{tfjson.ActionDelete, tfjson.ActionCreate}},
+		{"create before destroy", tfjson.Actions{tfjson.ActionCreate, tfjson.ActionDelete}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+				change("juju_application.a", "juju_application", tc.actions, false),
+			}}
+			got := SummarizePlan(plan)
+			if got.Add != 1 || got.Destroy != 1 {
+				t.Errorf("Add = %d, Destroy = %d, want 1 and 1", got.Add, got.Destroy)
+			}
+			if len(got.AddAddresses) != 1 || got.AddAddresses[0] != "juju_application.a" {
+				t.Errorf("AddAddresses = %v, want [juju_application.a]", got.AddAddresses)
+			}
+		})
+	}
+}
+
+// A resource being imported is not drift, whichever action set it arrives with.
+func TestSummarizePlan_importedReplaceIsNotAnAdd(t *testing.T) {
+	plan := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		change("juju_application.a", "juju_application",
+			tfjson.Actions{tfjson.ActionDelete, tfjson.ActionCreate}, true),
+	}}
+	got := SummarizePlan(plan)
+	if got.Import != 1 {
+		t.Errorf("Import = %d, want 1", got.Import)
+	}
+	if got.Add != 0 || len(got.AddAddresses) != 0 {
+		t.Errorf("Add = %d, AddAddresses = %v, want none for an import", got.Add, got.AddAddresses)
 	}
 }
 

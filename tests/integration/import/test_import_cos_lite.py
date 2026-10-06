@@ -9,8 +9,8 @@ detection, discovery, matching, and import-ID construction.
 
 Two things keep it from being a happy path. The module is configured from the
 upstream ``no-ingress`` preset as well as a local bundle, so a preset resolved
-from the clone is exercised too. And the final check is a ``terraform plan``
-rather than Atelier's own report: the state must match reality, not merely be
+from the clone is exercised too. And the final check is a plan of the imported
+state rather than the import report: the state must match reality, not merely be
 non-empty. Drift in ``terraform_data`` and secrets is expected — see
 ``PRESERVED_TYPES`` for why it is tolerated.
 """
@@ -161,17 +161,34 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     missing = PRESERVED_TYPES - imported_types
     assert not missing, f"import did not recover core resource types: {sorted(missing)}"
 
-    # AND the strongest check: a plan against the imported state finds nothing
+    # AND the strongest check: the plan against the imported state finds nothing
     # to change for those core resources. Drift in other types is tolerated —
     # see PRESERVED_TYPES for why.
     #
-    # This is the one thing left that needs Terraform directly. `atelier` has no
-    # command that answers "would a plan change anything?", and it needs the
-    # addresses, not the counts an import --dry-run preview gives.
+    # Asked twice, by two routes that should agree. Terraform is asked directly
+    # because a report of drift is worth only as much as the plan behind it, and
+    # the payload is asked because that is the surface a CI job actually reads.
+    # Ground truth comes first so that a payload which disagrees with Terraform
+    # fails here naming the disagreement, rather than the reverse: pytest stops
+    # at the first failure, so judging the payload first would let a reporting
+    # bug hide the state it misreported.
     tf_manager.latch(wrapper)
-    changes = tf_manager.plan_changes()
-    drifted = sorted(c for c in changes if c[1] in PRESERVED_TYPES)
+    drifted = sorted(c for c in tf_manager.plan_changes() if c[1] in PRESERVED_TYPES)
     assert not drifted, (
-        "import did not preserve these core resources "
+        "a plan of the imported state still changes these core resources "
         f"(address, type, actions): {drifted}"
+    )
+
+    drift = result["postImportPlan"]
+    assert drift is not None, (
+        f"no post-import plan was reported, though Terraform plans clean: {result}"
+    )
+    reported_drift = [
+        addr
+        for addr in drift["addAddresses"] + drift["changeAddresses"]
+        if any(f".{kind}." in addr for kind in PRESERVED_TYPES)
+    ]
+    assert not reported_drift, (
+        "import --json reported these core resources as still changing, though a "
+        f"plan of the imported state does not (address, action): {reported_drift}"
     )

@@ -881,7 +881,7 @@ Conventions:
 | `add --list-var-files` | `bundles`: each bundle's `name`, `path`, `source` (`local`/`repo`/`gallery`), `display`, `description`. `path` for a `repo` bundle points into the scratch clone, which is removed when the command exits; `name` is what to pass to `--var-file`. |
 | `ls` | `isWrapper` (false when the directory holds no `main.tf`), `modules` |
 | `wrappers` | `wrappers`: each `name`, absolute `path`, `modules` (block names) |
-| `import` | `matched` (address → import ID), `imported`, `alreadyInState`, `matchedNothing`, `unresolved`, `unmatchedModule`, `unmatchedLive`, `queriedTypes`, `skippedTypes`, `dryRun`, `preview`, `importsFile`, `queryFile`, `terraformVersion` |
+| `import` | `matched` (address → import ID), `imported`, `alreadyInState`, `matchedNothing`, `unresolved`, `unmatchedModule`, `unmatchedLive`, `queriedTypes`, `skippedTypes`, `dryRun`, `preview`, `postImportPlan`, `importsFile`, `queryFile`, `terraformVersion` |
 | `import --list` | `terraformVersion`, `available`: each list resource's `type`, `providerKey`, `providerLocal`, `configAttrs` |
 
 `alreadyInState` and `matchedNothing` are the point of the `import` payload.
@@ -897,6 +897,31 @@ The third of those three is the only one that exits non-zero. It means the runni
 deployment is not the one the module describes, so a recovery job reading only the
 exit code must not pass; the payload is still written, because that is where the
 reason lives. A re-run — everything matched already in state — stays a success.
+
+`preview` and `postImportPlan` are two different measurements, and a reader must not
+confuse them. `preview` is the plan taken *before* the import, with the pending
+imports in place: it answers "what would be imported, and what is still missing?".
+It is `null` unless `--dry-run`. `postImportPlan` is the plan taken *after* the
+imports **and after the normalization steps have rewritten state**, against the
+state they produced: it answers "would a later apply still change anything?", which
+is the question that says the import round-tripped. It is planned separately from
+the plan the normalization steps read, because a step that fixes what the
+configuration wants makes the plan it read stale the moment it returns.
+
+An address in `addAddresses` or `changeAddresses` is drift a CI job can gate on.
+A replaced resource is counted in both `add` and `destroy` and listed in
+`addAddresses`, because Terraform destroys the live object and creates it again —
+the one drift shape that must not pass unnoticed. `addAddresses` and
+`changeAddresses` both omit types that can never be imported (e.g.
+`terraform_data`), which are reported as `unimportableAdds` instead: a plan that
+expects to rewrite bookkeeping is not drift. It carries no `toImport` — there is
+nothing left to import by the time it is taken — and it is `null` when the run did
+not compute it: every run without `--json` (it costs a `terraform plan`, and only
+the payload has a reader for the answer), `--dry-run` (which returns before the
+imports exist), and a run that imported nothing (a re-run, where everything matched
+already in state). A plan failure there is printed and reported as `null`, never as
+an error, because the imports are already in state by then. A reader that gates on
+drift must therefore treat `null` as "not measured", not as "clean".
 
 ## 7. TUI layout
 

@@ -73,6 +73,9 @@ func (s *ModelUUIDInjection) Run(_ context.Context, pctx importer.PostImportCont
 // stores as null but whose schema declares a non-null default (e.g.
 // allow_force_destroy defaults to false). Without this, Terraform sees
 // null→false on every plan and plans an in-place update.
+//
+// Like every step here, it writes state, so the plan the steps shared goes stale
+// once it returns; the drift report plans again for that reason.
 type OfferDefaults struct{}
 
 func (s *OfferDefaults) Name() string {

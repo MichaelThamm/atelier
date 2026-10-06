@@ -34,6 +34,11 @@ to the package.
 - **Core does not cross-reference or prune generated resources**
   ([ADR-0028](../../docs/adr/0028-provider-specific-import-ids.md)); that
   needs provider knowledge and stays in a provider implementation.
+- **Every post-import step writes state, so none may leave a plan standing.**
+  `PostImportContext.Plan` is memoised so the steps share one plan, which makes
+  it stale the moment a step rewrites state. Anything reporting drift afterwards
+  re-plans (`postImportPhase`), and the code that does so lives next to the steps
+  rather than inside one.
 - **Import is state-only.** It must never modify infrastructure. `--dry-run`
   is a first-class path and must stay safe and side-effect free.
 - Normalization is *representational* only: it reconciles null vs. empty

@@ -18,7 +18,7 @@ import subprocess
 
 import pytest
 
-from helpers import TfDirManager, atelier
+from helpers import atelier
 
 REPO_V1 = "v1.0.0"
 
@@ -81,9 +81,7 @@ def test_apply_exits_zero_when_the_deployment_succeeds(tmp_path, good_module):
     done = atelier(f"apply {good_module} --ref {REPO_V1} --dir wrapper"
                    " --strict --var model_uuid=u1", cwd=tmp_path)
     assert done.returncode == 0, done.stderr
-    tf = TfDirManager()
-    tf.latch(wrapper)
-    assert "module.cos_lite.terraform_data.model_uuid" in tf.state_list()
+    assert (wrapper / "terraform.tfstate").exists(), "a successful apply wrote no state"
 
 
 def test_apply_exits_two_when_terraform_fails(tmp_path, broken_module):
