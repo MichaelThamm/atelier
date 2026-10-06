@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (revision 3) — supersedes revisions 1 and 2, whose execution models are
+Accepted (revision 4) — supersedes revisions 1 and 2, whose execution models are
 recorded in the changelog below and under *Alternatives considered*. Depends on
 [ADR-0028](0028-provider-specific-import-ids.md) for the provider-specific
 extension points.
@@ -14,7 +14,7 @@ extension points.
 - **Revision 2** (superseded): Proposed generating declarative `import {}` blocks
   in `imports.tf` and executing the import with `terraform apply`. Added
   `--plan-only` and `--purge`.
-- **Revision 3** (current): Keeps `terraform import` as the **executor**, after
+- **Revision 3**: Keeps `terraform import` as the **executor**, after
   measuring that `import {}` blocks do not produce an import-only plan — a
   `terraform apply` would also create every resource the artifact fails to
   cover, duplicating live infrastructure. `imports.tf` is retained as a
@@ -23,6 +23,13 @@ extension points.
   lifecycle. Adds a pre-plan preflight phase so provider identity (the Juju
   model UUID) is known *before* the module is planned, which removes the need
   for `--var` entirely. Adds a model-mismatch guard.
+- **Revision 4** (current): The post-import plan is read at two moments, not one.
+  Normalisation reads it to find what to fix; the drift report
+  ([ADR-0048](0048-machine-readable-output.md)) plans again once the steps have
+  run, because a step that rewrites state invalidates the plan it read. Reports a
+  replace as drift in its own right, since Terraform destroys the live object to
+  make it match. Corrects revision 3's cost note, which counted one extra plan
+  per import.
 
 ## Context
 
@@ -453,7 +460,19 @@ provider knowledge remains.
   so real drift — a charm revision moving 198 to 199 — survives untouched. The
   previous approach pooled variable defaults into one flat attribute-name
   namespace and applied it to every imported resource, which gave resources
-  defaults belonging to unrelated variables. Cost: one extra plan per import.
+  defaults belonging to unrelated variables. Cost: one extra plan per import,
+  plus a second when `--json` reports drift.
+- **The post-import plan is read at two moments, so it is planned twice.** Steps
+  read one shared plan to find what to fix; anything reporting drift afterwards
+  plans again, because the steps' writes are what invalidate it. Reporting the
+  shared plan instead reports the drift the steps were just asked to fix — a
+  correct import described as broken. Every post-import step therefore leaves the
+  shared plan stale, which is an invariant on the step contract rather than a fact
+  about any one step.
+- **A replace is drift, and is counted as both halves.** Terraform reports it as
+  one action set holding a delete and a create, which no single-action predicate
+  matches, so it reached no count and no address list — leaving the one shape that
+  destroys a live object the one a reader could not see.
 - **A per-command version gate is retained** for `terraform query` (≥ 1.14).
   `import {}` blocks, used for `--dry-run` previews, require TF ≥ 1.5, which is
   already the minimum for all Atelier commands.
