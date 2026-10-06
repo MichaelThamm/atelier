@@ -20,6 +20,7 @@ file only adds what is local to the package.
 | `view_panes.go`, `view_logs.go`, `view_modals.go` | Panes/header/footer; logs view and status line; help/ref/preset modals. |
 | `theme.go` | All colors and role styles (Catppuccin Mocha/Latte). |
 | `planner.go` | `Planner` / `Applier` / `Validator` interfaces and the tfexec-backed implementation. |
+| `initguard.go` | `initGuard`: serialises `terraform init` and hands waiters the leader's result. |
 | `plan.go` | Pure plan/state tree, attribute diff, summary, and check-warning builders. |
 | `plan_view.go` | Full-screen plan rendering. |
 | `preset.go` | `ResolvedPreset` (a `.tfvars` bundle) and `snapshotValues` for saving the current configuration. |
@@ -38,6 +39,10 @@ file only adds what is local to the package.
   interfaces.
 - **Plan tree construction in `plan.go` is pure.** Keep rendering out of it;
   it is what makes plan logic unit-testable without a terminal.
+- **`terraform init` is serialised** (`initguard.go`, SPEC §13.2.1). Overlapping
+  inits share one `.terraform/modules/` tree and corrupt each other, so
+  `EnsureInit` runs the body only for the leader and waiters take its result.
+  Reaching for a bare `initialised` bool instead would reintroduce the race.
 - **Presets are `.tfvars` bundles** ([ADR-0031](../../docs/adr/0031-presets-as-tfvars-bundles.md)):
   the picker lists personal walk-up and repo preset bundles (local does not
   hide a same-named repo bundle — the source is shown and the user picks), `S`
