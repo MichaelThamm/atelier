@@ -1164,11 +1164,17 @@ replaced it.
 | nullable scalar                           | above widget; empty input means `null` when the declared default is `null`              |
 | `object({...})`                           | expandable sub-form, one row per field; nested objects drill in                         |
 | `map(string)`                             | rows of `[key] = [value] [-]`, with `[+ Add row]` below                                  |
+| `map(string)` as an object field          | one editable `key = value` line per entry; `Enter` adds a line, `Alt+Delete` removes one |
 | `map(object(...))`                        | rows of `[key] [edit ▸] [-]`, drill into a sub-form for the object value                |
 | `list(string)` / `list(any-simple)`       | read-only: entry count and a pointer to `main.tf` / `--var` (no inline editor yet)      |
 | `list(object(...))`                       | read-only, as above — Atelier does not yet render these faithfully                     |
 | `set(string)`                             | read-only, tagged `Set`                                                                  |
 | `any`, `tuple([...])`                     | read-only HCL rendering with `[E]` to open `$EDITOR` on the wrapper                     |
+
+A collection field's row in an object sub-form summarises what it holds rather
+than counting entries: `config (retention_time,replicas)`, an empty collection
+`(empty)`. At most three names are listed and the rest is a `+N` count
+([ADR-0054](adr/0054-nested-map-string-edits-as-hcl-lines.md)).
 
 ### 8.1 Reordering
 

@@ -62,18 +62,35 @@ func newObjectEditor(v *tfvars.Variable, current cty.Value) *objectEditor {
 			HasDefault: attr.HasDefault,
 			Default:    attr.Default,
 		}
-		fakeVar := &tfvars.Variable{
-			Name:       name,
-			Type:       attr.Type,
-			HasDefault: attr.HasDefault,
-			Default:    attr.Default,
-		}
 		fv := curMap[name]
-		row.editor = newEditor(fakeVar, fv)
+		row.editor = newFieldEditor(name, attr.Type, attr.HasDefault, attr.Default, fv)
 		oe.fields = append(oe.fields, row)
 	}
 	oe.applyFieldFocus() // only the field under the cursor shows a caret
 	return oe
+}
+
+// newFieldEditor picks the widget for one object field. A nested `map(string)`
+// gets the line form rather than the two-column grid: as one field among
+// several the grid hides the keys behind a count and spends two columns on
+// what are usually single words. See editor_maplines.go.
+func newFieldEditor(name string, typ *tftypes.Type, hasDefault bool, def, current cty.Value) Editor {
+	v := &tfvars.Variable{
+		Name:       name,
+		Type:       typ,
+		HasDefault: hasDefault,
+		Default:    def,
+	}
+	if typ != nil && typ.Kind == tftypes.KindMap && isScalarKind(typ.Element) {
+		return newLineMapEditor(v, current)
+	}
+	return newEditor(v, current)
+}
+
+// isScalarKind reports whether a collection's elements are plain scalars, which
+// is the case the line form can render faithfully.
+func isScalarKind(t *tftypes.Type) bool {
+	return t != nil && (t.Kind == tftypes.KindString || t.Kind == tftypes.KindNumber || t.Kind == tftypes.KindBool)
 }
 
 // ResetFocused rebuilds the focused field's sub-editor from the field's
@@ -86,13 +103,7 @@ func (e *objectEditor) ResetFocused() {
 		return
 	}
 	f := &e.fields[e.cursor]
-	fakeVar := &tfvars.Variable{
-		Name:       f.Name,
-		Type:       f.Type,
-		HasDefault: f.HasDefault,
-		Default:    f.Default,
-	}
-	f.editor = newEditor(fakeVar, cty.NilVal)
+	f.editor = newFieldEditor(f.Name, f.Type, f.HasDefault, f.Default, cty.NilVal)
 }
 
 // Update routes key events. When drilled into a collection field, all input
@@ -435,6 +446,8 @@ func mapKeyPreview(ed Editor) string {
 // that is not key-addressed.
 func editorKeys(ed Editor) []string {
 	switch e := ed.(type) {
+	case *lineMapEditor:
+		return e.lineMapKeys()
 	case *mapEditor:
 		keys := make([]string, 0, len(e.rows))
 		for _, r := range e.rows {

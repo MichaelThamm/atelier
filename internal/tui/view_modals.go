@@ -61,7 +61,16 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "  Ctrl+K         Delete to end of line")
 
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "Map / map(object) editors:")
+		fmt.Fprintln(&b, "Nested map(string) fields (config, storage_directives):")
+		fmt.Fprintln(&b, "  ↑ ↓            Move between lines")
+		fmt.Fprintln(&b, "  Enter          Add a line")
+		fmt.Fprintln(&b, "  Alt+Delete     Remove current line (twice to confirm if set)")
+		fmt.Fprintln(&b, "  Esc            Back to the field list")
+		fmt.Fprintln(&b, "  type           Edit `key = value` in place")
+		fmt.Fprintln(&b, "  Tab            Switch panes (variable list ⇄ editor)")
+
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Top-level map(string) and map(object) variables:")
 		fmt.Fprintln(&b, "  ↑ ↓            Move between rows")
 		fmt.Fprintln(&b, "  Enter          Advance: key → value → next row;")
 		fmt.Fprintln(&b, "                 on the last value, add a new row;")

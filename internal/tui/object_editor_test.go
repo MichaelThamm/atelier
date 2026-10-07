@@ -236,11 +236,14 @@ func TestObjectEditor_mapPreviewNamesKeys(t *testing.T) {
 	if i < 0 {
 		t.Fatal("setup: no storage_directives field")
 	}
-	me, ok := oe.fields[i].editor.(*mapEditor)
+	me, ok := oe.fields[i].editor.(*lineMapEditor)
 	if !ok {
-		t.Fatalf("storage_directives editor = %T; want *mapEditor", oe.fields[i].editor)
+		t.Fatalf("storage_directives editor = %T; want *lineMapEditor", oe.fields[i].editor)
 	}
-	me.rows = []mapRow{newMapRow("loki", "ssd"), newMapRow("mimir", "hdd")}
+	me.lines = []cellInput{
+		newCellInput("loki = ssd", false, ""),
+		newCellInput("mimir = hdd", false, ""),
+	}
 
 	plain := stripANSI(oe.View())
 	if !strings.Contains(plain, "(loki,mimir)") {
@@ -255,19 +258,14 @@ func TestObjectEditor_mapPreviewNamesKeys(t *testing.T) {
 // listed and the remainder is elided as a count.
 func TestObjectEditor_mapPreviewElidesLongKeys(t *testing.T) {
 	oe := objectEditorOf(t, alertmanagerLikeVar(t))
-	i := -1
-	for idx, f := range oe.fields {
-		if f.Name == "storage_directives" {
-			i = idx
+	var me *lineMapEditor
+	for _, f := range oe.fields {
+		if l, ok := f.editor.(*lineMapEditor); ok {
+			me = l
 		}
 	}
-	me := oe.fields[i].editor.(*mapEditor)
-	me.rows = []mapRow{
-		newMapRow("alpha", "1"),
-		newMapRow("bravo", "2"),
-		newMapRow("charlie", "3"),
-		newMapRow("delta", "4"),
-		newMapRow("echo", "5"),
+	for _, k := range []string{"alpha", "bravo", "charlie", "delta", "echo"} {
+		me.lines = append(me.lines, newCellInput(k+" = 1", false, ""))
 	}
 
 	plain := stripANSI(oe.View())
@@ -287,15 +285,15 @@ func TestObjectEditor_mapPreviewIsUnbreakable(t *testing.T) {
 		{"alpha", "bravo", "charlie", "delta", "echo"},
 	} {
 		oe := objectEditorOf(t, alertmanagerLikeVar(t))
-		var me *mapEditor
+		var me *lineMapEditor
 		for _, f := range oe.fields {
-			if m, ok := f.editor.(*mapEditor); ok {
-				me = m
+			if l, ok := f.editor.(*lineMapEditor); ok {
+				me = l
 			}
 		}
-		me.rows = nil
+		me.lines = nil
 		for i, k := range keys {
-			me.rows = append(me.rows, newMapRow(k, fmt.Sprintf("%d", i)))
+			me.lines = append(me.lines, newCellInput(fmt.Sprintf("%s = %d", k, i), false, ""))
 		}
 		view := stripANSI(oe.View())
 		for _, line := range strings.Split(view, "\n") {
