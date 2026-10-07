@@ -52,6 +52,11 @@ quarters of the nested collections are `map(string)` — `config` (28),
 `resources` (23) and `storage_directives` (22) alone account for 73 of 116. So
 the line form is not a rare shape; it is the common one.
 
+That sample is not the whole gallery. haproxy's
+`protected_hostnames_configuration`, a **required** `list(object(...))`, was
+missed by it, and the widget that mishandled it is the subject of §3 and §4.
+A schema sample bounds what was *looked at*, not what exists.
+
 ## Decision
 
 ### 1. A collection field names its keys on the parent row
@@ -73,20 +78,40 @@ new layout fault.
 
 ### 2. A nested `map(string)` uses the line form
 
-`lineMapEditor` renders and edits one `key = value` per line. Enter appends a
+`lineEditor` renders and edits one `key = value` per line. Enter appends a
 line. Alt+Delete removes one, confirming when the line is populated.
 
 A line with no `=`, or with an empty key, is **not an entry and not an error** —
 it is a key the user has not finished typing. It is dropped from the value
 rather than written, because a partial entry in `main.tf` is worse than none.
 
-The dispatch lives in `newFieldEditor`: a field whose type is `map` with
-scalar elements gets the line form. `map(object(...))`, `list`, `set`, and a
-nested `object` keep their existing editors, and a **top-level** `map(string)`
-variable keeps the grid — it owns the right pane, where the grid's affordances
-are all visible at once.
+The dispatch lives in `newFieldEditor`: a field whose type is `map` with scalar
+elements gets the line form. A **top-level** `map(string)` variable keeps the
+grid — it owns the right pane, where the grid's affordances are all visible at
+once.
 
-### 3. Two widgets for one type is a known cost
+### 3. A scalar `list` or `set` uses the same line form
+
+`lineEditor` covers any collection of scalars: a map line is `key = value`, a
+list or set line is the bare value. A list keeps its written order — unlike the
+grid, which sorts — and a set folds duplicates the way `cty` does.
+
+This replaces a widget that had no caret at all: `a` appended an empty string
+and `d` removed the last entry regardless of which one you were looking at, so
+there was no way to put a value into an entry. That widget also corrupted
+`list(object(...))` by stringifying elements with `cty`'s `GoString`; see
+[#69](https://github.com/MichaelThamm/atelier/pull/69).
+
+### 4. A composite `list` or `set` is read-only
+
+A `list(object(...))` or `set(object(...))` renders an entry count and a
+pointer to `main.tf` / `--var`. Atelier does not report a value for it, which
+is what stops the model pushing a lossy one into state. Hand-editing is the
+honest instruction only once the round-trip preserves what was written; that
+is the `UnknownAttrs` work below, and until it lands the instruction means
+"Atelier will reformat it, not lose it".
+
+### 5. Two widgets for one type is a known cost
 
 A `map(string)` now has two presentations. That is duplication, and it is
 accepted deliberately for the scoped change: the nested case is the one that is
@@ -129,8 +154,11 @@ covers the case with a type-checked deep merge.
   the line.
 - The `?` modal gains a separate section per map form. It is the source of
   truth for keybindings, so the two had to be distinguished.
-- `internal/tui` grows by one editor. The grid is untouched, so its tests and
+- `internal/tui` gains one editor covering every collection of scalars. The
+  grid is untouched, so its tests and
   [ADR-0023](0023-map-row-editing-lifecycle.md) still hold.
+- The old `listEditor` is gone, along with the `a`/`d` bindings over a buffer
+  with no caret.
 - **Not addressed here:** `ReadMain` evaluates every attribute to a `cty.Value`
   and `RenderMain` re-renders it, so comments and alignment *inside* a complex
   value are lost on the first save whether or not it was edited in the TUI.

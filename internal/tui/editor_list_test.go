@@ -115,21 +115,39 @@ func TestCompositeSetIsNotEditable(t *testing.T) {
 	}
 }
 
-// A list of scalars is not editable yet either — the old widget had no caret,
-// so there was no way to put a value into an entry. readOnlyEditor reports
-// nothing rather than offering `a`/`d` over an uneditable buffer.
-func TestScalarListIsNotEditableYet(t *testing.T) {
-	v := tfvars.Variable{
-		Name: "constraints",
-		Type: mustParseType(t, "list(string)"),
-	}
+// A list of scalars IS editable, as HCL lines — this supersedes the read-only
+// stand-in that shipped with the corruption fix. The composite cases above are
+// still read-only.
+func TestScalarListEditsAsLines(t *testing.T) {
+	v := tfvars.Variable{Name: "constraints", Type: mustParseType(t, "list(string)")}
 	ed := newEditor(&v, cty.ListVal([]cty.Value{cty.StringVal("arch=amd64")}))
-	if _, pushes := ed.(EditorWithValue); pushes {
-		t.Errorf("list(string) editor = %T; must not report a value", ed)
+	le, ok := ed.(*lineEditor)
+	if !ok {
+		t.Fatalf("editor = %T, want *lineEditor", ed)
 	}
-	view := stripANSI(ed.View())
-	if !strings.Contains(view, "main.tf") {
-		t.Errorf("a read-only collection should say where to edit it instead; got:\n%s", view)
+	if len(le.lines) != 1 || le.lines[0].Value() != "arch=amd64" {
+		t.Fatalf("lines = %v; a list line is the bare value, with no `key =`", le.lines[0].Value())
+	}
+	le = driveLines(t, le, "enter", "a", "r", "c", "h", "=", "a", "m", "d", "6", "4")
+	got := le.CurrentValue()
+	if got.Type().IsSetType() {
+		t.Errorf("a list must not fold to a set: %s", got.GoString())
+	}
+	if len(got.AsValueSlice()) != 2 {
+		t.Fatalf("value = %s, want 2 entries", got.GoString())
+	}
+}
+
+func TestScalarSetEditsAsLinesAndFolds(t *testing.T) {
+	v := tfvars.Variable{Name: "zones", Type: mustParseType(t, "set(string)")}
+	le := newEditor(&v, cty.SetValEmpty(cty.String)).(*lineEditor)
+	le = driveLines(t, le, "a", ",", "enter", "a", ",")
+	got := le.CurrentValue()
+	if !got.Type().IsSetType() {
+		t.Errorf("a set must stay a set: %s", got.Type().GoString())
+	}
+	if got.LengthInt() != 1 {
+		t.Errorf("a set folds duplicates: got %s", got.GoString())
 	}
 }
 
@@ -137,20 +155,25 @@ func TestScalarListIsNotEditableYet(t *testing.T) {
 // where to change it — so a user is never left guessing what `[a] add` used to
 // do.
 func TestReadOnlyCollectionSaysWhereToEdit(t *testing.T) {
-	v := tfvars.Variable{Name: "constraints", Type: mustParseType(t, "list(string)")}
-	ed := newEditor(&v, cty.ListVal([]cty.Value{cty.StringVal("arch=amd64")}))
+	v := listOfObjectsLikeVar(t)
+	ed := newEditor(&v, cty.ListVal([]cty.Value{
+		cty.ObjectVal(map[string]cty.Value{"hostname": cty.StringVal("a.example.com")}),
+	}))
 	ro, ok := ed.(*readOnlyEditor)
 	if !ok {
 		t.Fatalf("editor = %T, want *readOnlyEditor", ed)
 	}
-	for _, want := range []string{"List", "1 entries", "main.tf", "--var constraints="} {
+	for _, want := range []string{"List", "1 entries", "main.tf", "--var protected_hostnames_configuration="} {
 		if !strings.Contains(ro.text, want) {
 			t.Errorf("read-only text %q is missing %q", ro.text, want)
 		}
 	}
 	// A set says so.
-	sv := tfvars.Variable{Name: "endpoint_bindings", Type: mustParseType(t, "set(string)")}
-	sro := newEditor(&sv, cty.SetValEmpty(cty.String)).(*readOnlyEditor)
+	sv := tfvars.Variable{
+		Name: "endpoint_bindings",
+		Type: mustParseType(t, `set(object({ endpoint = string }))`),
+	}
+	sro := newEditor(&sv, cty.SetValEmpty(cty.Object(map[string]cty.Type{"endpoint": cty.String}))).(*readOnlyEditor)
 	if !strings.Contains(sro.text, "Set") {
 		t.Errorf("a set should be tagged Set; got %q", sro.text)
 	}

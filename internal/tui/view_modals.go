@@ -61,13 +61,19 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "  Ctrl+K         Delete to end of line")
 
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "Nested map(string) fields (config, storage_directives):")
+		fmt.Fprintln(&b, "map(string) fields and scalar lists/sets:")
 		fmt.Fprintln(&b, "  ↑ ↓            Move between lines")
 		fmt.Fprintln(&b, "  Enter          Add a line")
 		fmt.Fprintln(&b, "  Alt+Delete     Remove current line (twice to confirm if set)")
 		fmt.Fprintln(&b, "  Esc            Back to the field list")
-		fmt.Fprintln(&b, "  type           Edit `key = value` in place")
+		fmt.Fprintln(&b, "  type           Edit in place; a map line is `key = value`,")
+		fmt.Fprintln(&b, "                 a list or set line is the bare value")
 		fmt.Fprintln(&b, "  Tab            Switch panes (variable list ⇄ editor)")
+
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Collections with no inline editor:")
+		fmt.Fprintln(&b, "  (none)         list/set of objects renders read-only; set it")
+		fmt.Fprintln(&b, "                 in main.tf or with `atelier apply --var`")
 
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "Top-level map(string) and map(object) variables:")

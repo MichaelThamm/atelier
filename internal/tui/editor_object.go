@@ -82,7 +82,10 @@ func newFieldEditor(name string, typ *tftypes.Type, hasDefault bool, def, curren
 		Default:    def,
 	}
 	if typ != nil && typ.Kind == tftypes.KindMap && isScalarKind(typ.Element) {
-		return newLineMapEditor(v, current)
+		return newLineEditor(v, current)
+	}
+	if typ != nil && (typ.Kind == tftypes.KindList || typ.Kind == tftypes.KindSet) && isScalarKind(typ.Element) {
+		return newLineEditor(v, current)
 	}
 	return newEditor(v, current)
 }
@@ -446,7 +449,7 @@ func mapKeyPreview(ed Editor) string {
 // that is not key-addressed.
 func editorKeys(ed Editor) []string {
 	switch e := ed.(type) {
-	case *lineMapEditor:
+	case *lineEditor:
 		return e.lineMapKeys()
 	case *mapEditor:
 		keys := make([]string, 0, len(e.rows))

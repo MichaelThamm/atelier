@@ -11,13 +11,13 @@ import (
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
 
-func driveLines(t *testing.T, le *lineMapEditor, keys ...string) *lineMapEditor {
+func driveLines(t *testing.T, le *lineEditor, keys ...string) *lineEditor {
 	t.Helper()
 	var ed Editor = le
 	for _, k := range keys {
 		ed, _ = ed.Update(key(k))
 	}
-	next, ok := ed.(*lineMapEditor)
+	next, ok := ed.(*lineEditor)
 	if !ok {
 		t.Fatalf("editor became %T", ed)
 	}
@@ -27,7 +27,7 @@ func driveLines(t *testing.T, le *lineMapEditor, keys ...string) *lineMapEditor 
 // An empty map still offers a line to type into, so the first edit needs no
 // navigation to reach an add affordance.
 func TestLineMapEditor_emptyStartsWithOneEditableLine(t *testing.T) {
-	le := newLineMapEditor(&tfvars.Variable{
+	le := newLineEditor(&tfvars.Variable{
 		Name: "config", Type: mustParseType(t, "map(string)"),
 	}, cty.NilVal)
 	if len(le.lines) != 1 {
@@ -46,7 +46,7 @@ func TestLineMapEditor_emptyStartsWithOneEditableLine(t *testing.T) {
 // The whole `key = value` is one editable cell, which is the point of the
 // line form: there is no column to advance past before reaching the value.
 func TestLineMapEditor_valueEditsInPlace(t *testing.T) {
-	le := newLineMapEditor(&tfvars.Variable{
+	le := newLineEditor(&tfvars.Variable{
 		Name: "config", Type: mustParseType(t, "map(string)"),
 	}, cty.MapVal(map[string]cty.Value{"replicas": cty.StringVal("1")}))
 
@@ -76,7 +76,7 @@ func TestLineMapEditor_valueEditsInPlace(t *testing.T) {
 // Enter appends; an untouched appended line is abandoned when the user moves
 // away, so a stray Enter does not leave a blank row in main.tf.
 func TestLineMapEditor_enterAppendsAndFreshLineAbandons(t *testing.T) {
-	le := newLineMapEditor(&tfvars.Variable{
+	le := newLineEditor(&tfvars.Variable{
 		Name: "config", Type: mustParseType(t, "map(string)"),
 	}, cty.MapVal(map[string]cty.Value{"a": cty.StringVal("1")}))
 
@@ -98,7 +98,7 @@ func TestLineMapEditor_enterAppendsAndFreshLineAbandons(t *testing.T) {
 }
 
 func TestLineMapEditor_deleteConfirmsThenRemoves(t *testing.T) {
-	le := newLineMapEditor(&tfvars.Variable{
+	le := newLineEditor(&tfvars.Variable{
 		Name: "config", Type: mustParseType(t, "map(string)"),
 	}, cty.MapVal(map[string]cty.Value{
 		"a": cty.StringVal("1"), "b": cty.StringVal("2"),
@@ -119,7 +119,7 @@ func TestLineMapEditor_deleteConfirmsThenRemoves(t *testing.T) {
 
 // A blank line is not worth a confirmation prompt; deleting it just removes it.
 func TestLineMapEditor_deleteBlankNeedsNoConfirmation(t *testing.T) {
-	le := newLineMapEditor(&tfvars.Variable{
+	le := newLineEditor(&tfvars.Variable{
 		Name: "config", Type: mustParseType(t, "map(string)"),
 	}, cty.MapVal(map[string]cty.Value{"a": cty.StringVal("1")}))
 	le = driveLines(t, le, "enter", "alt+delete")
@@ -145,7 +145,7 @@ func TestLineMapEditor_unfinishedLinesAreDropped(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			le := newLineMapEditor(&tfvars.Variable{
+			le := newLineEditor(&tfvars.Variable{
 				Name: "config", Type: mustParseType(t, "map(string)"),
 			}, cty.NilVal)
 			le.lines = nil
@@ -169,7 +169,7 @@ func TestLineMapEditor_unfinishedLinesAreDropped(t *testing.T) {
 // The widget renders the HCL it edits, so the parent row and the drilled-in
 // view name the same keys.
 func TestLineMapEditor_viewShowsKeyEqualsValue(t *testing.T) {
-	le := newLineMapEditor(&tfvars.Variable{
+	le := newLineEditor(&tfvars.Variable{
 		Name: "config", Type: mustParseType(t, "map(string)"),
 	}, cty.MapVal(map[string]cty.Value{"retention_time": cty.StringVal("15d")}))
 	plain := stripANSI(le.View())
@@ -182,7 +182,7 @@ func TestLineMapEditor_viewShowsKeyEqualsValue(t *testing.T) {
 // truncates, so a wrapped hint gains a physical row and shoves the pane's
 // bottom border down. The ↑↓ glyphs are double-width, so measure cells.
 func TestLineMapEditor_hintFitsOneLine(t *testing.T) {
-	le := newLineMapEditor(&tfvars.Variable{
+	le := newLineEditor(&tfvars.Variable{
 		Name: "config", Type: mustParseType(t, "map(string)"),
 	}, cty.NilVal)
 	for _, line := range strings.Split(stripANSI(le.View()), "\n") {
@@ -208,9 +208,9 @@ func TestNewFieldEditor_picksLineFormForNestedMapString(t *testing.T) {
 		field string
 		want  string
 	}{
-		{"config", "*tui.lineMapEditor"},
+		{"config", "*tui.lineEditor"},
 		{"obj_map", "*tui.mapObjectEditor"},
-		{"scalars", "*tui.lineMapEditor"},
+		{"scalars", "*tui.lineEditor"},
 		{"flag", "*tui.boolEditor"},
 	}
 	for _, tc := range tests {
@@ -226,8 +226,8 @@ func TestNewFieldEditor_picksLineFormForNestedMapString(t *testing.T) {
 
 func typeName(e Editor) string {
 	switch e.(type) {
-	case *lineMapEditor:
-		return "*tui.lineMapEditor"
+	case *lineEditor:
+		return "*tui.lineEditor"
 	case *mapEditor:
 		return "*tui.mapEditor"
 	case *mapObjectEditor:

@@ -174,6 +174,11 @@ func newEditor(v *tfvars.Variable, current cty.Value) Editor {
 	case tftypes.KindNumber:
 		return newNumberEditor(v, current)
 	case tftypes.KindList, tftypes.KindSet:
+		// A scalar collection edits as HCL lines, the same as a nested
+		// map(string). A composite one still has no faithful widget.
+		if isScalarKind(v.Type.Element) {
+			return newLineEditor(v, current)
+		}
 		return newCollectionReadOnly(v, current)
 	case tftypes.KindMap:
 		if v.Type.Element != nil && v.Type.Element.Kind == tftypes.KindObject {

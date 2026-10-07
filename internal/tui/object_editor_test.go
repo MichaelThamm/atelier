@@ -236,9 +236,9 @@ func TestObjectEditor_mapPreviewNamesKeys(t *testing.T) {
 	if i < 0 {
 		t.Fatal("setup: no storage_directives field")
 	}
-	me, ok := oe.fields[i].editor.(*lineMapEditor)
+	me, ok := oe.fields[i].editor.(*lineEditor)
 	if !ok {
-		t.Fatalf("storage_directives editor = %T; want *lineMapEditor", oe.fields[i].editor)
+		t.Fatalf("storage_directives editor = %T; want *lineEditor", oe.fields[i].editor)
 	}
 	me.lines = []cellInput{
 		newCellInput("loki = ssd", false, ""),
@@ -258,9 +258,9 @@ func TestObjectEditor_mapPreviewNamesKeys(t *testing.T) {
 // listed and the remainder is elided as a count.
 func TestObjectEditor_mapPreviewElidesLongKeys(t *testing.T) {
 	oe := objectEditorOf(t, alertmanagerLikeVar(t))
-	var me *lineMapEditor
+	var me *lineEditor
 	for _, f := range oe.fields {
-		if l, ok := f.editor.(*lineMapEditor); ok {
+		if l, ok := f.editor.(*lineEditor); ok {
 			me = l
 		}
 	}
@@ -285,9 +285,9 @@ func TestObjectEditor_mapPreviewIsUnbreakable(t *testing.T) {
 		{"alpha", "bravo", "charlie", "delta", "echo"},
 	} {
 		oe := objectEditorOf(t, alertmanagerLikeVar(t))
-		var me *lineMapEditor
+		var me *lineEditor
 		for _, f := range oe.fields {
-			if l, ok := f.editor.(*lineMapEditor); ok {
+			if l, ok := f.editor.(*lineEditor); ok {
 				me = l
 			}
 		}

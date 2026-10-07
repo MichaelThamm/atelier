@@ -8,12 +8,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 )
 
 // --- map(string), line form ---
 //
-// lineMapEditor is the widget for a `map(string)` that sits inside another
+// lineEditor is the widget for a `map(string)` that sits inside another
 // variable — a `config` or `storage_directives` field of an object. It edits
 // the map as the HCL it is written as: one `key = value` per line.
 //
@@ -33,10 +34,15 @@ import (
 //	Alt+Delete           delete the current line; a populated line asks for a
 //	                     second Alt+Delete to confirm
 //	(any readline edit)  routed to the focused line — see ADR-0020
-type lineMapEditor struct {
+type lineEditor struct {
 	v      *tfvars.Variable
 	lines  []cellInput
 	cursor int
+
+	// keyed distinguishes a map (`key = value`) from a list or set, whose
+	// lines are bare values. isSet makes a collection fold duplicates.
+	keyed bool
+	isSet bool
 
 	// fresh marks lines appended in this session, as opposed to read from
 	// main.tf. An untouched fresh line is silently abandoned when the user
@@ -47,8 +53,12 @@ type lineMapEditor struct {
 	nudge         string
 }
 
-func newLineMapEditor(v *tfvars.Variable, current cty.Value) *lineMapEditor {
-	le := &lineMapEditor{v: v, fresh: map[int]bool{}, confirmDelete: -1}
+func newLineEditor(v *tfvars.Variable, current cty.Value) *lineEditor {
+	le := &lineEditor{v: v, fresh: map[int]bool{}, confirmDelete: -1}
+	if v != nil && v.Type != nil {
+		le.isSet = v.Type.Kind == tftypes.KindSet
+		le.keyed = v.Type.Kind == tftypes.KindMap
+	}
 	source := current
 	if source == cty.NilVal || source.IsNull() {
 		if v != nil && v.HasDefault && !v.Default.IsNull() {
@@ -56,21 +66,32 @@ func newLineMapEditor(v *tfvars.Variable, current cty.Value) *lineMapEditor {
 		}
 	}
 	if source != cty.NilVal && !source.IsNull() && source.LengthInt() > 0 {
-		// Iterate in sorted order because a cty map has no order of its own
-		// and Go randomises map iteration, which would reshuffle the widget
-		// on every repaint.
-		m := source.AsValueMap()
-		keys := make([]string, 0, len(m))
-		for k := range m {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			val := ""
-			if kv := m[k]; !kv.IsNull() && kv.Type() == cty.String {
-				val = kv.AsString()
+		if !le.keyed {
+			// A list or set keeps its own order, which is the order the user
+			// wrote it in, so no sorting here.
+			for _, kv := range source.AsValueSlice() {
+				if kv.IsNull() || kv.Type() != cty.String {
+					continue
+				}
+				le.lines = append(le.lines, newCellInput(kv.AsString(), false, ""))
 			}
-			le.lines = append(le.lines, newCellInput(k+" = "+val, false, ""))
+		} else {
+			// Iterate in sorted order because a cty map has no order of its
+			// own and Go randomises map iteration, which would reshuffle the
+			// widget on every repaint.
+			m := source.AsValueMap()
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				kv := m[k]
+				if kv.IsNull() || kv.Type() != cty.String {
+					continue
+				}
+				le.lines = append(le.lines, newCellInput(k+" = "+kv.AsString(), false, ""))
+			}
 		}
 	}
 	if len(le.lines) == 0 {
@@ -82,7 +103,7 @@ func newLineMapEditor(v *tfvars.Variable, current cty.Value) *lineMapEditor {
 	return le
 }
 
-func (e *lineMapEditor) focusedLine() *cellInput {
+func (e *lineEditor) focusedLine() *cellInput {
 	if e.cursor < 0 || e.cursor >= len(e.lines) {
 		return nil
 	}
@@ -91,11 +112,11 @@ func (e *lineMapEditor) focusedLine() *cellInput {
 
 // onLastLine reports whether Enter would append, which is what the "+ Add line"
 // hint advertises.
-func (e *lineMapEditor) onLastLine() bool { return e.cursor == len(e.lines)-1 }
+func (e *lineEditor) onLastLine() bool { return e.cursor == len(e.lines)-1 }
 
 // abandonIfEmpty drops a fresh, untouched line the user moved away from. The
 // last remaining line is kept, so the widget always has somewhere to type.
-func (e *lineMapEditor) abandonIfEmpty() bool {
+func (e *lineEditor) abandonIfEmpty() bool {
 	if len(e.lines) <= 1 || !e.fresh[e.cursor] {
 		return false
 	}
@@ -106,7 +127,7 @@ func (e *lineMapEditor) abandonIfEmpty() bool {
 	return true
 }
 
-func (e *lineMapEditor) removeLine(i int) {
+func (e *lineEditor) removeLine(i int) {
 	if i < 0 || i >= len(e.lines) {
 		return
 	}
@@ -122,13 +143,13 @@ func (e *lineMapEditor) removeLine(i int) {
 	}
 }
 
-func (e *lineMapEditor) appendLine() {
+func (e *lineEditor) appendLine() {
 	e.lines = append(e.lines, newCellInput("", false, ""))
 	e.fresh[len(e.lines)-1] = true
 	e.cursor = len(e.lines) - 1
 }
 
-func (e *lineMapEditor) deleteLine() {
+func (e *lineEditor) deleteLine() {
 	if strings.TrimSpace(e.lines[e.cursor].Value()) == "" {
 		e.removeLine(e.cursor)
 		e.nudge = ""
@@ -144,7 +165,7 @@ func (e *lineMapEditor) deleteLine() {
 	e.nudge = "Alt+Delete again to remove"
 }
 
-func (e *lineMapEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
+func (e *lineEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return e, nil
@@ -186,14 +207,14 @@ func (e *lineMapEditor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 }
 
 // AtTopLevel reports whether Esc/Tab should be owned by the model rather than
-// the editor. lineMapEditor has no drill levels, so it is always at top level.
+// the editor. lineEditor has no drill levels, so it is always at top level.
 // Before yielding, it abandons a fresh empty line.
-func (e *lineMapEditor) AtTopLevel() bool {
+func (e *lineEditor) AtTopLevel() bool {
 	e.abandonIfEmpty()
 	return true
 }
 
-func (e *lineMapEditor) View() string {
+func (e *lineEditor) View() string {
 	var b strings.Builder
 	for i := range e.lines {
 		focused := i == e.cursor
@@ -224,7 +245,7 @@ func (e *lineMapEditor) View() string {
 }
 
 // CursorLine reports the logical cursor row so the right pane can scroll to it.
-func (e *lineMapEditor) CursorLine() int { return e.cursor }
+func (e *lineEditor) CursorLine() int { return e.cursor }
 
 // parseLine splits a `key = value` line on its first `=`. A line with no `=`
 // is a key the user has not finished typing: it is not an entry, and not an
@@ -244,7 +265,19 @@ func parseLine(line string) (key, value string, ok bool) {
 // CurrentValue folds the lines into a map. Unfinished lines are skipped: a
 // half-typed line is the user's in-progress work, and writing a partial entry
 // into main.tf would be worse than dropping it.
-func (e *lineMapEditor) CurrentValue() cty.Value {
+func (e *lineEditor) CurrentValue() cty.Value {
+	if !e.keyed {
+		vals := make([]cty.Value, 0, len(e.lines))
+		for i := range e.lines {
+			if s := strings.TrimSpace(e.lines[i].Value()); s != "" {
+				vals = append(vals, cty.StringVal(s))
+			}
+		}
+		if e.isSet {
+			return cty.SetVal(vals)
+		}
+		return cty.ListVal(vals)
+	}
 	m := map[string]cty.Value{}
 	for i := range e.lines {
 		if k, v, ok := parseLine(e.lines[i].Value()); ok {
@@ -258,7 +291,10 @@ func (e *lineMapEditor) CurrentValue() cty.Value {
 }
 
 // lineMapKeys reports the parsed keys, for the parent row's preview.
-func (e *lineMapEditor) lineMapKeys() []string {
+func (e *lineEditor) lineMapKeys() []string {
+	if !e.keyed {
+		return nil
+	}
 	var keys []string
 	for i := range e.lines {
 		if k, _, ok := parseLine(e.lines[i].Value()); ok {
