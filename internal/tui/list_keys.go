@@ -154,6 +154,15 @@ func (m *Model) resetCurrent() {
 			m.statusLvl = statusInfo
 			return
 		}
+		// A read-only editor has no value to reset to and its variable may hold
+		// a hand-written collection the user cannot see. Deleting the entry
+		// here would drop it from main.tf behind a keystroke that reads as
+		// "put it back to the default".
+		if _, editable := m.editor.(EditorWithValue); !editable && m.editor != nil {
+			m.status = "this collection is not editable here; reset it in main.tf"
+			m.statusLvl = statusInfo
+			return
+		}
 	}
 
 	// Whole-variable reset.

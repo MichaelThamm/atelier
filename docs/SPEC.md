@@ -1165,22 +1165,19 @@ replaced it.
 | `object({...})`                           | expandable sub-form, one row per field; nested objects drill in                         |
 | `map(string)`                             | rows of `[key] = [value] [-]`, with `[+ Add row]` below                                  |
 | `map(object(...))`                        | rows of `[key] [edit ▸] [-]`, drill into a sub-form for the object value                |
-| `list(string)` / `list(any-simple)`       | rows of `[i] [value] [-]`, with `[+ Add row]` below                                     |
-| `list(object(...))`                       | stack of expandable cards, each card a sub-form; `[+ Add card]` below                   |
-| `set(string)`                             | same widget as `list(string)`; emits with implied `toset()`; header tagged `Set`        |
+| `list(string)` / `list(any-simple)`       | read-only: entry count and a pointer to `main.tf` / `--var` (no inline editor yet)      |
+| `list(object(...))`                       | read-only, as above — Atelier does not yet render these faithfully                     |
+| `set(string)`                             | read-only, tagged `Set`                                                                  |
 | `any`, `tuple([...])`                     | read-only HCL rendering with `[E]` to open `$EDITOR` on the wrapper                     |
 
 ### 8.1 Reordering
 
-Lists support reordering via `Shift+↑` / `Shift+↓` on the focused item. Sets
-ignore reorder hotkeys (they have no order); the widget header tag indicates
-the type.
+Not implemented. Neither lists nor sets are editable in the TUI today, so there
+is nothing to reorder.
 
 ### 8.2 Set semantics
 
-The widget visible distinction between list and set is minimal: header tag
-(`Set` vs `List`), reorder hotkey ineffective on sets, duplicate-add shows a
-brief toast (`already in set`). No prominent disclaimer.
+A set renders tagged `Set` rather than `List`. Both are read-only.
 
 ### 8.3 Empty vs null collections
 
