@@ -11,9 +11,10 @@ import (
 )
 
 // MatchFallback resolves the Juju resource types the generic identity/name
-// phases cannot: integrations (keyed by endpoint pairs, not a simple name)
-// and offers (keyed by a URL). It runs only after the generic phases are
-// inconclusive. The importer core never needs to know these formats.
+// phases cannot: integrations (keyed by endpoint pairs, not a simple name),
+// offers (keyed by a URL), and models (whose live display name is the UUID, not
+// the model name). It runs only after the generic phases are inconclusive. The
+// importer core never needs to know these formats.
 func (*Provider) MatchFallback() importer.FallbackMatcher { return matchFallback }
 
 // matchFallback implements importer.FallbackMatcher for Juju.
@@ -29,6 +30,12 @@ func (*Provider) MatchFallback() importer.FallbackMatcher { return matchFallback
 // juju_offer: identity is { "id": "<offer_url>" }. Match by the planned "name"
 // against the offer name parsed from the live URL, then by application_name
 // containment in the URL as a fallback.
+//
+// juju_model: the live identity is the model UUID, and the query's display name
+// for it is the UUID too, so the generic name phase can never connect it to a
+// plan whose "name" is the model name. Match on the planned UUID (an already
+// managed model) and fall back to the planned name against the live
+// resource_object's "name".
 func matchFallback(resourceType, targetName, plannedName string, plannedAttrs map[string]any, live []tfexec.LiveResource, used []bool, verbose bool) []int {
 	if len(plannedAttrs) == 0 {
 		return nil
@@ -38,6 +45,8 @@ func matchFallback(resourceType, targetName, plannedName string, plannedAttrs ma
 		return matchIntegration(plannedAttrs, live, used, verbose)
 	case "juju_offer":
 		return matchOffer(plannedAttrs, live, used, verbose)
+	case "juju_model":
+		return matchModel(plannedAttrs, live, used)
 	}
 	return nil
 }
@@ -109,6 +118,45 @@ func matchOffer(plannedAttrs map[string]any, live []tfexec.LiveResource, used []
 		}
 		if pAppName != "" && strings.Contains(liveURL, pAppName) {
 			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// matchModel resolves a juju_model. The live object's identity and display name
+// are both the model UUID, while the plan carries the model *name*, so the
+// generic name phase finds nothing. Prefer the planned UUID (present for a
+// model already in state) and fall back to the planned name matched against the
+// live resource_object's "name" (present on a create, where the UUID is not yet
+// known).
+func matchModel(plannedAttrs map[string]any, live []tfexec.LiveResource, used []bool) []int {
+	uuid, _ := plannedAttrs["uuid"].(string)
+	if uuid == "" {
+		uuid, _ = plannedAttrs["id"].(string)
+	}
+	name, _ := plannedAttrs["name"].(string)
+	if uuid == "" && name == "" {
+		return nil
+	}
+	var out []int
+	for i, lr := range live {
+		if used[i] || lr.ResourceType != "juju_model" {
+			continue
+		}
+		if uuid != "" {
+			if id, _ := lr.Identity["id"].(string); id == uuid {
+				out = append(out, i)
+				continue
+			}
+			if u, _ := lr.Attributes["uuid"].(string); u == uuid {
+				out = append(out, i)
+				continue
+			}
+		}
+		if name != "" {
+			if n, _ := lr.Attributes["name"].(string); n == name {
+				out = append(out, i)
+			}
 		}
 	}
 	return out

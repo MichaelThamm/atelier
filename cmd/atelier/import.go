@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/zclconf/go-cty/cty"
@@ -406,7 +408,12 @@ func runImport(args []string) error {
 		fmt.Fprintln(os.Stderr, "\nNo live resources matched a resource your module wants to create.")
 	}
 
-	reportUnmatchedPlanned(res)
+	// The dry-run report already prints a plan preview (computed with the
+	// import artifact in place), so only the normal run needs this.
+	if res.Preview == nil {
+		reportPlanBeforeImport(os.Stderr, res)
+	}
+	reportUnmatchedPlanned(os.Stderr, res, verbose)
 	if len(res.UnmatchedLive) > 0 {
 		reportUnmatchedLive(res)
 	}
@@ -502,6 +509,10 @@ const maxLiveNamesShown = 3
 // 64-character hash, either of which would wrap the terminal.
 const maxLiveNameLen = 44
 
+// maxModuleGroupsShown caps the module-subtree summary so a wide deployment
+// does not turn the compact report back into a wall of lines.
+const maxModuleGroupsShown = 12
+
 // elide shortens s to at most maxLiveNameLen characters, keeping both ends. The
 // distinguishing part of a generated identifier can be at either end — a
 // prefixed model UUID puts it at the tail, a hashed suffix puts it at the head —
@@ -544,19 +555,148 @@ func reportUnmatchedLive(res *importer.Result) {
 
 // --- report helpers ---
 
+// reportPlanBeforeImport prints what the plan would do to the current state,
+// before any import. It is the counterweight to the match summary: "nothing to
+// import" is only half the story when the plan still adds resources, because
+// those have no live counterpart to fetch and will be created on the next
+// apply. Showing both numbers together is what stops the two screens
+// disagreeing.
+func reportPlanBeforeImport(w io.Writer, res *importer.Result) {
+	if res.Plan == nil {
+		return
+	}
+	p := res.Plan
+	fmt.Fprintf(w, "\nPlan before import: %d to add, %d to change, %d to destroy.\n", p.Add, p.Change, p.Destroy)
+	if p.UnimportableAdds > 0 {
+		fmt.Fprintf(w, "  (%d of the additions are Terraform-internal types with no live\n", p.UnimportableAdds)
+		fmt.Fprintln(w, "  counterpart, e.g. terraform_data, and are expected.)")
+	}
+}
+
 // reportUnmatchedPlanned lists module resources for which no single live object
-// could be identified. Reported on every run, including those that imported
-// nothing: a run where nothing resolved is exactly when this list is the whole
-// story.
-func reportUnmatchedPlanned(res *importer.Result) {
+// could be identified, split by what a user must do about each. Reported on
+// every run, including those that imported nothing: a run where nothing
+// resolved is exactly when this list is the whole story.
+//
+// The three categories mean different things and must not read alike:
+//   - will be created: nothing live exists. There is nothing to import; a later
+//     apply will create it. Telling a user to "import it manually" here is wrong.
+//   - ambiguous: several live objects matched; the address is right but the
+//     choice needs a human.
+//   - already in state: tracked, so nothing to do.
+//
+// A whole absent subtree is grouped to one line by module — otherwise a module
+// whose deployment is half torn down prints dozens of near-identical rows and
+// the signal is lost. --verbose prints every address.
+func reportUnmatchedPlanned(w io.Writer, res *importer.Result, verbose bool) {
 	if len(res.UnmatchedPlanned) == 0 {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "\nUnmatched module resources (no single live object identified): %d\n", len(res.UnmatchedPlanned))
+	var willCreate, ambiguous, inState []importer.PlannedResource
 	for _, p := range res.UnmatchedPlanned {
-		fmt.Fprintf(os.Stderr, "  ? %s (%s)\n", p.Address, p.Type)
+		switch classifyUnmatched(p) {
+		case unmatchedWillCreate:
+			willCreate = append(willCreate, p)
+		case unmatchedAmbiguous:
+			ambiguous = append(ambiguous, p)
+		default:
+			inState = append(inState, p)
+		}
 	}
-	fmt.Fprintln(os.Stderr, "  (zero or ambiguous live matches — import these manually if needed.)")
+
+	fmt.Fprintf(w, "\nUnmatched module resources (no single live object identified): %d\n", len(res.UnmatchedPlanned))
+
+	if len(willCreate) > 0 {
+		fmt.Fprintf(w, "  Will be created on apply — no live object exists to import: %d\n", len(willCreate))
+		if verbose {
+			for _, p := range willCreate {
+				fmt.Fprintf(w, "    + %s\n", p.Address)
+			}
+		} else {
+			groups := groupPlannedByModule(willCreate)
+			shown := groups
+			if len(shown) > maxModuleGroupsShown {
+				shown = shown[:maxModuleGroupsShown]
+			}
+			for _, g := range shown {
+				fmt.Fprintf(w, "    %-46s %3d\n", g.Module, g.Count)
+			}
+			if len(groups) > len(shown) {
+				fmt.Fprintf(w, "    … and %d more module(s)\n", len(groups)-len(shown))
+			}
+		}
+	}
+	if len(ambiguous) > 0 {
+		fmt.Fprintf(w, "  Matched more than one live object — import the intended one manually: %d\n", len(ambiguous))
+		for _, p := range ambiguous {
+			fmt.Fprintf(w, "    ? %s\n", p.Address)
+		}
+	}
+	if len(inState) > 0 {
+		fmt.Fprintf(w, "  Already in state — nothing to do: %d\n", len(inState))
+		for _, p := range inState {
+			fmt.Fprintf(w, "    %s\n", p.Address)
+		}
+	}
+	if !verbose && len(willCreate) > 0 {
+		fmt.Fprintf(w, "  (--verbose lists all %d address(es).)\n", len(res.UnmatchedPlanned))
+	}
+}
+
+// unmatchedCategory is what an unmatched module resource asks of the user.
+type unmatchedCategory int
+
+const (
+	// unmatchedWillCreate: no live object exists. Nothing to import; apply creates it.
+	unmatchedWillCreate unmatchedCategory = iota
+	// unmatchedAmbiguous: several live objects matched; the choice needs a human.
+	unmatchedAmbiguous
+	// unmatchedInState: already tracked; nothing to do.
+	unmatchedInState
+)
+
+// classifyUnmatched places an unmatched resource in one of the three buckets.
+// Ambiguity outranks the plan action: a resource with several live candidates
+// needs a decision whether or not the plan would create it.
+func classifyUnmatched(p importer.PlannedResource) unmatchedCategory {
+	switch {
+	case p.LiveCandidates > 1:
+		return unmatchedAmbiguous
+	case p.Create:
+		return unmatchedWillCreate
+	default:
+		return unmatchedInState
+	}
+}
+
+// moduleGroup is one module subtree's share of the unmatched resources.
+type moduleGroup struct {
+	Module string
+	Count  int
+}
+
+// groupPlannedByModule counts unmatched resources per module subtree, sorted by
+// count (descending) then name, so the subtree that dominates the list is first.
+func groupPlannedByModule(rs []importer.PlannedResource) []moduleGroup {
+	counts := map[string]int{}
+	for _, p := range rs {
+		module := p.Module
+		if module == "" {
+			module = "(root)"
+		}
+		counts[module]++
+	}
+	out := make([]moduleGroup, 0, len(counts))
+	for module, n := range counts {
+		out = append(out, moduleGroup{Module: module, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Module < out[j].Module
+	})
+	return out
 }
 
 // reportUnresolvedIDs surfaces resources that were matched to a live object but

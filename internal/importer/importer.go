@@ -249,6 +249,11 @@ type Result struct {
 	// Preview summarises the plan computed with the imports artifact in place.
 	// Only populated for a dry run.
 	Preview *PlanSummary
+	// Plan is the plan computed before any import: what the module would do to
+	// the current state. Its Add count is the work that has no live counterpart
+	// to import, so a run that imported nothing reports it rather than implying
+	// the deployment is fully managed. Nil when no plan was computed.
+	Plan *PlanSummary
 	// PostImportPlan summarises the plan computed against the state the imports
 	// produced. It answers whether the import round-tripped: a non-empty Add or
 	// Change means a later apply would still alter the deployment. Nil unless
@@ -500,6 +505,11 @@ func Generate(ctx context.Context, opts Options) (_ *Result, rerr error) {
 		return nil, err
 	}
 
+	// Record what the plan would do before any import. The report prints it, so
+	// a run that imports nothing cannot hide a plan that still adds resources.
+	planned := SummarizePlan(planResult.Plan)
+	res.Plan = &planned
+
 	// Refuse a run whose plan contradicts the live deployment, before anything
 	// is written. Runs for every mode, including --dry-run: a dry run exists to
 	// surface exactly this kind of problem.
@@ -519,7 +529,7 @@ func Generate(ctx context.Context, opts Options) (_ *Result, rerr error) {
 
 	matched, unmatchedPlanned, unmatchedLive := Match(live, planResult.AllModuleResources, opts.MatchFallback, opts.Verbose)
 
-	res.UnmatchedPlanned = unmatchedPlanned
+	res.UnmatchedPlanned = markPlannedCreates(unmatchedPlanned, planResult.Creates)
 	res.UnmatchedLive = unmatchedLive
 	res.MatchedCount = len(matched)
 
@@ -604,6 +614,23 @@ func Generate(ctx context.Context, opts Options) (_ *Result, rerr error) {
 	res.PostImportPlan = summary
 
 	return res, nil
+}
+
+// markPlannedCreates flags each unmatched resource that the plan would create.
+// A create with no live counterpart cannot be imported — there is nothing to
+// fetch — so it is the one unmatched category a user need not act on; the plan
+// will create it. A resource that is not a create is already tracked, so it is
+// likewise not an import problem. Only an ambiguous match (see
+// PlannedResource.LiveCandidates) asks for a decision.
+func markPlannedCreates(unmatched, creates []PlannedResource) []PlannedResource {
+	createAddrs := make(map[string]bool, len(creates))
+	for _, c := range creates {
+		createAddrs[c.Address] = true
+	}
+	for i := range unmatched {
+		unmatched[i].Create = createAddrs[unmatched[i].Address]
+	}
+	return unmatched
 }
 
 // postImportPhase is the tail of an import run: the provider's normalization
