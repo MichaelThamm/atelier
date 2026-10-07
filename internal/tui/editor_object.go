@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -367,11 +368,9 @@ func compactFieldView(f objectFieldRow) string {
 	}
 	switch f.Type.Kind {
 	case tftypes.KindObject:
-		count := compactObjectCount(f.editor)
-		return styleDescription.Render(fmt.Sprintf("(object: %d fields)", count))
+		return styleDescription.Render(mapKeyPreview(f.editor))
 	case tftypes.KindMap:
-		count := compactMapCount(f.editor)
-		return styleDescription.Render(fmt.Sprintf("(map: %d entries)", count))
+		return styleDescription.Render(mapKeyPreview(f.editor))
 	case tftypes.KindList:
 		return styleDescription.Render("(list)")
 	case tftypes.KindSet:
@@ -389,12 +388,70 @@ func compactObjectCount(ed Editor) int {
 	return 0
 }
 
-// compactMapCount peeks into a nested mapEditor for its entry count.
-func compactMapCount(ed Editor) int {
-	if m, ok := ed.(*mapEditor); ok {
-		return len(m.rows)
+// mapKeyPreview lists a collection field's contents on the parent row, so the
+// user can tell what it holds without drilling into it: `config
+// (retention_time,replicas)`. It used to report a count, which named no keys
+// and made every inspection of a map a drill-in round trip.
+//
+// The listing contains no spaces. The pane word-wraps on spaces and then
+// hard-truncates whatever is left, so a preview that can be split gains a
+// physical row and shoves the pane's bottom border down; an unbreakable token
+// is truncated cleanly instead (see the wrap-then-truncate note in
+// renderRightPane). Keys are Terraform identifiers, so a byte count is a
+// display width.
+func mapKeyPreview(ed Editor) string {
+	keys := editorKeys(ed)
+	if len(keys) == 0 {
+		return "(empty)"
 	}
-	return 0
+	const (
+		budget  = 34
+		maxKeys = 3
+	)
+	var parts []string
+	used := 2 // the surrounding parens
+	for i, k := range keys {
+		if i == maxKeys {
+			if rest := len(keys) - maxKeys; used+4 <= budget {
+				parts = append(parts, fmt.Sprintf("+%d", rest))
+			}
+			break
+		}
+		name := truncateMiddle(k, budget/2)
+		need := len(name)
+		if len(parts) > 0 {
+			need++ // the comma
+		}
+		if used+need > budget {
+			break
+		}
+		parts = append(parts, name)
+		used += need
+	}
+	return "(" + strings.Join(parts, ",") + ")"
+}
+
+// editorKeys reports a collection editor's keys, sorted, or nil for anything
+// that is not key-addressed.
+func editorKeys(ed Editor) []string {
+	switch e := ed.(type) {
+	case *mapEditor:
+		keys := make([]string, 0, len(e.rows))
+		for _, r := range e.rows {
+			if k := r.Key.Value(); k != "" {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		return keys
+	case *objectEditor:
+		keys := make([]string, 0, len(e.fields))
+		for _, f := range e.fields {
+			keys = append(keys, f.Name)
+		}
+		return keys
+	}
+	return nil
 }
 
 // typeSpecificHint returns a one-line hint matching the focused field's

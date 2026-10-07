@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -208,16 +209,102 @@ func TestObjectEditor_view_marksFocusedRow(t *testing.T) {
 	}
 }
 
+// A collection field renders as a one-line summary of what it holds, not
+// multi-line nested editor output: the user must be able to tell a populated
+// map from an empty one, and see which keys it has, without drilling in.
 func TestObjectEditor_view_collectionFieldsRenderCompact(t *testing.T) {
 	oe := objectEditorOf(t, alertmanagerLikeVar(t))
 	plain := stripANSI(oe.View())
-	// storage_directives (map) and config (object) should appear with
-	// compact placeholders, not multi-line nested editor output.
-	if !strings.Contains(plain, "(map:") {
-		t.Errorf("map field should render compact; got:\n%s", plain)
+	if !strings.Contains(plain, "storage_directives     (empty)") {
+		t.Errorf("empty map should preview as (empty); got:\n%s", plain)
 	}
-	if !strings.Contains(plain, "(object:") {
-		t.Errorf("nested object should render compact; got:\n%s", plain)
+	if !strings.Contains(plain, "config                 (templates_file)") {
+		t.Errorf("nested object should preview its field names; got:\n%s", plain)
+	}
+}
+
+// The preview names keys, not a count: a count told the user nothing about
+// which keys existed, so reading one always cost a drill-in round trip.
+func TestObjectEditor_mapPreviewNamesKeys(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	i := -1
+	for idx, f := range oe.fields {
+		if f.Name == "storage_directives" {
+			i = idx
+		}
+	}
+	if i < 0 {
+		t.Fatal("setup: no storage_directives field")
+	}
+	me, ok := oe.fields[i].editor.(*mapEditor)
+	if !ok {
+		t.Fatalf("storage_directives editor = %T; want *mapEditor", oe.fields[i].editor)
+	}
+	me.rows = []mapRow{newMapRow("loki", "ssd"), newMapRow("mimir", "hdd")}
+
+	plain := stripANSI(oe.View())
+	if !strings.Contains(plain, "(loki,mimir)") {
+		t.Errorf("map preview should name its keys; got:\n%s", plain)
+	}
+	if strings.Contains(plain, "(map:") {
+		t.Errorf("map preview should not report a bare count; got:\n%s", plain)
+	}
+}
+
+// A long map does not blow past the pane border: at most three keys are
+// listed and the remainder is elided as a count.
+func TestObjectEditor_mapPreviewElidesLongKeys(t *testing.T) {
+	oe := objectEditorOf(t, alertmanagerLikeVar(t))
+	i := -1
+	for idx, f := range oe.fields {
+		if f.Name == "storage_directives" {
+			i = idx
+		}
+	}
+	me := oe.fields[i].editor.(*mapEditor)
+	me.rows = []mapRow{
+		newMapRow("alpha", "1"),
+		newMapRow("bravo", "2"),
+		newMapRow("charlie", "3"),
+		newMapRow("delta", "4"),
+		newMapRow("echo", "5"),
+	}
+
+	plain := stripANSI(oe.View())
+	if !strings.Contains(plain, "(alpha,bravo,charlie,+2)") {
+		t.Errorf("long map should list 3 keys then elide the rest; got:\n%s", plain)
+	}
+}
+
+// The preview must not be word-wrappable. renderRightPane word-wraps on spaces
+// and then hard-truncates; a preview containing spaces gains a physical row,
+// which overflows the pane's fixed height and shoves its bottom border down.
+// An unbreakable token is truncated cleanly instead.
+func TestObjectEditor_mapPreviewIsUnbreakable(t *testing.T) {
+	for _, keys := range [][]string{
+		{"retention_time", "replicas"},
+		{"backend_storage_directives", "read_storage_directives", "write_storage_directives"},
+		{"alpha", "bravo", "charlie", "delta", "echo"},
+	} {
+		oe := objectEditorOf(t, alertmanagerLikeVar(t))
+		var me *mapEditor
+		for _, f := range oe.fields {
+			if m, ok := f.editor.(*mapEditor); ok {
+				me = m
+			}
+		}
+		me.rows = nil
+		for i, k := range keys {
+			me.rows = append(me.rows, newMapRow(k, fmt.Sprintf("%d", i)))
+		}
+		view := stripANSI(oe.View())
+		for _, line := range strings.Split(view, "\n") {
+			if i := strings.Index(line, "("); i >= 0 && strings.Contains(line, "storage_directives") {
+				if got := strings.TrimRight(line[i:], " "); strings.Contains(got, " ") {
+					t.Errorf("preview %q contains a space; it would word-wrap:\n%s", got, view)
+				}
+			}
+		}
 	}
 }
 
