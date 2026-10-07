@@ -35,6 +35,44 @@ type planNode struct {
 	Action string
 	// Change is the source resource_change (only set on resource nodes).
 	Change *tfjson.ResourceChange
+	// Tally aggregates the actions beneath a module or type node, so a
+	// collapsed subtree can show how much work it holds without being expanded.
+	// Zero on resource nodes.
+	Tally actionTally
+}
+
+// actionTally counts the resource actions beneath a node by kind.
+type actionTally struct {
+	Add     int
+	Change  int
+	Destroy int
+	Replace int
+}
+
+// Total is the number of resource changes behind the node; a replace counts
+// once here even though Terraform performs both halves.
+func (t actionTally) Total() int { return t.Add + t.Change + t.Destroy + t.Replace }
+
+func (t *actionTally) add(o actionTally) {
+	t.Add += o.Add
+	t.Change += o.Change
+	t.Destroy += o.Destroy
+	t.Replace += o.Replace
+}
+
+// tallyAction buckets one change's actions, reusing actionMarker so the tally
+// and the leaf markers can never disagree about what an action is.
+func tallyAction(t *actionTally, actions []tfjson.Action) {
+	switch actionMarker(actions) {
+	case "+":
+		t.Add++
+	case "~":
+		t.Change++
+	case "-":
+		t.Destroy++
+	case "↻":
+		t.Replace++
+	}
 }
 
 // BuildPlanTree groups a parsed plan's ResourceChanges into a (module →
@@ -94,7 +132,9 @@ func BuildPlanTree(plan *tfjson.Plan) *planNode {
 					Action: actionMarker(rc.Change.Actions),
 					Change: rc,
 				})
+				tallyAction(&typNode.Tally, rc.Change.Actions)
 			}
+			modNode.Tally.add(typNode.Tally)
 			modNode.Children = append(modNode.Children, typNode)
 		}
 		root.Children = append(root.Children, modNode)
