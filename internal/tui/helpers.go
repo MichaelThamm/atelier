@@ -13,7 +13,9 @@ import (
 
 // requiredUnsetCount returns how many of the module's variables are required
 // (no default) but have neither a concrete value nor a wired expression — the
-// same condition the [!] marker reports per row.
+// same condition the [!] marker reports per row. An explicit null counts as
+// unset, because a freshly bootstrapped wrapper writes `name = null` as a
+// placeholder (wrapper.Bootstrap) and `atelier apply` refuses on it.
 func requiredUnsetCount(st *wrapper.State) int {
 	if st == nil {
 		return 0
@@ -27,7 +29,7 @@ func requiredUnsetCount(st *wrapper.State) int {
 			continue
 		}
 		cur, present := st.Values[v.Name]
-		if !present || cur == cty.NilVal {
+		if !present || cur == cty.NilVal || cur.IsNull() {
 			n++
 		}
 	}
