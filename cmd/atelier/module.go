@@ -40,6 +40,8 @@ type moduleOpts struct {
 }
 
 func parseModuleArgs(args []string) (moduleOpts, error) {
+	// One parser serves `add` and `apply`, so its errors name both rather than
+	// the `module` namespace ADR-0038 removed.
 	var opts moduleOpts
 	var positional []string
 	for i := 0; i < len(args); i++ {
@@ -112,16 +114,16 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 				continue
 			}
 			if strings.HasPrefix(a, "-") {
-				return opts, fmt.Errorf("unknown flag %q for module command", a)
+				return opts, fmt.Errorf("unknown flag %q for add/apply", a)
 			}
 			positional = append(positional, a)
 		}
 	}
 	if len(positional) == 0 {
-		return opts, fmt.Errorf("module command requires a git URL argument")
+		return opts, fmt.Errorf("add and apply require a git URL argument")
 	}
 	if len(positional) > 1 {
-		return opts, fmt.Errorf("module command takes exactly one URL argument; got %v", positional)
+		return opts, fmt.Errorf("add and apply take exactly one URL argument; got %v", positional)
 	}
 	opts.Source = positional[0]
 	// --all only widens a listing; on its own it would be silently ignored,
@@ -311,6 +313,9 @@ func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string
 // `apply`, it does not run `terraform init`/`apply`, and it never picks a
 // revision for you (the gallery name supplies one).
 func runModuleAdd(args []string) error {
+	if helpRequested(args, usage) {
+		return nil
+	}
 	opts, err := parseModuleArgs(args)
 	if err != nil {
 		return err
@@ -969,6 +974,9 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 // run `terraform init` and `terraform apply` (ADR-0034). It saves the user from
 // `mkdir && cd && terraform init && terraform apply`.
 func runModuleApply(args []string) error {
+	if helpRequested(args, usage) {
+		return nil
+	}
 	opts, err := parseModuleArgs(args)
 	if err != nil {
 		return err
@@ -1213,6 +1221,9 @@ func bootstrapFreshWrapper(sourceBaseDir, dir, source, ref, modulePath string) (
 
 // runModuleRm implements `atelier rm <name>`.
 func runModuleRm(args []string) error {
+	if helpRequested(args, usage) {
+		return nil
+	}
 	var force bool
 	var name string
 	for _, a := range args {
@@ -1287,12 +1298,18 @@ func runModuleRm(args []string) error {
 
 // runModuleList implements `atelier ls`.
 func runModuleList(args []string) error {
+	// The unknown-flag check below used to exempt --help and -h without
+	// consuming them, so `atelier ls --help` printed this command's table and
+	// exited 0. helpRequested consumes them first.
+	if helpRequested(args, usage) {
+		return nil
+	}
 	asJSON := false
 	for _, a := range args {
 		switch {
 		case a == "--json":
 			asJSON = true
-		case strings.HasPrefix(a, "-") && a != "--help" && a != "-h":
+		case strings.HasPrefix(a, "-"):
 			return fmt.Errorf("unknown flag %q for ls", a)
 		}
 	}

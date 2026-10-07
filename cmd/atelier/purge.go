@@ -12,6 +12,9 @@ var purgeDirs = []string{".atelier", ".clone"}
 
 // runPurge implements `atelier purge [PATH] [--force]`.
 func runPurge(args []string) error {
+	if helpRequested(args, usage) {
+		return nil
+	}
 	var force bool
 	var target string
 

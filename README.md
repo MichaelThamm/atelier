@@ -182,7 +182,8 @@ atelier
 ```
 
 > **Note:** run `atelier --help` for the full command list, including `atelier
-> add|rm|ls`, `atelier wrappers`, and `atelier purge`.
+> add|rm|ls`, `atelier wrappers`, and `atelier purge`. Any command also answers
+> `atelier <command> --help`.
 
 ## Presets
 

@@ -20,6 +20,9 @@ const presetsUsage = `Usage:
 // Terraform-native `.tfvars` bundle (ADR-0031); the gallery is listed by
 // `atelier gallery list`.
 func runPresets(args []string) error {
+	if helpRequested(args, presetsUsage) {
+		return nil
+	}
 	if len(args) == 0 {
 		fmt.Print(presetsUsage)
 		return nil
@@ -70,6 +73,9 @@ func parsePresetsLintArgs(args []string) (presetsLintOpts, error) {
 // per-file report. It exits non-zero when any file has a finding, so it can
 // gate CI (a committed preset that names a removed field fails the build).
 func runPresetsLint(args []string) error {
+	if helpRequested(args, presetsUsage) {
+		return nil
+	}
 	opts, err := parsePresetsLintArgs(args)
 	if err != nil {
 		return err
