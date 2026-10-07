@@ -31,6 +31,9 @@ const galleryUsage = `Usage:
 // Atelier's curated set of module quick starts; a preset is a `.tfvars` bundle
 // (ADR-0031), which a gallery entry may name — an entry composes all of them.
 func runGallery(args []string) error {
+	if helpRequested(args, galleryUsage) {
+		return nil
+	}
 	if len(args) == 0 {
 		fmt.Print(galleryUsage)
 		return nil
@@ -52,6 +55,9 @@ func runGallery(args []string) error {
 // so a module that gains a required variable fails here rather than at apply
 // time (ADR-0039).
 func runGalleryLint(args []string) error {
+	if helpRequested(args, galleryUsage) {
+		return nil
+	}
 	if len(args) != 0 {
 		return fmt.Errorf("gallery lint takes no arguments")
 	}
@@ -95,6 +101,9 @@ func runGalleryLint(args []string) error {
 }
 
 func runGalleryList(args []string) error {
+	if helpRequested(args, galleryUsage) {
+		return nil
+	}
 	commands := false
 	for _, a := range args {
 		switch a {
@@ -171,6 +180,9 @@ func writeCommand(w io.Writer, e gallery.Entry) {
 // placeholders so it can validate an entry whose module declares
 // deployment-specific required inputs.
 func runGalleryRequires(args []string) error {
+	if helpRequested(args, galleryUsage) {
+		return nil
+	}
 	if len(args) != 1 {
 		return fmt.Errorf("gallery requires takes exactly one entry name")
 	}

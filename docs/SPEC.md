@@ -273,6 +273,11 @@ atelier presets lint --module <dir> <file.tfvars>  # check preset bundles agains
 atelier --help                             # print usage
 ```
 
+Every command above also accepts `-h` and `--help`, on its own or after other
+arguments, and prints the same usage text rather than reporting an unknown
+flag. `atelier import --help` is therefore the same output as `atelier --help`,
+which documents every command's flags; help always exits 0.
+
 See [ADR-0038](adr/0038-flat-cli-surface.md) for the flat top-level command
 surface (which supersedes [ADR-0018](adr/0018-additive-module-command.md)'s
 `module` namespace), [ADR-0027](adr/0027-atelier-import.md) for the `import`

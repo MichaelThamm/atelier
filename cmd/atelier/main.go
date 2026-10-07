@@ -210,7 +210,10 @@ func resolveCommand(args []string) (command, []string) {
 }
 
 func run(args []string) error {
-	// Only check top-level --help / --version (not within subcommands).
+	// args[0] only. helpRequested scans every argument, which is right for a
+	// subcommand that is already being dispatched to and wrong here: it would
+	// match `atelier wrappers --help` and print the top-level usage before
+	// runWrappers got the chance to print its own.
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h") {
 		fmt.Print(usage)
 		return nil
@@ -248,6 +251,24 @@ func run(args []string) error {
 		}
 		return fmt.Errorf("unknown command %q\n\n%s", string(cmd), usage)
 	}
+}
+
+// helpRequested reports whether args asks for help rather than work, printing
+// text and returning true when it does. Every command's run function opens
+// with this, so -h and --help mean the same thing everywhere — bare, or after
+// other arguments — and exit 0 rather than reporting an unknown flag.
+//
+// text is what that command prints. It is normally the top-level usage, which
+// already documents the command, rather than a per-command screen that a
+// hand-rolled flag parser could drift away from.
+func helpRequested(args []string, text string) bool {
+	for _, a := range args {
+		if a == "--help" || a == "-h" {
+			fmt.Print(text)
+			return true
+		}
+	}
+	return false
 }
 
 // runOpen implements `atelier` (no args): open the wrapper in CWD.

@@ -44,6 +44,9 @@ import (
 // list-resource types to discover). When --source is omitted, PROVIDER is
 // also used to scaffold provider config if the directory has none.
 func runImport(args []string) error {
+	if helpRequested(args, usage) {
+		return nil
+	}
 	var (
 		providerArg  string
 		dirArg       string

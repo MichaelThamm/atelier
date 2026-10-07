@@ -24,13 +24,13 @@ const wrappersUsage = `Usage:
 // the wrapper directories that share a parent (e.g. a tf-testing/ scratch
 // directory); it does not address or operate on them (ADR-0036).
 func runWrappers(args []string) error {
+	if helpRequested(args, wrappersUsage) {
+		return nil
+	}
 	var target string
 	asJSON := false
 	for _, a := range args {
 		switch {
-		case a == "--help" || a == "-h":
-			fmt.Print(wrappersUsage)
-			return nil
 		case a == "--json":
 			asJSON = true
 		case strings.HasPrefix(a, "-"):
