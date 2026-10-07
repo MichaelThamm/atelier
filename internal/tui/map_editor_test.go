@@ -554,13 +554,11 @@ func TestObjectEditor_drillIntoMap_editsPropagate(t *testing.T) {
 	for oe.fields[oe.cursor].Name != "storage_directives" {
 		oe = drive(t, oe, "down")
 	}
-	// Drill in, add a row, type key and value.
-	oe = drive(t, oe, "enter")                 // drill in — map is empty, so cursor on add-row
-	oe = drive(t, oe, "enter")                 // add a row (focus on key)
-	oe = drive(t, oe, "d", "i", "r")           // type key "dir"
-	oe = drive(t, oe, "enter")                 // Enter advances key → value
-	oe = drive(t, oe, "/", "d", "a", "t", "a") // type value "/data"
-	oe = drive(t, oe, "esc")                   // exit drill-in
+	// Drill in and type a whole `key = value` line, which is the point of
+	// the line form: no column to advance past.
+	oe = drive(t, oe, "enter") // drill in — map is empty
+	oe = drive(t, oe, "d", "i", "r", "=", "/", "d", "a", "t", "a")
+	oe = drive(t, oe, "esc") // exit drill-in
 
 	val := oe.CurrentValue().AsValueMap()["storage_directives"]
 	if val.IsNull() || !val.Type().IsMapType() {

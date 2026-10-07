@@ -1164,20 +1164,28 @@ replaced it.
 | nullable scalar                           | above widget; empty input means `null` when the declared default is `null`              |
 | `object({...})`                           | expandable sub-form, one row per field; nested objects drill in                         |
 | `map(string)`                             | rows of `[key] = [value] [-]`, with `[+ Add row]` below                                  |
+| `map(string)` as an object field          | one editable `key = value` line per entry; `Enter` adds a line, `Alt+Delete` removes one |
 | `map(object(...))`                        | rows of `[key] [edit ▸] [-]`, drill into a sub-form for the object value                |
-| `list(string)` / `list(any-simple)`       | read-only: entry count and a pointer to `main.tf` / `--var` (no inline editor yet)      |
-| `list(object(...))`                       | read-only, as above — Atelier does not yet render these faithfully                     |
-| `set(string)`                             | read-only, tagged `Set`                                                                  |
+| `list(string)` / `list(number)`           | one editable line per entry; `Enter` adds a line, `Alt+Delete` removes one               |
+| `list(object(...))`                       | read-only: entry count and a pointer to `main.tf` / `--var`                              |
+| `set(string)`                             | same widget as `list(string)`; duplicates fold, header tagged `Set`                     |
+| `set(object(...))`                        | read-only, as `list(object(...))`                                                        |
 | `any`, `tuple([...])`                     | read-only HCL rendering with `[E]` to open `$EDITOR` on the wrapper                     |
+
+A collection field's row in an object sub-form summarises what it holds rather
+than counting entries: `config (retention_time,replicas)`, an empty collection
+`(empty)`. At most three names are listed and the rest is a `+N` count
+([ADR-0054](adr/0054-nested-map-string-edits-as-hcl-lines.md)).
 
 ### 8.1 Reordering
 
-Not implemented. Neither lists nor sets are editable in the TUI today, so there
-is nothing to reorder.
+Not implemented. A scalar list keeps the order it was written in, but there is
+no reorder hotkey.
 
 ### 8.2 Set semantics
 
-A set renders tagged `Set` rather than `List`. Both are read-only.
+A set renders tagged `Set` rather than `List` and folds duplicate entries, so
+two identical lines collapse to one.
 
 ### 8.3 Empty vs null collections
 
