@@ -174,7 +174,7 @@ func newEditor(v *tfvars.Variable, current cty.Value) Editor {
 	case tftypes.KindNumber:
 		return newNumberEditor(v, current)
 	case tftypes.KindList, tftypes.KindSet:
-		return newListEditor(v, current)
+		return newCollectionReadOnly(v, current)
 	case tftypes.KindMap:
 		if v.Type.Element != nil && v.Type.Element.Kind == tftypes.KindObject {
 			return newMapObjectEditor(v, current)
@@ -192,6 +192,9 @@ func newEditor(v *tfvars.Variable, current cty.Value) Editor {
 }
 
 // readOnlyEditor is a fallback for types Atelier doesn't have a widget for.
+// It deliberately does not implement EditorWithValue: the model pushes the
+// live editor's value into state on every keystroke, so an editor that cannot
+// represent its collection must report nothing rather than something lossy.
 type readOnlyEditor struct {
 	variable *tfvars.Variable
 	text     string
@@ -199,6 +202,27 @@ type readOnlyEditor struct {
 
 func (e *readOnlyEditor) Update(msg tea.Msg) (Editor, tea.Cmd) { return e, nil }
 func (e *readOnlyEditor) View() string                         { return styleDescription.Render(e.text) }
+
+// newCollectionReadOnly renders a list or set without offering to edit it,
+// showing what is currently set. Atelier has no faithful widget for these yet,
+// and a lossy one is worse than none: a previous widget stringified each
+// element with cty's GoString, so a list(object) came back as list(string) and
+// one keystroke rewrote the user's wrapper.
+func newCollectionReadOnly(v *tfvars.Variable, current cty.Value) Editor {
+	tag := "List"
+	if v != nil && v.Type != nil && v.Type.Kind == tftypes.KindSet {
+		tag = "Set"
+	}
+	n := 0
+	if current != cty.NilVal && !current.IsNull() && current.IsKnown() {
+		n = current.LengthInt()
+	}
+	return &readOnlyEditor{
+		variable: v,
+		text: fmt.Sprintf("%s (%d entries) — not editable here; set it in main.tf "+
+			"or with `atelier apply --var %s=…`.", tag, n, v.Name),
+	}
+}
 
 // --- bool ---
 
