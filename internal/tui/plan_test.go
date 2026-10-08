@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
@@ -133,6 +134,63 @@ func TestBuildPlanTree_nilPlan(t *testing.T) {
 	}
 	if len(root.Children) != 0 {
 		t.Errorf("nil plan should have no children")
+	}
+}
+
+// A collapsed subtree must still show how much work is under it: the module and
+// type nodes aggregate their descendants' actions.
+func TestBuildPlanTree_talliesActions(t *testing.T) {
+	plan := &tfjson.Plan{
+		ResourceChanges: []*tfjson.ResourceChange{
+			rc("module.cos.juju_integration.a", "module.cos", "juju_integration", "a", change(tfjson.ActionCreate)),
+			rc("module.cos.juju_integration.b", "module.cos", "juju_integration", "b", change(tfjson.ActionCreate)),
+			rc("module.cos.juju_application.c", "module.cos", "juju_application", "c", change(tfjson.ActionUpdate)),
+			rc("module.cos.juju_offer.d", "module.cos", "juju_offer", "d", change(tfjson.ActionDelete)),
+			rc("module.cos.juju_offer.e", "module.cos", "juju_offer", "e", change(tfjson.ActionDelete, tfjson.ActionCreate)),
+			rc("module.other.juju_model.f", "module.other", "juju_model", "f", change(tfjson.ActionCreate)),
+		},
+	}
+	root := BuildPlanTree(plan)
+	if root.Children[0].Label != "module.cos" {
+		t.Fatalf("first module = %q", root.Children[0].Label)
+	}
+	cos := root.Children[0]
+	want := actionTally{Add: 2, Change: 1, Destroy: 1, Replace: 1}
+	if cos.Tally != want {
+		t.Errorf("module.cos tally = %+v, want %+v", cos.Tally, want)
+	}
+	if cos.Tally.Total() != 5 {
+		t.Errorf("module.cos total = %d, want 5", cos.Tally.Total())
+	}
+	var integrations *planNode
+	for _, c := range cos.Children {
+		if c.Label == "juju_integration" {
+			integrations = c
+		}
+	}
+	if integrations == nil {
+		t.Fatal("juju_integration bucket missing")
+	}
+	if integrations.Tally != (actionTally{Add: 2}) {
+		t.Errorf("juju_integration tally = %+v, want Add:2 only", integrations.Tally)
+	}
+}
+
+// The tally must survive a label long enough to fill the pane; it is the whole
+// reason a collapsed row is useful. The label truncates, the tally does not.
+func TestRenderPlanRow_keepsTallyVisible(t *testing.T) {
+	n := &planNode{
+		Kind:  nodeModule,
+		Label: "module.cos.module.mimir.module.mimir_coordinator_with_extra_long_suffix",
+		Tally: actionTally{Add: 17, Change: 2},
+	}
+	row := renderPlanRow(planRow{Node: n}, 42)
+	plain := stripANSI(row)
+	if !strings.Contains(plain, "+17") || !strings.Contains(plain, "~2") {
+		t.Errorf("tally missing from a long row: %q", plain)
+	}
+	if w := ansi.StringWidth(row); w > 42 {
+		t.Errorf("row width %d exceeds pane width 42: %q", w, plain)
 	}
 }
 
