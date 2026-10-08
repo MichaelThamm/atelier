@@ -61,6 +61,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0052 | [Hand the terminal to Terraform instead of re-rendering its output](0052-hand-the-terminal-to-terraform.md) | Accepted |
 | 0053 | [The TUI does not list or apply preset bundles](0053-tui-does-not-list-or-apply-presets.md) | Accepted |
 | 0054 | [A nested `map(string)` is edited as HCL lines](0054-nested-map-string-edits-as-hcl-lines.md) | Accepted |
+| 0055 | [A gallery-sourced import names its own revision](0055-gallery-import-names-its-revision.md) | Accepted |
 
 ## Conventions
 

@@ -323,13 +323,14 @@ import support to Juju for v1.
 
 Flags:
 
-- `--source <git-url>` — clone a remote module, write an Atelier wrapper, and
-  import into it. When omitted, imports into an already-initialised directory. A
-  gallery entry name (§6.8) is accepted in place of a URL; it supplies the
-  module, subdirectory and pinned ref, and **none** of its presets, because an
-  import must describe a deployment that already exists
-  ([ADR-0047](adr/0047-import-gallery-name.md)). An explicit `--module` or
-  `--ref` still wins.
+- `--source <git-url|name>` — clone a remote module, write an Atelier wrapper,
+  and import into it. When omitted, imports into an already-initialised
+  directory. A gallery entry name (§6.8) is accepted in place of a URL; it
+  supplies the module and subdirectory, but **not** its pinned revision, and
+  **none** of its presets, because an import must describe a deployment that
+  already exists ([ADR-0047](adr/0047-import-gallery-name.md),
+  [ADR-0055](adr/0055-gallery-import-names-its-revision.md)). A gallery-sourced
+  import therefore requires `--ref`; an explicit `--module` still wins.
 - `--module <path>` — skip the candidate picker and use the given module path.
 - `--ref <ref>` — check out a specific git ref when cloning.
 - `--dir <path>` — target directory (default: current directory). With
@@ -649,8 +650,10 @@ exactly like any other `--var-file`.
   module, ref, block, and composed presets; an explicit `--ref`, `--module`,
   `--as`, or `--var-file` still wins,
   and a URL or local path is never treated as a name. A bare name that matches
-  nothing is an error naming `atelier gallery list`. `atelier import` is the one
-  exception to the expansion: it takes the module, subdirectory and ref but
+  nothing is an error naming `atelier gallery list`. `atelier import` differs in
+  two ways: it takes the module and subdirectory but **not** the entry's ref — a
+  gallery-sourced import must name the revision it deployed with `--ref`
+  ([ADR-0055](adr/0055-gallery-import-names-its-revision.md)) — and it takes
   **none** of the composed presets, because it must describe a deployment that
   already exists ([ADR-0047](adr/0047-import-gallery-name.md)); the skipped
   presets are named on stderr.

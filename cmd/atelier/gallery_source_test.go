@@ -221,3 +221,89 @@ func TestResolveImportSource_unknownName(t *testing.T) {
 		t.Errorf("error = %q, want it to point at the gallery", err)
 	}
 }
+
+// --- galleryEntry ---
+
+// A gallery name resolves; a URL, a path, an unknown name or an empty string
+// does not, which is what lets the positional guard stay quiet for providers.
+func TestGalleryEntry_recognisesNamesOnly(t *testing.T) {
+	if e, ok := galleryEntry("cos-lite"); !ok || e.Name != "cos-lite" {
+		t.Errorf("galleryEntry(cos-lite) = %+v, %v", e, ok)
+	}
+	for _, src := range []string{
+		"https://github.com/x/y", "git@github.com:x/y.git",
+		"./local", "../local", "/abs/local", "no-such-entry", "",
+	} {
+		if _, ok := galleryEntry(src); ok {
+			t.Errorf("galleryEntry(%q) matched; want not a gallery entry", src)
+		}
+	}
+}
+
+// --- refuseSourcePositional: import's positional is the provider ---
+
+func TestRefuseSourcePositional_galleryEntry(t *testing.T) {
+	err := refuseSourcePositional("cos-lite")
+	if err == nil {
+		t.Fatal("a gallery name as the positional must be refused")
+	}
+	// It must name the entry, the flag that replaces it, and the revision flag.
+	for _, want := range []string{"cos-lite", "--source", "--ref"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to mention %q", err, want)
+		}
+	}
+}
+
+func TestRefuseSourcePositional_sourceLookingValue(t *testing.T) {
+	for _, src := range []string{"https://github.com/x/y", "git@github.com:x/y.git", "./mod", "/abs/mod"} {
+		err := refuseSourcePositional(src)
+		if err == nil {
+			t.Fatalf("%q must be refused as a positional", src)
+		}
+		if !strings.Contains(err.Error(), "--source") {
+			t.Errorf("error = %q, want it to point at --source", err)
+		}
+	}
+}
+
+func TestRefuseSourcePositional_providerIsFine(t *testing.T) {
+	for _, arg := range []string{"", "juju", "juju/juju", "hashicorp/aws", "registry.terraform.io/juju/juju"} {
+		if err := refuseSourcePositional(arg); err != nil {
+			t.Errorf("refuseSourcePositional(%q) = %v, want nil", arg, err)
+		}
+	}
+}
+
+// --- requireGalleryRef: a gallery source names its own revision ---
+
+func TestRequireGalleryRef_requiresRefForGallery(t *testing.T) {
+	err := requireGalleryRef("cos-lite", "", false)
+	if err == nil {
+		t.Fatal("a gallery source without --ref must be refused")
+	}
+	if !strings.Contains(err.Error(), "cos-lite") || !strings.Contains(err.Error(), "--ref") {
+		t.Errorf("error = %q, want the entry and --ref", err)
+	}
+}
+
+func TestRequireGalleryRef_explicitRefSatisfies(t *testing.T) {
+	if err := requireGalleryRef("cos-lite", "track/3.0", false); err != nil {
+		t.Errorf("an explicit --ref must satisfy the requirement: %v", err)
+	}
+}
+
+func TestRequireGalleryRef_ignoresNonGallerySources(t *testing.T) {
+	for _, src := range []string{"", "https://github.com/x/y", "./mod"} {
+		if err := requireGalleryRef(src, "", false); err != nil {
+			t.Errorf("requireGalleryRef(%q) = %v, want nil", src, err)
+		}
+	}
+}
+
+// No matching happens when listing bundles, so there is no revision to get right.
+func TestRequireGalleryRef_listVarFilesNeedsNoRef(t *testing.T) {
+	if err := requireGalleryRef("cos-lite", "", true); err != nil {
+		t.Errorf("listing var files must not require --ref: %v", err)
+	}
+}
