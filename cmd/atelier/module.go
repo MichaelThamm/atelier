@@ -1149,11 +1149,13 @@ func applyWrapper(dir string, autoApprove bool) error {
 	// provider fetches) rather than animating a spinner alongside it. The two
 	// would race on the same terminal: the spinner writes carriage-return frames
 	// with no newline while Terraform writes newline-terminated lines, so a frame
-	// and Terraform's output land on the same line. Clear the writers before
-	// apply, which attaches the terminal itself when interactive.
+	// and Terraform's output land on the same line. Both actions are mirrored
+	// into .atelier/logs/ so a failed apply leaves evidence to read afterwards.
 	fmt.Fprintln(os.Stderr, "Running terraform init…")
-	tf.SetStdout(os.Stdout)
-	tf.SetStderr(os.Stderr)
+	tf.SetStdout(tf.MirrorStdout(os.Stdout))
+	tf.SetStderr(tf.MirrorStderr(os.Stderr))
+	tfexec.WriteTimestampHeader(tf.StdoutFile())
+	tfexec.WriteTimestampHeader(tf.StderrFile())
 	err = tf.InitUpgrade(ctx)
 	tf.SetStdout(nil)
 	tf.SetStderr(nil)

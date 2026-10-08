@@ -2,6 +2,7 @@ package tfexec
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,6 +192,51 @@ func TestApplyDirectCmd_gracefulInterrupt(t *testing.T) {
 	}
 	if cmd.WaitDelay != applyInterruptGrace {
 		t.Errorf("WaitDelay = %v; want %v so a hung apply is still killed", cmd.WaitDelay, applyInterruptGrace)
+	}
+}
+
+// TestApplyDirect_teesToLogs guards the CLI-apply durability contract: a failed
+// `atelier apply` must leave terraform's output in .atelier/logs/, the way a
+// TUI plan/apply does. Without the tee, the first apply of a broken deployment
+// leaves nothing to read afterwards.
+func TestApplyDirect_teesToLogs(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fake-terraform")
+	body := "#!/bin/sh\nprintf 'plan-output-line\\n'\nprintf 'error-line\\n' >&2\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := New(dir, script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tf.ApplyDirect(context.Background(), true); err != nil {
+		t.Fatalf("ApplyDirect: %v", err)
+	}
+	for _, c := range []struct {
+		name string
+		want string
+	}{
+		{StdoutLogName, "plan-output-line"},
+		{StderrLogName, "error-line"},
+	} {
+		got, err := os.ReadFile(filepath.Join(dir, LogDir, c.name))
+		if err != nil {
+			t.Fatalf("read %s: %v", c.name, err)
+		}
+		if !strings.Contains(string(got), c.want) {
+			t.Errorf("%s = %q; want it to contain %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestMirrorLog_nilIsPassthrough covers the no-logging case: with logging not
+// configured the writer must be returned unchanged rather than wrapped around a
+// nil file.
+func TestMirrorLog_nilIsPassthrough(t *testing.T) {
+	var buf strings.Builder
+	if got := mirrorLog(&buf, nil); got != io.Writer(&buf) {
+		t.Errorf("mirrorLog with nil log = %T; want the original writer", got)
 	}
 }
 
