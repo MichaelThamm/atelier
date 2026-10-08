@@ -84,6 +84,12 @@ func newJSONModule(name, address string) jsonModule {
 type jsonResource struct {
 	Address string `json:"address"`
 	Type    string `json:"type"`
+	// Create and LiveCandidates are set for unmatched module resources so a
+	// consumer can tell "no live counterpart, apply will create it" (Create)
+	// from "ambiguous match, import manually" (LiveCandidates > 1). They are
+	// omitted elsewhere.
+	Create         bool `json:"create,omitempty"`
+	LiveCandidates int  `json:"liveCandidates,omitempty"`
 }
 
 // --- atelier ls --------------------------------------------------------------
@@ -210,8 +216,10 @@ type jsonImport struct {
 	// could not be built. A later apply would create them, duplicating live
 	// infrastructure.
 	Unresolved []jsonResource `json:"unresolved"`
-	// UnmatchedModule lists module resources with no live match; an apply would
-	// create them too.
+	// UnmatchedModule lists module resources with no live match. An entry with
+	// Create set has no live counterpart and will be created by a later apply;
+	// one with LiveCandidates > 1 matched several live objects and needs a
+	// manual choice. Otherwise it is already in state.
 	UnmatchedModule []jsonResource `json:"unmatchedModule"`
 	// UnmatchedLive lists live objects no module resource claimed. Unlike the
 	// text report, names are neither elided nor truncated: a machine consumer
@@ -289,7 +297,12 @@ func importPayload(res *importer.Result, dryRun bool) jsonImport {
 		out.Unresolved = append(out.Unresolved, jsonResource{Address: m.Address, Type: m.ResourceType})
 	}
 	for _, p := range res.UnmatchedPlanned {
-		out.UnmatchedModule = append(out.UnmatchedModule, jsonResource{Address: p.Address, Type: p.Type})
+		out.UnmatchedModule = append(out.UnmatchedModule, jsonResource{
+			Address:        p.Address,
+			Type:           p.Type,
+			Create:         p.Create,
+			LiveCandidates: p.LiveCandidates,
+		})
 	}
 	for _, g := range importer.GroupUnmatchedLive(res.UnmatchedLive) {
 		out.UnmatchedLive = append(out.UnmatchedLive, jsonLiveGroup{

@@ -274,6 +274,23 @@ func TestImportPayload_reportsWhatAnApplyWouldCreate(t *testing.T) {
 	}
 }
 
+// The text report now distinguishes "no live counterpart, apply will create
+// it" from "ambiguous match, import manually". The payload carries the same
+// distinction so a JSON consumer does not have to infer it.
+func TestImportPayload_unmatchedModuleCarriesCategory(t *testing.T) {
+	res := &importer.Result{UnmatchedPlanned: []importer.PlannedResource{
+		{Address: "module.cos.a", Type: "juju_application", Create: true},
+		{Address: "module.cos.b", Type: "juju_integration", LiveCandidates: 3},
+	}}
+	got := render(t, "import", importPayload(res, false))
+	if !strings.Contains(got, `"create": true`) {
+		t.Errorf("create flag missing:\n%s", got)
+	}
+	if !strings.Contains(got, `"liveCandidates": 3`) {
+		t.Errorf("candidate count missing:\n%s", got)
+	}
+}
+
 // The text report shows three names per group and elides long ones; a machine
 // consumer gets all of them, unabbreviated.
 func TestImportPayload_keepsEveryLiveName(t *testing.T) {

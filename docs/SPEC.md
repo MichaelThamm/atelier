@@ -1098,6 +1098,9 @@ Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 m
 ```
 
 - Resources grouped by module path (collapsible) then resource type.
+- Module and type rows carry a trailing tally of the actions beneath them
+  (`+N ~N -N ↻N`, zero buckets omitted), so a collapsed subtree still shows how
+  much work it holds. A long module path truncates; the tally does not.
 - Selecting a leaf opens an attribute diff in a side pane.
 - Both the plan tree and the diff pane are independently scrollable when
   content exceeds the available height. The tree scrolls with

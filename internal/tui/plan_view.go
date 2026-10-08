@@ -124,7 +124,7 @@ func (m *Model) renderPlanTree() string {
 
 	var b strings.Builder
 	for i := m.planScroll; i < end; i++ {
-		line := renderPlanRow(rows[i])
+		line := renderPlanRow(rows[i], innerWidth)
 		// Truncate to prevent wrapping that would break the height budget.
 		line = ansi.Truncate(line, innerWidth, "…")
 		if i == m.planCursor {
@@ -147,31 +147,62 @@ func (m *Model) renderPlanTree() string {
 }
 
 // renderPlanRow renders one tree row. Module and type rows get a caret
-// indicator (▾ expanded, ▸ collapsed) and theme-tinted labels; resource
-// rows display their coloured action marker and the resource name.
-func renderPlanRow(r planRow) string {
+// indicator (▾ expanded, ▸ collapsed), a theme-tinted label, and a trailing
+// tally of the actions beneath them; resource rows display their coloured
+// action marker and the resource name. width is the pane's inner width, used
+// to reserve room for a tally so it survives a long module name.
+func renderPlanRow(r planRow, width int) string {
 	indent := strings.Repeat("  ", r.Depth)
 	n := r.Node
 	switch n.Kind {
 	case nodeModule:
-		caret := "▾"
-		if n.Collapsed {
-			caret = "▸"
-		}
-		return fmt.Sprintf("%s%s %s", indent, caret, stylePlanModule.Render(n.Label))
+		return renderTallyRow(indent, n, stylePlanModule, width)
 	case nodeType:
-		caret := "▾"
-		if n.Collapsed {
-			caret = "▸"
-		}
-		return fmt.Sprintf("%s%s %s", indent, caret, stylePlanType.Render(n.Label))
+		return renderTallyRow(indent, n, stylePlanType, width)
 	case nodeResource:
-		return fmt.Sprintf("%s%s %s",
-			indent,
-			styledAction(n.Action),
-			stylePlanResource.Render(n.Label))
+		return fmt.Sprintf("%s%s %s", indent, styledAction(n.Action), stylePlanResource.Render(n.Label))
 	}
 	return indent + n.Label
+}
+
+// renderTallyRow renders a module or type row with its aggregate action tally
+// after the label. The label is truncated first, so a long module name cannot
+// push the tally past the pane edge — the tally is the whole point of the row
+// when the subtree is collapsed.
+func renderTallyRow(indent string, n *planNode, labelStyle lipgloss.Style, width int) string {
+	caret := "▾"
+	if n.Collapsed {
+		caret = "▸"
+	}
+	suffix := ""
+	if n.Tally.Total() > 0 {
+		suffix = "  " + renderTally(n.Tally)
+	}
+	avail := width - ansi.StringWidth(indent) - ansi.StringWidth(caret) - 1 - ansi.StringWidth(suffix)
+	if avail < 1 {
+		avail = 1
+	}
+	label := ansi.Truncate(n.Label, avail, "…")
+	return fmt.Sprintf("%s%s %s%s", indent, caret, labelStyle.Render(label), suffix)
+}
+
+// renderTally renders an action tally as coloured counts, omitting zero buckets
+// so a create-only subtree reads as a single `+53`.
+func renderTally(t actionTally) string {
+	var parts []string
+	if t.Add > 0 {
+		parts = append(parts, stylePlanAdd.Render(fmt.Sprintf("+%d", t.Add)))
+	}
+	if t.Change > 0 {
+		parts = append(parts, stylePlanChange.Render(fmt.Sprintf("~%d", t.Change)))
+	}
+	if t.Destroy > 0 {
+		parts = append(parts, stylePlanDelete.Render(fmt.Sprintf("-%d", t.Destroy)))
+	}
+	if t.Replace > 0 {
+		parts = append(parts, stylePlanReplace.Render(fmt.Sprintf("↻%d", t.Replace)))
+	}
+	return strings.Join(parts, " ")
 }
 
 // styledAction returns a coloured +/~/-/↻ marker. Maps to the action

@@ -19,6 +19,10 @@ type PlannedResource struct {
 	Address string
 	// Type is the resource type, e.g. "juju_application".
 	Type string
+	// Module is the module address the resource belongs to ("" for the root
+	// module), taken from the plan. Reports group unmatched resources by it so
+	// a whole absent subtree reads as one line instead of dozens.
+	Module string
 	// PlannedName is the value of the "name" attribute in the planned state
 	// (from After). When the Terraform resource label differs from the
 	// provider object's display name (e.g. juju_application "self-signed-certificates"
@@ -33,6 +37,19 @@ type PlannedResource struct {
 	// for attribute-based matching (e.g. integrations matched by endpoint
 	// pair).
 	PlannedAttrs map[string]any
+
+	// The two fields below are not derived from the plan; the pipeline fills
+	// them on unmatched resources so a report can say what, if anything, a
+	// user must do about each.
+
+	// Create reports whether the plan would create this resource (it is
+	// absent from state). False means it is already tracked, so an unmatched
+	// entry needs no action even though no live object matched it.
+	Create bool
+	// LiveCandidates is the number of live objects the matcher found, set only
+	// on unmatched resources: 0 means nothing live exists (nothing to import),
+	// >1 means the match was ambiguous and needs a manual decision.
+	LiveCandidates int
 }
 
 // MatchedImport pairs a module address with the live object's resource type
@@ -101,6 +118,7 @@ func PlannedCreates(plan *tfjson.Plan, includeExisting bool) []PlannedResource {
 		pr := PlannedResource{
 			Address: rc.Address,
 			Type:    rc.Type,
+			Module:  rc.ModuleAddress,
 		}
 		if after, ok := rc.Change.After.(map[string]any); ok {
 			pr.PlannedAttrs = after
@@ -146,6 +164,10 @@ func Match(live []tfexec.LiveResource, planned []PlannedResource, fallback Fallb
 			fmt.Fprintf(os.Stderr, "  -> %d candidates\n", len(candidates))
 		}
 		if len(candidates) != 1 {
+			// Record how many live objects qualified, so a report can tell "no
+			// live counterpart" (0, nothing to import) apart from "ambiguous"
+			// (>1, needs a manual decision). Both stay unmatched.
+			p.LiveCandidates = len(candidates)
 			unmatchedPlanned = append(unmatchedPlanned, p)
 			continue
 		}
@@ -190,8 +212,14 @@ func Match(live []tfexec.LiveResource, planned []PlannedResource, fallback Fallb
 //     by endpoint pairs, offers by URL).
 //
 // Later phases run only when earlier phases yield zero or multiple candidates.
+// The return value is the decisive singleton on a match. When nothing resolves
+// to exactly one, it is the largest set of candidates any phase produced — nil
+// for "no live counterpart", non-nil for "ambiguous" — which lets a report
+// tell the two apart. A caller must treat any non-singleton result as a miss.
 func candidateIndexes(resourceType, targetName, plannedName string,
 	plannedIdentity, plannedAttrs map[string]any, live []tfexec.LiveResource, used []bool, fallback FallbackMatcher, verbose bool) []int {
+
+	var ambiguous []int
 
 	// Phase 1: exact identity match (provider-declared, preferred).
 	if len(plannedIdentity) > 0 {
@@ -209,6 +237,9 @@ func candidateIndexes(resourceType, targetName, plannedName string,
 		}
 		if len(out) == 1 {
 			return out
+		}
+		if len(out) > 1 {
+			ambiguous = out
 		}
 	}
 
@@ -229,16 +260,23 @@ func candidateIndexes(resourceType, targetName, plannedName string,
 		if len(out) == 1 {
 			return out
 		}
+		if len(out) > 1 {
+			ambiguous = out
+		}
 	}
 
 	// Phase 3: provider-specific fallback, if the selected provider offers one.
 	if fallback != nil {
-		if out := fallback(resourceType, targetName, plannedName, plannedAttrs, live, used, verbose); len(out) == 1 {
+		out := fallback(resourceType, targetName, plannedName, plannedAttrs, live, used, verbose)
+		if len(out) == 1 {
 			return out
+		}
+		if len(out) > 1 {
+			ambiguous = out
 		}
 	}
 
-	return nil
+	return ambiguous
 }
 
 // identityMatch checks whether two identity objects are compatible. All keys
@@ -263,11 +301,20 @@ func identityMatch(planned, live map[string]any) bool {
 }
 
 // shortName extracts the resource label from a module address — the last
-// dot-separated segment. E.g. "module.cos.juju_application.alertmanager" →
-// "alertmanager".
+// dot-separated segment, minus any count index or for_each key. E.g.
+// "module.cos.juju_application.alertmanager" → "alertmanager" and
+// `module.cos.juju_model.cos[0]` → "cos". Without stripping the index, a
+// count-indexed address never matches a live display name, so an existing
+// resource is reported as unmatched.
 func shortName(addr string) string {
-	if i := strings.LastIndex(addr, "."); i >= 0 {
-		return addr[i+1:]
+	// Strip a trailing count index (`[0]`) or for_each key (`["a.b"]`) before
+	// segmenting: the key may itself contain a dot, so splitting first would
+	// cut inside it.
+	if i := strings.LastIndexByte(addr, '['); i >= 0 && strings.HasSuffix(addr, "]") {
+		addr = addr[:i]
+	}
+	if i := strings.LastIndexByte(addr, '.'); i >= 0 {
+		addr = addr[i+1:]
 	}
 	return addr
 }
