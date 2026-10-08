@@ -48,7 +48,7 @@ atelier import juju \
     --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8
 ```
 
-The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. `--source` also accepts a gallery entry name (`atelier gallery list`); the entry supplies the module and its subdirectory but not a revision, so a gallery-sourced import must pass `--ref`. Pin `--ref` to the revision you deployed: matching happens against the addresses the module declares at that ref, so a moving branch can yield addresses your deployment does not have. `--query-var model_uuid` is required by the Juju provider's query engine — it selects which model to enumerate.
+The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. Pin `--ref` to the revision you deployed: matching happens against the addresses the module declares at that ref, so a moving branch can yield addresses your deployment does not have. `--query-var model_uuid` is required by the Juju provider's query engine — it selects which model to enumerate.
 
 When the directory already holds a wrapper, the module comes from that wrapper rather than from these flags — so a `--module` or `--ref` that contradicts it is refused instead of ignored. Flags you leave out are not a contradiction, so the recovery command above also works with only `--source` and `--query-var`.
 
