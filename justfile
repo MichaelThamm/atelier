@@ -81,10 +81,6 @@ install:
 test-integration: build-bin
     ATELIER_BIN={{atelier_bin}} {{pytest}} tests/integration -m "not cloud" {{pytest_flags}}
 
-# Cloud tier: prometheus-k8s deploy smoke test. Needs Juju + Canonical K8s.
-test-prometheus: build-bin
-    ATELIER_BIN={{atelier_bin}} {{pytest}} tests/integration/prometheus -m cloud {{pytest_flags}}
-
 # Cloud tier: COS-Lite import round-trip. Needs Juju + Canonical K8s.
 test-import: build-bin
     ATELIER_BIN={{atelier_bin}} {{pytest}} tests/integration/import -m cloud {{pytest_flags}}
@@ -197,8 +193,8 @@ gallery-check: build-bin
     done <<< "$scan"
     exit "$fail"
 
-# Both cloud tiers (local convenience; CI runs them as separate jobs).
-test-cloud: test-prometheus test-import
+# The cloud tier (local convenience; CI runs it as its own job).
+test-cloud: test-import
 
 # Tidy module dependencies.
 tidy:

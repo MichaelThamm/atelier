@@ -21,7 +21,7 @@ Keep one logical change per PR. The repo contract is in ../AGENTS.md.
 
 - [ ] `just check` passes locally.
 - [ ] New or changed behavior has a test that fails without the change.
-- [ ] Integration tiers affected: <!-- none / wrapper / prometheus / import -->
+- [ ] Integration tiers affected: <!-- none / wrapper / import -->
 
 ## Docs
 
