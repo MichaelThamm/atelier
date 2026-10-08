@@ -107,7 +107,7 @@ The number to watch is **to add**. Those are resources the module would create r
 
 `imports.tf` is a reviewable artifact you can edit and keep. Note that Atelier does **not** apply it: importing is done with `terraform import`, which only writes state and so cannot alter infrastructure. Applying `imports.tf` yourself is riskier, because `import {}` blocks land in the same plan as everything else — a `terraform apply` would also create every resource the file does not cover.
 
-Atelier queries the live deployment and reports what it matched. Some module resources have zero or ambiguous live matches and must be imported manually. Live resources not declared by the module are left alone. From this point forward, you manage the deployment with normal Atelier operations. Running `atelier` in the wrapper directory opens the TUI with the imported state loaded:
+Atelier queries the live deployment and reports what it matched, splitting unmatched module resources by what, if anything, you must do about them: resources with no live counterpart will be created on the next apply (there is nothing to import), genuinely ambiguous matches need a manual choice, and resources already in state need nothing. Live resources not declared by the module are left alone. From this point forward, you manage the deployment with normal Atelier operations. Running `atelier` in the wrapper directory opens the TUI with the imported state loaded:
 
 ```
 Module: cos_lite@track/3.0  ✓ valid  ⚠ 6 check warning(s)
@@ -143,10 +143,11 @@ which completes with:
 ⠹ Matching live resources to module addresses…
 Injected model UUID a3592360-792b-412d-814f-8a29e82191b6 into wrapper.
 
+Plan before import: 3 to add, 0 to change, 0 to destroy.
+
 Unmatched module resources (no single live object identified): 3
-  ? module.loki_operators.juju_access_secret.loki_s3_secret_access
-  ? module.loki_operators.juju_application.s3_integrator
-  ? module.loki_operators.juju_integration.coordinator_to_s3_integrator
+  Will be created on apply — no live object exists to import: 3
+    module.loki_operators                              3
 
 Imported 5 resource(s) into state:
   ✓ module.loki_operators.juju_secret.loki_s3_credentials_secret
@@ -156,7 +157,7 @@ Imported 5 resource(s) into state:
   ✓ module.loki_operators.module.loki_write.juju_application.loki_worker
 ```
 
-and correctly identifies the `juju_application.s3_integrator` (and its associated resources) as not importable, since they were manually removed. When we open the wrapper again with `atelier`, we can plan and apply the state to continue operations as if we never lost the state:
+and correctly reports the `juju_application.s3_integrator` (and its associated resources) as having no live counterpart, so a later apply will create them — they were manually removed, and there is nothing for import to fetch. When we open the wrapper again with `atelier`, we can plan and apply the state to continue operations as if we never lost the state:
 ```
 Model  Controller  Cloud/Region  Version  SLA          Timestamp
 loki   k8s         k8s           3.6.23   unsupported  15:18:50-04:00

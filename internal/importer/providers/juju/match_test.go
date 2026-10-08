@@ -254,3 +254,61 @@ func TestMatchOfferAmbiguousStaysUnmatched(t *testing.T) {
 		t.Errorf("want 1 unmatched planned, got %d", len(unmatchedPlanned))
 	}
 }
+
+// A managed juju_model is reported unmatched by the generic phases because the
+// live display name is the UUID while the plan carries the model name. The
+// Juju fallback must reconnect them, or an existing model shows up as an
+// unmatched resource that needs no action.
+func TestMatchModelByUUID(t *testing.T) {
+	const uuid = "b9663312-d3c5-4ff3-81e5-ad85cb518ffc"
+	live := []tfexec.LiveResource{{
+		ResourceType: "juju_model",
+		DisplayName:  uuid,
+		Identity:     map[string]any{"id": uuid},
+		Attributes:   map[string]any{"name": "cos", "uuid": uuid},
+	}}
+	planned := []importer.PlannedResource{{
+		Address:      "module.cos.juju_model.cos[0]",
+		Type:         "juju_model",
+		PlannedAttrs: map[string]any{"name": "cos", "uuid": uuid},
+	}}
+	matched, unmatchedPlanned, unmatchedLive := importer.Match(live, planned, matchFallback, false)
+	if len(matched) != 1 {
+		t.Fatalf("expected 1 matched model, got %d: unmatched=%v", len(matched), unmatchedPlanned)
+	}
+	if matched[0].Address != "module.cos.juju_model.cos[0]" {
+		t.Errorf("matched %q, want the model address", matched[0].Address)
+	}
+	if len(unmatchedLive) != 0 {
+		t.Errorf("expected 0 unmatched live, got %v", unmatchedLive)
+	}
+}
+
+// On a create the plan does not yet know the model UUID, so the fallback falls
+// back to the planned name against the live resource_object's "name".
+func TestMatchModelByNameWhenUUIDUnknown(t *testing.T) {
+	live := []tfexec.LiveResource{{
+		ResourceType: "juju_model",
+		DisplayName:  "b9663312-d3c5-4ff3-81e5-ad85cb518ffc",
+		Identity:     map[string]any{"id": "b9663312-d3c5-4ff3-81e5-ad85cb518ffc"},
+		Attributes:   map[string]any{"name": "cos"},
+	}}
+	planned := []importer.PlannedResource{{
+		Address:      "module.cos.juju_model.cos",
+		Type:         "juju_model",
+		PlannedAttrs: map[string]any{"name": "cos"},
+	}}
+	matched, _, _ := importer.Match(live, planned, matchFallback, false)
+	if len(matched) != 1 {
+		t.Fatalf("expected 1 matched model by name, got %d", len(matched))
+	}
+}
+
+func TestMatchModelNoIdentity(t *testing.T) {
+	live := []tfexec.LiveResource{{ResourceType: "juju_model", DisplayName: "x"}}
+	planned := []importer.PlannedResource{{Address: "module.cos.juju_model.cos", Type: "juju_model", PlannedAttrs: map[string]any{}}}
+	matched, _, _ := importer.Match(live, planned, matchFallback, false)
+	if len(matched) != 0 {
+		t.Errorf("a model with no planned name or uuid must not match: %+v", matched)
+	}
+}

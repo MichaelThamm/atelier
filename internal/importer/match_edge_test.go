@@ -133,6 +133,11 @@ func TestShortName(t *testing.T) {
 		{"single", "single"},
 		{"", ""},
 		{"a.b.c.d", "d"},
+		// Indexed addresses: the count index and for_each key must not survive,
+		// or a resource already in state can never match a live display name.
+		{"module.cos.juju_model.cos[0]", "cos"},
+		{`module.cos.juju_integration.alerting["loki"]`, "alerting"},
+		{`module.cos.juju_integration.alerting["a.b"]`, "alerting"},
 	} {
 		got := shortName(tc.addr)
 		if got != tc.want {
@@ -283,5 +288,51 @@ func TestMatch_NoPlanned(t *testing.T) {
 	}
 	if len(unmatchedL) != 1 {
 		t.Errorf("unmatchedLive: got %d, want 1", len(unmatchedL))
+	}
+}
+
+// An unmatched resource must record whether a live counterpart was absent
+// entirely (0 — nothing to import) or ambiguous (>1 — needs a manual choice),
+// because the report treats those two very differently.
+func TestMatch_RecordsCandidateCount(t *testing.T) {
+	planned := []PlannedResource{
+		{Address: "juju_application.no_live", Type: "juju_application", PlannedName: "no_live"},
+		{Address: "juju_application.ambiguous", Type: "juju_application", PlannedName: "ambiguous"},
+	}
+	live := []tfexec.LiveResource{
+		{ResourceType: "juju_application", DisplayName: "ambiguous"},
+		{ResourceType: "juju_application", DisplayName: "ambiguous"},
+	}
+	matched, unmatchedP, _ := Match(live, planned, nil, false)
+	if len(matched) != 0 {
+		t.Fatalf("matched: got %d, want 0", len(matched))
+	}
+	got := map[string]int{}
+	for _, p := range unmatchedP {
+		got[p.Address] = p.LiveCandidates
+	}
+	if got["juju_application.no_live"] != 0 {
+		t.Errorf("no_live LiveCandidates = %d, want 0", got["juju_application.no_live"])
+	}
+	if got["juju_application.ambiguous"] != 2 {
+		t.Errorf("ambiguous LiveCandidates = %d, want 2", got["juju_application.ambiguous"])
+	}
+}
+
+// markPlannedCreates is what lets the report say "apply will create this"
+// rather than "import it manually": only addresses present in the create-only
+// plan get the flag.
+func TestMarkPlannedCreates(t *testing.T) {
+	unmatched := []PlannedResource{
+		{Address: "module.cos.juju_offer.loki_logging"},
+		{Address: "module.cos.juju_model.cos[0]"},
+	}
+	creates := []PlannedResource{{Address: "module.cos.juju_offer.loki_logging"}}
+	got := markPlannedCreates(unmatched, creates)
+	if !got[0].Create {
+		t.Error("offer should be flagged as a create")
+	}
+	if got[1].Create {
+		t.Error("already-tracked model must not be flagged as a create")
 	}
 }
