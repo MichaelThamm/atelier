@@ -89,7 +89,8 @@ jobs:
             echo "integration=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # Fast integration tier: `atelier add` against a real module. No Juju model.
+  # Fast integration tier: `atelier add`/`apply` and the wrapper lifecycle,
+  # against real upstream modules and hermetic local ones. No Juju model.
   wrapper:
     name: Fast integration tests
     needs: [build-test, changes]
