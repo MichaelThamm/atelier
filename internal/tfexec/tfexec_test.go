@@ -182,6 +182,18 @@ func TestApplyDirect_autoApprove(t *testing.T) {
 	}
 }
 
+// TestApplyDirectCmd_gracefulInterrupt pins the Ctrl-C contract: a nil Cancel
+// (rather than Go's default SIGKILL) and a bounded WaitDelay.
+func TestApplyDirectCmd_gracefulInterrupt(t *testing.T) {
+	cmd := applyDirectCmd(context.Background(), "terraform", t.TempDir(), false)
+	if cmd.Cancel != nil {
+		t.Error("Cancel must be nil; the terminal already signals the child, and a second SIGINT force-quits it")
+	}
+	if cmd.WaitDelay != applyInterruptGrace {
+		t.Errorf("WaitDelay = %v; want %v so a hung apply is still killed", cmd.WaitDelay, applyInterruptGrace)
+	}
+}
+
 func TestDebugEnabled(t *testing.T) {
 	cases := map[string]bool{
 		"":      false,

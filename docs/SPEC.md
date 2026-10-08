@@ -731,6 +731,10 @@ Sequence, for a target with no `main.tf`:
 3. Write the wrapper (bootstrap) into the target.
 4. Run `terraform init`, then **`terraform apply`**.
 
+The apply is interruptible: Ctrl-C is delivered to Terraform, which cancels and
+persists what it had created; a second Ctrl-C, or a Terraform that will not stop,
+is ended after a short grace. Atelier does not hard-kill it on the first interrupt.
+
 For a target that already holds a `main.tf`, steps 2 and 3 are replaced by a
 compose into that wrapper — same clone, candidate discovery, and
 `--var`/`--var-file` handling — and step 4 runs in that target. What the wrapper
