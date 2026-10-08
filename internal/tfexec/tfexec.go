@@ -244,6 +244,24 @@ func (t *Terraform) StdoutFile() *os.File {
 	return t.stdoutFile
 }
 
+// MirrorStdout returns w teed with the wrapper's durable tf-stdout.log, or w
+// unchanged when logging is not configured. The CLI `apply` streams terraform
+// straight to the terminal, so without this a failed CLI apply leaves no log to
+// read — the opposite of the TUI, which streams through the log file itself.
+func (t *Terraform) MirrorStdout(w io.Writer) io.Writer { return mirrorLog(w, t.stdoutFile) }
+
+// MirrorStderr is MirrorStdout for stderr and tf-stderr.log.
+func (t *Terraform) MirrorStderr(w io.Writer) io.Writer { return mirrorLog(w, t.stderrFile) }
+
+// mirrorLog writes to the durable log first, so a broken terminal (a closed
+// pipe, say) cannot swallow the copy that outlives the run.
+func mirrorLog(w io.Writer, log *os.File) io.Writer {
+	if log == nil {
+		return w
+	}
+	return io.MultiWriter(log, w)
+}
+
 // Validate runs `terraform validate -json`.
 func (t *Terraform) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
 	return t.tf.Validate(ctx)
@@ -300,7 +318,7 @@ func applyDirectCmd(ctx context.Context, execPath, workdir string, autoApprove b
 	return cmd
 }
 
-// ApplyDirect runs `terraform apply` in the wrapper with the process's terminal
+// ApplyDirect runs `terraform apply` in the wrapper with the process's stdin
 // attached, so Terraform prints the plan and reads the approval answer from
 // stdin. It deliberately passes neither -auto-approve nor -input=false when
 // interactive: the user reviews and confirms the plan, which is the point of
@@ -311,12 +329,19 @@ func applyDirectCmd(ctx context.Context, execPath, workdir string, autoApprove b
 // there is no one to answer the prompt. The choice is the caller's, based on
 // whether stdin is a terminal.
 //
+// stdout and stderr are mirrored into .atelier/logs/, so a CLI apply leaves the
+// same durable evidence a TUI plan/apply does. Mirroring routes them through a
+// pipe, so terraform sees no terminal on stdout and drops its color; the
+// approval prompt is unaffected (it is read from stdin, which stays attached).
+//
 // An interrupted apply lets Terraform cancel itself rather than killing it; see
 // applyDirectCmd.
 func (t *Terraform) ApplyDirect(ctx context.Context, autoApprove bool) error {
 	cmd := applyDirectCmd(ctx, t.binPath, t.workdir, autoApprove)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	WriteTimestampHeader(t.stdoutFile)
+	WriteTimestampHeader(t.stderrFile)
+	cmd.Stdout = t.MirrorStdout(os.Stdout)
+	cmd.Stderr = t.MirrorStderr(os.Stderr)
 	if !autoApprove {
 		cmd.Stdin = os.Stdin
 	}

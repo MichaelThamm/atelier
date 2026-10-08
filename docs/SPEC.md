@@ -1147,7 +1147,7 @@ still works by running it directly in the wrapper. Tracked in
 
 There is no in-TUI logs view. Apply output reaches the user because `A` releases
 the terminal to Terraform ([ADR-0052](adr/0052-hand-the-terminal-to-terraform.md)),
-and a plan the TUI runs on the user's behalf leaves its output on disk:
+and both the TUI's plan and the CLI's `init`/`apply` leave their output on disk:
 
 ```
 .atelier/logs/tf-stderr.log    errors, warnings, diagnostics
@@ -1156,9 +1156,12 @@ and a plan the TUI runs on the user's behalf leaves its output on disk:
 ```
 
 Both files are appended, never truncated, so a record survives across sessions.
-Each action the TUI drives (`init`, `plan`, the ref-switch `init -upgrade`)
-writes a timestamp header (`=== action started at HH:MM:05 ===`) before its
-output, so a session's blocks stay delimited.
+Each action writes a timestamp header (`=== action started at HH:MM:05 ===`)
+before its output, so a session's blocks stay delimited. The TUI's `init`,
+`plan`, and ref-switch `init -upgrade` stream only to the logs (the TUI renders
+the plan tree itself); the CLI `apply` streams to the terminal and mirrors to
+the logs, so an apply that fails after Terraform printed an error still leaves
+that error behind to read.
 
 A failed plan is reported in the status bar as `plan failed: <terraform's first
 line>`; the rest of the diagnostics are in `tf-stderr.log`. `.atelier/` is
