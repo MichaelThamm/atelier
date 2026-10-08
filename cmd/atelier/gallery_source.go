@@ -27,11 +27,11 @@ func resolveImportSource(opts *moduleOpts) error {
 }
 
 func resolveSource(opts *moduleOpts, composePresets bool) error {
-	if looksLikeSource(opts.Source) {
-		return nil
-	}
-	entry, ok := gallery.Find(opts.Source)
+	entry, ok := galleryEntry(opts.Source)
 	if !ok {
+		if looksLikeSource(opts.Source) {
+			return nil
+		}
 		return fmt.Errorf("%q is not a module URL, a local path, or a gallery entry; run 'atelier gallery list' to see the gallery", opts.Source)
 	}
 	opts.Source = entry.Module
@@ -66,4 +66,15 @@ func resolveSource(opts *moduleOpts, composePresets bool) error {
 // either of which is used as-is rather than looked up in the gallery.
 func looksLikeSource(src string) bool {
 	return strings.Contains(src, "://") || strings.HasPrefix(src, "git@") || modulesource.IsLocal(src)
+}
+
+// galleryEntry returns the bundled entry named by src, when src is a bare name
+// that is neither a URL nor a local path. It is the single lookup the source
+// resolvers and `atelier import`'s guards share, so a bare name is classified
+// the same way everywhere.
+func galleryEntry(src string) (gallery.Entry, bool) {
+	if src == "" || looksLikeSource(src) {
+		return gallery.Entry{}, false
+	}
+	return gallery.Find(src)
 }

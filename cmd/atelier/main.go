@@ -102,15 +102,16 @@ Usage:
                                                Terraform's prompt; with no terminal it applies with
                                                -auto-approve.
   atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
-  atelier import [PROVIDER] [--source URL] [--module PATH] [--ref REF]
+  atelier import [PROVIDER] [--source URL|NAME] [--module PATH] [--ref REF]
         [--dir PATH] [--type T] [--var K=V] [--var-file PATH|NAME]
         [--list-var-files] [--query-var K=V] [--dry-run] [--list] [--yes] [--json]
                                                 Import a running deployment into Terraform state. With --source,
                                                 clones a remote module, writes an Atelier wrapper, and imports
                                                 live resources into it. --source takes a gallery name (see
                                                 'atelier gallery list') in place of a URL: it supplies the
-                                                module, its subdirectory and its pinned revision, but none of
-                                                its presets — an import must match what is already deployed.
+                                                module and its subdirectory, but none of its presets, and a
+                                                gallery-sourced import must name the revision it deployed with
+                                                --ref — the entry's pinned SHA is not assumed.
                                                 Without --source, imports into an
                                                 already-initialised directory. Discovers live resources via
                                                 'terraform query' (requires terraform >= 1.14), matches them to

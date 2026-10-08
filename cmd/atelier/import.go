@@ -16,6 +16,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/MichaelThamm/atelier/internal/bootstrap"
+	"github.com/MichaelThamm/atelier/internal/gallery"
 	"github.com/MichaelThamm/atelier/internal/importer"
 	"github.com/MichaelThamm/atelier/internal/importer/providers"
 	"github.com/MichaelThamm/atelier/internal/modulesource"
@@ -172,13 +173,29 @@ func runImport(args []string) error {
 		}
 	}
 
+	// import's positional is the PROVIDER; the module comes from --source. A
+	// positional that names a module source is a user reaching for `apply`'s
+	// grammar, where the positional is the source — say which flag they want
+	// rather than letting it fail later as an unrecognised provider.
+	if err := refuseSourcePositional(providerArg); err != nil {
+		return err
+	}
+
 	if err := validateImportFlags(varFiles, sourceArg, listVarFiles); err != nil {
 		return err
 	}
 
-	// A gallery entry name is a valid --source: expand it before anything reads
-	// the source. Import takes the module, subdirectory and pinned ref, and
-	// none of the entry's presets (ADR-0047).
+	// A gallery entry supplies the module and subdirectory but not the revision:
+	// import matches live resources against the module at a revision, and only
+	// the user knows which one the deployment runs, so the entry's pinned SHA is
+	// never a silent default (ADR-0055).
+	if err := requireGalleryRef(sourceArg, refArg, listVarFiles); err != nil {
+		return err
+	}
+
+	// Expand a gallery entry name into what it stands for — module,
+	// subdirectory, block name — before anything reads the source, and compose
+	// none of its presets (ADR-0047).
 	src := moduleOpts{Source: sourceArg, ModulePath: moduleArg, Ref: refArg}
 	if sourceArg != "" {
 		if err := resolveImportSource(&src); err != nil {
@@ -857,6 +874,56 @@ func validateImportFlags(varFiles []string, sourceArg string, listVarFiles bool)
 		return fmt.Errorf("--list-var-files requires --source: there is no module repo to search otherwise")
 	}
 	return nil
+}
+
+// refuseSourcePositional rejects a positional that names a module source. The
+// positional is the PROVIDER and the module comes from --source; without this,
+// `atelier import cos-lite` reaches the provider resolver and fails as an
+// unrecognised provider "cos-lite/cos-lite", which does not say what to do.
+func refuseSourcePositional(arg string) error {
+	if _, ok := galleryEntry(arg); ok {
+		return fmt.Errorf(
+			"%q is a gallery entry, not a provider.\n"+
+				"  Name it as the source, with the revision you deployed:\n"+
+				"    atelier import juju --source %s --ref <branch|tag|revision>",
+			arg, arg)
+	}
+	if looksLikeSource(arg) {
+		return fmt.Errorf(
+			"%q is a module source, not a provider.\n"+
+				"  Name it with --source:\n"+
+				"    atelier import juju --source %s ...",
+			arg, arg)
+	}
+	return nil
+}
+
+// requireGalleryRef reports the error for a gallery-sourced import that left
+// --ref unset (ADR-0055). A gallery entry pins a revision, but matching a
+// deployment against the pin is only correct when that is what was deployed,
+// which the gallery cannot know.
+func requireGalleryRef(sourceArg, refArg string, listVarFiles bool) error {
+	if listVarFiles || refArg != "" {
+		return nil
+	}
+	entry, ok := galleryEntry(sourceArg)
+	if !ok {
+		return nil
+	}
+	return galleryRefRequiredError(entry)
+}
+
+// galleryRefRequiredError refuses a gallery-sourced import that would otherwise
+// pick the entry's pinned revision silently.
+func galleryRefRequiredError(e gallery.Entry) error {
+	return fmt.Errorf(
+		"gallery entry %q pins revision %s, which is not necessarily what this deployment runs.\n"+
+			"  An import matches live resources against the module at a revision, so name the\n"+
+			"  one you deployed:\n"+
+			"    atelier import juju --source %s --ref <branch|tag|revision>\n"+
+			"  If you deployed the entry's pin, use --ref %s. If the target already holds a\n"+
+			"  wrapper, omit --source to import into that wrapper as it stands.",
+		e.Name, e.Ref, e.Name, e.Ref)
 }
 
 // checkImportTarget resolves the target directory. With --source a wrapper is

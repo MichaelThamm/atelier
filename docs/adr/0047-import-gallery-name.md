@@ -4,7 +4,8 @@
 
 Accepted — amends [ADR-0039](0039-composed-gallery-presets.md) and
 [ADR-0035](0035-bundled-module-gallery.md) (its per-verb list of the commands
-that accept an entry name).
+that accept an entry name). Its pinned-revision default is amended by
+[ADR-0055](0055-gallery-import-names-its-revision.md).
 
 ## Context
 
