@@ -6,11 +6,10 @@ They are grouped by what they need:
 | Directory | Needs | What it proves |
 | --- | --- | --- |
 | [`wrapper/`](wrapper/) | Terraform | The `atelier add` CLI surface: `--module`, `--ref`, `--var-file`, `--as`, listing/removal, duplicate refusal, and non-interactive exit. No Juju model needed. |
-| [`prometheus/`](prometheus/) | Juju + Canonical K8s | Atelier + Terraform deploy `prometheus-k8s-operator` and the model settles active and idle. |
 | [`import/`](import/) | Juju + Canonical K8s | Deploy COS-Lite, delete the Terraform state, and `atelier import` rebuilds it with no drift on the resources that have a live counterpart. |
 
-The `prometheus/` and `import/` tiers are marked `cloud` and take tens of
-minutes; everything else is the fast tier and runs in a minute or two.
+The `import/` tier is marked `cloud` and takes tens of minutes; everything
+else is the fast tier and runs in a minute or two.
 
 ## Running locally
 

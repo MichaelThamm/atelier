@@ -496,18 +496,15 @@ Other useful recipes (`just --list` shows all):
 - `just test-integration` — the fast integration tier; needs only Terraform and
   `git`, no Juju model.
 
-The `cloud`-marked integration tiers need Juju + Canonical K8s (prepared by
+The `cloud`-marked integration tier needs Juju + Canonical K8s (prepared by
 Concierge); see [tests/integration/README.md](tests/integration/README.md) to run
-them locally.
+it locally.
 
-- `just test-prometheus` — deploys
-  [`canonical/prometheus-k8s-operator`](https://github.com/canonical/prometheus-k8s-operator)
-  as a deployment smoke test.
 - `just test-import` — COS-Lite
   ([`canonical/observability-stack`](https://github.com/canonical/observability-stack))
   import round-trip: it deletes the Terraform state and proves `atelier import`
   rebuilds it.
-- `just test-cloud` — both of the above.
+- `just test-cloud` — the cloud tier above.
 
 ## License
 

@@ -119,8 +119,8 @@ which runs for any non-docs change).
 - **Fetch the gallery from GitHub at runtime.** Rejected: it needs a network and
   ties behaviour to a tag rather than the installed binary.
 - **Plan the examples in CI.** Rejected: the Juju provider needs a live
-  controller, which is why the existing prometheus/import tiers are `cloud` jobs
-  with 90-minute budgets.
+  controller, which is why the existing import tier is a `cloud` job with a
+  90-minute budget.
 - **Contribute the presets upstream.** Rejected for now: it couples the gallery
   to maintainer acceptance and their release cadence.
 
