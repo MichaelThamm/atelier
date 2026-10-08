@@ -12,6 +12,7 @@ The target is canonical/prometheus-k8s-operator, whose Terraform lives in the
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -179,4 +180,32 @@ def test_wrapper_initialises_and_validates(tmp_path):
     tf.init()
 
     # THEN the configuration is valid — the wrapper is deployable
+    tf.validate()
+
+
+def test_wrapper_runs_without_atelier_state(tmp_path):
+    # GIVEN a wrapper Atelier authored
+    (tmp_path / "ci.tfvars").write_text(CI_VALUES)
+    atelier(f"add {PROM_REPO} --module {PROM_MODULE} --dir {WRAPPER_DIR}"
+            " --var-file ci.tfvars --strict --yes --json",
+            cwd=tmp_path)
+    wrapper = tmp_path / WRAPPER_DIR
+
+    # AND Atelier left its internal state, which is not the artifact (ADR-0001)
+    assert (wrapper / ".atelier").is_dir()
+
+    # AND nothing in the wrapper refers to it, so nothing depends on it at run time
+    for name in ("main.tf", "versions.tf", "providers.tf"):
+        path = wrapper / name
+        if path.exists():
+            assert ".atelier" not in path.read_text(), f"{name} references .atelier"
+
+    # WHEN the user deletes it — cleanup, or a checkout without the ignored tree
+    shutil.rmtree(wrapper / ".atelier")
+
+    # THEN Terraform alone still initialises and validates the wrapper: the
+    # wrapper is a normal Terraform root, and Atelier is not needed to run it.
+    tf = TfDirManager()
+    tf.latch(wrapper)
+    tf.init()
     tf.validate()

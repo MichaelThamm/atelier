@@ -110,6 +110,10 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     # THEN the model settles active and idle
     wait_for_active_idle_without_error(juju)
 
+    # AND the deployment is recorded as it stands, so the dry run below can be
+    # held to not touching it
+    apps_before = sorted(juju.status().apps)
+
     # AND the state is deleted, orphaning the live deployment — after first
     # recording what apply created, so the test can flag any COS-Lite resource
     # type it has not classified
@@ -130,20 +134,32 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     state_file.unlink()
     (wrapper / "terraform.tfstate.backup").unlink(missing_ok=True)
 
-    # WHEN Atelier imports the live deployment back into a fresh state, with the
-    # same --ref and --var-file as the deploy above, and the model UUID as a
-    # query variable. Note --query-var, not --var: the UUID feeds the query, not
-    # the module, and conflating them writes it into main.tf.
+    # AND the import command carries the same --ref and --var-file as the deploy
+    # above, with the model UUID as a query variable. Note --query-var, not
+    # --var: the UUID feeds the query, not the module, and conflating them writes
+    # it into main.tf.
     #
     # check=False because `atelier import` exits 1 when it matched nothing, and
     # letting that raise would replace the explanation below with a traceback.
     # Its payload is written either way.
-    reported = atelier(
+    import_cmd = (
         f"import juju --source {COS_REPO} --module {COS_MODULE} --ref {COS_REF} --dir wrapper"
         f" --var-file ci.tfvars --var-file {COS_PRESET}"
-        f" --query-var model_uuid={model_uuid} --yes --json",
-        cwd=tmp_path, check=False,
+        f" --query-var model_uuid={model_uuid} --yes"
     )
+
+    # WHEN a dry run previews the import
+    preview = atelier(f"{import_cmd} --dry-run --json", cwd=tmp_path, check=False)
+
+    # THEN it wrote nothing: no state, and the live deployment is untouched
+    assert preview.returncode == 0, preview.stderr
+    assert not state_file.exists(), "a dry run must not write state"
+    assert sorted(juju.status().apps) == apps_before, "a dry run must not touch the model"
+    assert (wrapper / "imports.tf").exists(), "a dry run should leave the review artifact"
+    assert json.loads(preview.stdout)["data"]["dryRun"] is True
+
+    # WHEN Atelier imports the live deployment back into a fresh state
+    reported = atelier(f"{import_cmd} --json", cwd=tmp_path, check=False)
     result = json.loads(reported.stdout)["data"]
 
     # THEN live objects were matched to module addresses and imported
@@ -153,6 +169,7 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     )
     assert result["imported"], f"nothing was imported: {result['unresolved']}"
     assert state_file.exists(), "import should have repopulated terraform.tfstate"
+    state_after_first = state_file.read_bytes()
 
     # AND the core resource types really were recovered (guards against a
     # vacuous pass where nothing matched)
@@ -192,3 +209,11 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
         "import --json reported these core resources as still changing, though a "
         f"plan of the imported state does not (address, action): {reported_drift}"
     )
+
+    # AND the recovery loop is safe to repeat: a second import has nothing left
+    # to do and leaves the state exactly as the first produced it.
+    again = atelier(f"{import_cmd} --json", cwd=tmp_path, check=False)
+    second = json.loads(again.stdout)["data"]
+    assert second["alreadyInState"] is True, second
+    assert not second["imported"], f"a second import imported something: {second['imported']}"
+    assert state_file.read_bytes() == state_after_first, "a no-op import rewrote state"
