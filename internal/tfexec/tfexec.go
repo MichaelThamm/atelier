@@ -276,6 +276,30 @@ func (t *Terraform) Plan(ctx context.Context, planFile string, stdout io.Writer)
 	return plan, hasChanges, nil
 }
 
+// applyInterruptGrace is how long an interrupted apply waits for Terraform to
+// cancel and persist state before it is force-killed. A second Ctrl-C reaches
+// Terraform directly and forces it sooner, so this can be generous.
+const applyInterruptGrace = 30 * time.Second
+
+// applyDirectCmd builds the terminal-owning `terraform apply`, split from
+// ApplyDirect so the interrupt contract is testable.
+//
+// Cancel is cleared because Terraform shares Atelier's foreground process group:
+// the terminal's Ctrl-C already reaches it, and Go's default Cancel would kill
+// it before its own SIGINT handler could persist state. WaitDelay is the
+// backstop that still kills a Terraform that ignores SIGINT.
+func applyDirectCmd(ctx context.Context, execPath, workdir string, autoApprove bool) *exec.Cmd {
+	args := []string{"apply"}
+	if autoApprove {
+		args = append(args, "-auto-approve", "-input=false")
+	}
+	cmd := exec.CommandContext(ctx, execPath, args...)
+	cmd.Dir = workdir
+	cmd.Cancel = nil
+	cmd.WaitDelay = applyInterruptGrace
+	return cmd
+}
+
 // ApplyDirect runs `terraform apply` in the wrapper with the process's terminal
 // attached, so Terraform prints the plan and reads the approval answer from
 // stdin. It deliberately passes neither -auto-approve nor -input=false when
@@ -286,13 +310,11 @@ func (t *Terraform) Plan(ctx context.Context, planFile string, stdout io.Writer)
 // detaches stdin, for the non-interactive case (a pipe or `< /dev/null`) where
 // there is no one to answer the prompt. The choice is the caller's, based on
 // whether stdin is a terminal.
+//
+// An interrupted apply lets Terraform cancel itself rather than killing it; see
+// applyDirectCmd.
 func (t *Terraform) ApplyDirect(ctx context.Context, autoApprove bool) error {
-	args := []string{"apply"}
-	if autoApprove {
-		args = append(args, "-auto-approve", "-input=false")
-	}
-	cmd := exec.CommandContext(ctx, t.binPath, args...)
-	cmd.Dir = t.workdir
+	cmd := applyDirectCmd(ctx, t.binPath, t.workdir, autoApprove)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if !autoApprove {
