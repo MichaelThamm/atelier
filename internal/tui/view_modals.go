@@ -88,10 +88,9 @@ func (m *Model) renderHelpModal() string {
 
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "Logs:")
-		fmt.Fprintln(&b, "  (none)         Terraform's output for the last plan is in")
-		fmt.Fprintln(&b, "                 .atelier/logs/; the plan view names the file")
-		fmt.Fprintln(&b, "                 on failure, and A hands the terminal to")
-		fmt.Fprintln(&b, "                 terraform to apply.")
+		fmt.Fprintln(&b, "  (none)         Terraform's output for the last plan or apply is in")
+		fmt.Fprintln(&b, "                 "+logsDir+"; A hands the terminal to terraform")
+		fmt.Fprintln(&b, "                 to apply.")
 
 		if m.activeSwitcher() != nil {
 			fmt.Fprintln(&b)

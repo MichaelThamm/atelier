@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -9,12 +10,17 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/MichaelThamm/atelier/internal/state"
+	"github.com/MichaelThamm/atelier/internal/tfexec"
 )
 
 // renderPlanScreen renders the full-screen plan view: a summary header,
 // then a tree-on-left + attribute-diff-on-right split, then the status
-// bar. Triggered when m.planState == planReady.
+// bar. Triggered when m.planState == planReady. When the last plan failed
+// (planState == planFailed) it renders the failure view instead.
 func (m *Model) renderPlanScreen() string {
+	if m.planState == planFailed {
+		return m.renderPlanFailure()
+	}
 	summaryText := PlanSummary(m.plan)
 	if m.tfState != nil {
 		summaryText += "  |  " + m.tfState.SummaryLine()
@@ -42,6 +48,29 @@ func (m *Model) renderPlanScreen() string {
 	}
 	sections = append(sections, body, footer)
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+// renderPlanFailure renders the failed-plan view: terraform's first error line
+// and the path to the full output, neither of which fits the one-line footer.
+// Esc returns to the editor, where the wrapper can be fixed and re-planned.
+func (m *Model) renderPlanFailure() string {
+	contentW := m.width - 4
+	if contentW < 1 {
+		contentW = 1
+	}
+	var b strings.Builder
+	if msg := strings.TrimSpace(m.planErr); msg != "" {
+		b.WriteString(ansi.Wordwrap(msg, contentW, " "))
+		b.WriteString("\n\n")
+	}
+	logPath := filepath.Join(tfexec.LogDirPath(m.WrapperDir), tfexec.StderrLogName)
+	b.WriteString(ansi.Wordwrap("Full output: "+logPath, contentW, " "))
+
+	header := m.renderHeader()
+	summary := stylePlanHeaderIndent.Render(styleStatusError.Render("✗ Plan failed"))
+	body := stylePanel.Width(m.width - 2).Height(m.planPanelHeight()).Render(b.String())
+	footer := m.renderFooter()
+	return lipgloss.JoinVertical(lipgloss.Left, header, summary, body, footer)
 }
 
 // renderCheckWarningLine renders a single-line advisory banner beneath the
