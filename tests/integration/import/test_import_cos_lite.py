@@ -217,3 +217,22 @@ def test_import_cos_lite_roundtrip(tf_manager, juju: jubilant.Juju, tmp_path):
     assert second["alreadyInState"] is True, second
     assert not second["imported"], f"a second import imported something: {second['imported']}"
     assert state_file.read_bytes() == state_after_first, "a no-op import rewrote state"
+
+    # AND the recovery works with no source flag at all: the wrapper already
+    # holds the module, so `import` reads it from main.tf. This is the command an
+    # operator runs to adopt a wrapper they already have, and it takes a
+    # different path from the --source import above.
+    state_file.unlink()
+    (wrapper / "terraform.tfstate.backup").unlink(missing_ok=True)
+    adopted = atelier(
+        f"import juju --query-var model_uuid={model_uuid} --dir wrapper --json",
+        cwd=tmp_path, check=False,
+    )
+    adopted_result = json.loads(adopted.stdout)["data"]
+    assert adopted_result["imported"], (
+        "a no-source import into the existing wrapper imported nothing: "
+        f"{adopted_result}"
+    )
+    adopted_state = json.loads(state_file.read_text())
+    adopted_types = {r["type"] for r in adopted_state.get("resources", [])}
+    assert not (PRESERVED_TYPES - adopted_types), sorted(PRESERVED_TYPES - adopted_types)

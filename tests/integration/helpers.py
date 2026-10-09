@@ -135,6 +135,15 @@ class TfDirManager:
             if rc.get("mode") == "managed" and (rc.get("change") or {}).get("actions") != ["no-op"]
         ]
 
+    def state_addresses(self) -> list[str]:
+        """Every resource address Terraform state holds, sorted.
+
+        A caller asserts this set before and after an action to prove resources
+        were not re-keyed — a ref change that recreates a resource keeps the
+        address but replaces the object behind it, which a plan alone can hide.
+        """
+        return sorted(self._run("state", "list").stdout.split())
+
 
 def wait_for_active_idle_without_error(juju: jubilant.Juju, timeout: int = 60 * 45) -> None:
     """Wait for every unit in the model to be active and every agent idle."""

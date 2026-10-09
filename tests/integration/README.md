@@ -5,7 +5,7 @@ They are grouped by what they need:
 
 | Directory | Needs | What it proves |
 | --- | --- | --- |
-| [`wrapper/`](wrapper/) | Terraform | The `atelier add` CLI surface: `--module`, `--ref`, `--var-file`, `--as`, listing/removal, duplicate refusal, and non-interactive exit. No Juju model needed. |
+| [`wrapper/`](wrapper/) | Terraform | The `atelier add`/`apply` surface and the wrapper lifecycle: module selection and ref pinning, re-pointing a ref, repeat applies that converge, hand-edit preservation, `.gitignore` hygiene, and listing/removal. Real upstream modules and hermetic local ones; no Juju model. |
 | [`import/`](import/) | Juju + Canonical K8s | Deploy COS-Lite, delete the Terraform state, and `atelier import` rebuilds it with no drift on the resources that have a live counterpart. |
 
 The `import/` tier is marked `cloud` and takes tens of minutes; everything
