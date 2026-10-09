@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted — extends [ADR-0041](0041-juju-opinionated-gallery-page.md). The Juju
-page, the provider-agnostic manifest, and the pinned-input gate all stand.
+Accepted — extends [ADR-0041](0041-juju-opinionated-gallery-page.md). The
+provider-agnostic manifest and the pinned-input gate stand; these pins now render
+on the single gallery page ([ADR-0057](0057-single-gallery-page.md)).
 
 ## Context
 

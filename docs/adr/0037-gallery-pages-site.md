@@ -4,7 +4,8 @@
 
 Accepted — amended by
 [ADR-0046](0046-gallery-card-states-inputs-once.md), which drops a card's
-restatement of the required inputs its own command already carries.
+restatement of the required inputs its own command already carries, and by
+[ADR-0057](0057-single-gallery-page.md), which renders the gallery as one page.
 
 ## Context
 

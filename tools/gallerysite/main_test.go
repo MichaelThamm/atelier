@@ -50,28 +50,27 @@ func TestRender_cards(t *testing.T) {
 	}
 }
 
-// A required input appears in the card once, as a `--var` in the command it
-// offers. A second mention restates the line above in prose and nothing else.
+// A required input appears in the card's own command once, as a `--var`. The
+// collapsed Juju variant is a different command, with the values resolved, and
+// the card never restates the list in prose (ADR-0046).
 func TestRender_cardStatesRequiresOnlyInTheCommand(t *testing.T) {
-	entries := []gallery.Entry{{
+	e := gallery.Entry{
 		Name: "tempo-operators", Description: "Tempo.",
 		Module: "https://github.com/canonical/observability-stack",
 		Subdir: "terraform/tempo-operators", Ref: "d1598ff3bdf9a25af69145fd557a913e2a13a314",
 		Requires: []string{
 			"channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint",
 		},
-	}}
+	}
 
 	var b strings.Builder
-	if err := render(&b, entries); err != nil {
+	if err := render(&b, []gallery.Entry{e}); err != nil {
 		t.Fatal(err)
 	}
 	got := b.String()
 
-	for _, want := range []string{"--var channel=dev/edge", "--var s3_endpoint=<s3_endpoint>"} {
-		if n := strings.Count(got, want); n != 1 {
-			t.Errorf("rendered page has %d occurrences of %q, want 1\n\n%s", n, want, got)
-		}
+	if n := strings.Count(got, e.ApplyCommand()); n != 1 {
+		t.Errorf("the card's own command appears %d times, want 1\n\n%s", n, got)
 	}
 	if strings.Contains(got, "Needs ") {
 		t.Errorf("the card restates its required inputs as prose\n\n%s", got)

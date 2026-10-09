@@ -61,14 +61,12 @@ code-check:
 # and copying the how-to guides.
 site-build:
     go run ./tools/gallerysite -o website/docs/gallery.md
-    go run ./tools/gallerysite -page juju -o website/docs/juju.md
     cp docs/how-to/*.md website/docs/
     {{site}} mkdocs build --strict -f website/mkdocs.yml
 
 # Serve the GitHub Pages site locally with live reload.
 site-serve:
     go run ./tools/gallerysite -o website/docs/gallery.md
-    go run ./tools/gallerysite -page juju -o website/docs/juju.md
     cp docs/how-to/*.md website/docs/
     {{site}} mkdocs serve -f website/mkdocs.yml
 
@@ -107,8 +105,9 @@ gallery-check: build-bin
     atelier="{{atelier_bin}}"
     presets="{{justfile_directory()}}/internal/gallery/presets"
     scan="$("$atelier" gallery list --commands)"
-    # The Juju page pins an entry's model even where the manifest requires none
-    # (ADR-0041). `gallery lint` checks the manifest's own inputs, so it cannot
+    # The site's Juju variant pins an entry's model even where the manifest
+    # requires none (ADR-0041, ADR-0057). `gallery lint` checks the manifest's
+    # own inputs, so it cannot
     # see such a pin go stale; scaffold it and require it to land. Resolved here
     # because the loop runs from a scratch directory with no go.mod.
     pins="$(go run ./tools/gallerysite -optional-vars pins)"
@@ -185,7 +184,7 @@ gallery-check: build-bin
           [ -n "${pin_name:-}" ] || continue
           [ "$pin_name" = "$name" ] || continue
           if ! grep -qE "^[[:space:]]*${pin_var}[[:space:]]*=" main.tf; then
-            echo "Juju page pins ${pin_var} for ${name}, but the module did not accept it"
+            echo "Juju variant pins ${pin_var} for ${name}, but the module did not accept it"
             exit 1
           fi
         done <<< "$pins"

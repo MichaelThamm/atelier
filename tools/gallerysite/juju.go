@@ -1,19 +1,19 @@
 package main
 
-// Juju-opinionated rendering for the site's Juju page. The manifest,
+// Juju-opinionated rendering for the gallery page. The manifest,
 // `internal/gallery`, and the CLI stay provider-agnostic; this file is the one
-// place that knows Juju's idioms. See ADR-0041.
+// place that knows Juju's idioms. See ADR-0041 and ADR-0057.
 //
 // A card's command is `ApplyCommand`, byte-identical to what `atelier gallery
-// list` prints and to the gallery page, so the page never shows a command the
-// CLI cannot produce. What Juju adds is offered as a collapsed variant under
-// each card rather than as the card's own command: pinning a model overrides a
-// module's default behaviour on some entries, and that should be a choice the
-// reader makes, not the default they are handed.
+// list` prints, so the page never shows a command the CLI cannot produce. What
+// Juju adds is offered as a collapsed variant under each card rather than as the
+// card's own command: pinning a model overrides a module's default behaviour on
+// some entries, and that should be a choice the reader makes, not the default
+// they are handed. The conventions every variant shares are stated once in a
+// collapsed block above the grid.
 
 import (
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 
@@ -206,33 +206,10 @@ func codeList(names []string) string {
 	return strings.Join(out, ", ")
 }
 
-// renderJujuPage writes the Juju page: the provider-specific conventions stated
-// once at the top, then one card per entry carrying the gallery's own command
-// and the Juju variant collapsed beneath it.
-func renderJujuPage(w io.Writer, entries []gallery.Entry) error {
-	var b strings.Builder
-	b.WriteString("# Juju modules\n\n")
-	b.WriteString("Gallery entries that deploy with the " +
-		"[Juju provider](https://registry.terraform.io/providers/juju/juju/latest) " +
-		"take their model and S3 credentials from your environment. Each card shows " +
-		"the command from the [gallery](gallery.md); the collapsed variant below it " +
-		"deploys into the model you have switched to.\n\n")
-
-	writeJujuBanner(&b, entries)
-
-	b.WriteString("<div class=\"grid cards\" markdown>\n\n")
-	for _, e := range entries {
-		writeJujuCard(&b, e)
-	}
-	b.WriteString("</div>\n")
-
-	_, err := io.WriteString(w, b.String())
-	return err
-}
-
-// writeJujuBanner states the Juju conventions once, so a card need not repeat
-// them. It says plainly which entries have no choice about the model and which
-// are choosing it for the reader.
+// writeJujuBanner states the Juju conventions once, in a collapsed block above
+// the grid, so a card need not repeat them and the page's neutral intro stays
+// the default. It says plainly which entries have no choice about the model and
+// which are choosing it for the reader.
 func writeJujuBanner(b *strings.Builder, entries []gallery.Entry) {
 	var required, chosen, own []string
 	for _, e := range entries {
@@ -247,74 +224,47 @@ func writeJujuBanner(b *strings.Builder, entries []gallery.Entry) {
 		}
 	}
 
-	b.WriteString("## Deploying into your current model\n\n")
-	b.WriteString("Switch to the model you want to deploy into, then export it once for every " +
-		"command below — `juju` and `jq` must be on your `PATH`:\n\n")
-	b.WriteString("```bash\njuju switch <your-model>\n")
-	b.WriteString("export CURRENT_MODEL=\"$(juju show-model --format json | jq -r '.[].\"model-uuid\"')\"\n")
-	b.WriteString("export CURRENT_MODEL_NAME=\"$(juju show-model --format json | jq -r '.[].\"short-name\"')\"\n")
-	b.WriteString("```\n\n")
-	b.WriteString("Juju modules name their model in one of three ways — a UUID in `model_uuid`, " +
-		"an object whose `uuid` selects a model, or a model *name* — so the variant " +
-		"under each card passes `$CURRENT_MODEL`, or `$CURRENT_MODEL_NAME` for the " +
-		"modules that want a name.\n\n")
+	var inner strings.Builder
+	inner.WriteString("Switch to the model you want to deploy into, then export it once for every variant below — `juju` and `jq` must be on your `PATH`:\n\n")
+	inner.WriteString("```bash\njuju switch <your-model>\n")
+	inner.WriteString("export CURRENT_MODEL=\"$(juju show-model --format json | jq -r '.[].\"model-uuid\"')\"\n")
+	inner.WriteString("export CURRENT_MODEL_NAME=\"$(juju show-model --format json | jq -r '.[].\"short-name\"')\"\n")
+	inner.WriteString("```\n\n")
+	inner.WriteString("Juju modules name their model in one of three ways — a UUID in `model_uuid`, an object whose `uuid` selects a model, or a model *name* — so the variant under each card passes `$CURRENT_MODEL`, or `$CURRENT_MODEL_NAME` for the modules that want a name.\n\n")
 
 	// Counts, not name lists: as the gallery grows these two groups reach
 	// fifteen and seven entries, and a card already states its own case in the
 	// variant's label. Naming them here was redundant and stopped being readable.
 	if len(required) > 0 {
-		fmt.Fprintf(b, "On %d of these the module demands a model, so the variant only fills in "+
-			"which one.\n\n", len(required))
+		fmt.Fprintf(&inner, "On %d of these the module demands a model, so the variant only fills in which one.\n\n", len(required))
 	}
 	if len(chosen) > 0 {
-		fmt.Fprintf(b, "On %d the module would otherwise create its own model. The variant "+
-			"overrides that — a change, not a no-op.\n\n", len(chosen))
+		fmt.Fprintf(&inner, "On %d the module would otherwise create its own model. The variant overrides that — a change, not a no-op.\n\n", len(chosen))
 	}
 	if len(own) > 0 {
-		b.WriteString("These entries have no variant:\n\n")
+		inner.WriteString("These entries have no variant:\n\n")
 		for _, n := range own {
-			fmt.Fprintf(b, "-   `%s` — %s\n", n, jujuOwnModel[n])
+			fmt.Fprintf(&inner, "-   `%s` — %s\n", n, jujuOwnModel[n])
 		}
-		b.WriteString("\n")
+		inner.WriteString("\n")
 	}
 
-	b.WriteString("Variants also read `S3_ACCESS_KEY`, `S3_SECRET_KEY`, and `S3_ENDPOINT` from " +
-		"your environment. Anything left as `<angle-brackets>` is yours to fill in.\n\n")
+	inner.WriteString("Variants also read `S3_ACCESS_KEY`, `S3_SECRET_KEY`, and `S3_ENDPOINT` from your environment. Anything left as `<angle-brackets>` is yours to fill in.\n\n")
+
+	fmt.Fprintf(b, "??? \"Deploying into a Juju model\"\n\n%s", indentBlock(inner.String(), "    "))
 }
 
-// writeJujuCard writes one entry: the gallery's own command, then the Juju
-// variant in a collapsed block.
-func writeJujuCard(b *strings.Builder, e gallery.Entry) {
-	fmt.Fprintf(b, "-   __%s__\n\n", e.Name)
-	b.WriteString("    ---\n\n")
-	fmt.Fprintf(b, "    %s\n\n", e.Description)
-
-	fmt.Fprintf(b, "    [:octicons-mark-github-16: %s](%s)\n\n", repoLabel(e.Module), e.Module)
-
-	meta := make([]string, 0, 4)
-	if e.Subdir != "" {
-		meta = append(meta, "`"+e.Subdir+"`")
+// indentBlock prefixes every non-blank line with prefix, so a block nests inside
+// an admonition or a card's list item. Blank lines stay empty, which Markdown
+// needs between paragraphs.
+func indentBlock(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if l != "" {
+			lines[i] = prefix + l
+		}
 	}
-	meta = append(meta, "pinned `"+e.ShortRef()+"`")
-	if len(e.Presets) > 0 {
-		meta = append(meta, "presets "+codeList(e.Presets))
-	}
-	fmt.Fprintf(b, "    %s\n\n", strings.Join(meta, " · "))
-
-	if len(e.AvailablePresets) > 0 {
-		fmt.Fprintf(b, "    Also available: %s — add one with `--var-file <name>`.\n\n",
-			codeList(e.AvailablePresets))
-	}
-
-	// The card's own command is the manifest's derivation, unaltered.
-	fmt.Fprintf(b, "    ```bash\n    %s\n    ```\n\n", e.ApplyCommand())
-
-	if createsOwnModel(e) {
-		fmt.Fprintf(b, "    No variant: %s.\n\n", jujuOwnModel[e.Name])
-		return
-	}
-
-	writeJujuVariant(b, e)
+	return strings.Join(lines, "\n")
 }
 
 // writeJujuVariant writes the collapsed Juju-specific command for a card.

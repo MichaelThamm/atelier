@@ -16,7 +16,6 @@ import (
 
 func main() {
 	out := flag.String("o", "", "write the page to this file instead of stdout")
-	page := flag.String("page", "gallery", "which page to render: gallery or juju")
 	optionalVars := flag.String("optional-vars", "", "print the Juju model pin each entry passes beyond its manifest requires, one `name var` per line")
 	flag.Parse()
 
@@ -30,17 +29,8 @@ func main() {
 		return
 	}
 
-	renderPage := render
-	switch *page {
-	case "gallery":
-	case "juju":
-		renderPage = renderJujuPage
-	default:
-		fatal(fmt.Errorf("unknown page %q; want gallery or juju", *page))
-	}
-
 	if *out == "" {
-		if err := renderPage(os.Stdout, entries); err != nil {
+		if err := render(os.Stdout, entries); err != nil {
 			fatal(err)
 		}
 		return
@@ -49,7 +39,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	if err := renderPage(f, entries); err != nil {
+	if err := render(f, entries); err != nil {
 		f.Close()
 		fatal(err)
 	}
@@ -58,7 +48,7 @@ func main() {
 	}
 }
 
-// printOptionalVars reports the model pins the Juju page invents, for
+// printOptionalVars reports the model pins the Juju variants invent, for
 // `just gallery-check` to assert against each module.
 func printOptionalVars(entries []gallery.Entry) {
 	for _, e := range entries {
@@ -73,9 +63,11 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
-// render writes the gallery page: a short intro and one Material grid card per
-// entry. The cards are Markdown inside a Material `.grid.cards` div, which the
-// site enables with attr_list and md_in_html.
+// render writes the gallery page: a short intro, the Juju conventions in a
+// collapsed block, and one Material grid card per entry. A Juju entry's card
+// carries its collapsed variant beneath the neutral command. The cards are
+// Markdown inside a Material `.grid.cards` div, which the site enables with
+// attr_list and md_in_html.
 func render(w io.Writer, entries []gallery.Entry) error {
 	var b strings.Builder
 	b.WriteString("# Module gallery\n\n")
@@ -83,6 +75,9 @@ func render(w io.Writer, entries []gallery.Entry) error {
 	b.WriteString("and a preset bundle where the module needs one. Apply an entry by name and\n")
 	b.WriteString("Atelier expands it to the module, ref, and preset — the command below is the\n")
 	b.WriteString("same one `atelier gallery list` prints.\n\n")
+	b.WriteString("Entries that deploy with Juju also offer a collapsed variant that targets the\n")
+	b.WriteString("model you have switched to.\n\n")
+	writeJujuBanner(&b, entries)
 	b.WriteString("<div class=\"grid cards\" markdown>\n\n")
 	for _, e := range entries {
 		writeCard(&b, e)
@@ -95,7 +90,8 @@ func render(w io.Writer, entries []gallery.Entry) error {
 // writeCard writes one entry as a Material grid card: the description, the
 // module link and pinned ref, the presets, and the apply one-liner. The
 // one-liner already carries every required input as a `--var`, so the card does
-// not restate them. The four-space indent keeps every line inside the list
+// not restate them. A Juju entry then carries its collapsed variant, or the
+// reason it has none. The four-space indent keeps every line inside the list
 // item that forms the card.
 func writeCard(b *strings.Builder, e gallery.Entry) {
 	fmt.Fprintf(b, "-   __%s__\n\n", e.Name)
@@ -123,6 +119,12 @@ func writeCard(b *strings.Builder, e gallery.Entry) {
 	}
 
 	fmt.Fprintf(b, "    ```bash\n    %s\n    ```\n\n", e.ApplyCommand())
+
+	if createsOwnModel(e) {
+		fmt.Fprintf(b, "    No variant: %s.\n\n", jujuOwnModel[e.Name])
+		return
+	}
+	writeJujuVariant(b, e)
 }
 
 // repoLabel is the short owner/name form of a module URL, used as the card's
