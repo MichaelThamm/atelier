@@ -98,32 +98,20 @@ jobs:
           BODY: |
             ## Summary
 
-            Bumps every bundled gallery entry's pinned `ref` to the revision its module currently tracks, so a quick start published from this repository does not deploy a stale module. Only the `ref` lines change — module addresses, subdirectories, presets, and `requires` are untouched.
+            Bumps every bundled gallery entry's pinned `ref` to its module's current revision, so a quick start does not deploy a stale module. Only the `ref` lines change.
 
             ## Decision and spec
 
-            - **ADR:** [ADR-0040](https://github.com/MichaelThamm/atelier/blob/main/docs/adr/0040-automated-gallery-refresh.md) — the scheduled refresh this pull request implements.
+            - **ADR:** [ADR-0040](https://github.com/MichaelThamm/atelier/blob/main/docs/adr/0040-automated-gallery-refresh.md).
             - **SPEC:** none.
-
-            ## Scope check
-
-            - [x] Fits Atelier's boundaries in [SPEC.md](https://github.com/MichaelThamm/atelier/blob/main/docs/SPEC.md).
 
             ## Tests
 
-            `just gallery-lint` and `just gallery-check` run in the bump job before this pull request opens, and the `Module gallery` CI job re-validates every bumped pin. The rest of `just check` runs on this pull request.
+            `just gallery-lint` and `just gallery-check` run in the bump job; the `Module gallery` CI job re-validates the bumped pins.
 
-            ## Docs
+            ## Notes
 
-            None — the website is regenerated from the manifest after merge.
-
-            ## Risk and rollback
-
-            A moved pin changes what a documented one-liner deploys; close this pull request to keep the previous pins, or revert the single bump commit after merge. A module that renamed a variable, changed a default, or added a required input fails `just gallery-lint` and must be fixed here.
-
-            ## Reviewer notes
-
-            Review the diff for anything beyond the `ref` lines. The bump deliberately does not touch presets or `requires`; see ADR-0040 and the `gallery-bump` skill.
+            Review the diff for anything beyond the `ref` lines — the bump never touches presets or `requires`. Close this pull request to keep the previous pins.
         run: |
           git config user.name "atelier-bot"
           git config user.email "atelier-bot@users.noreply.github.com"
