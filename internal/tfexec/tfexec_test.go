@@ -51,32 +51,6 @@ func TestNewAndVersion_integration(t *testing.T) {
 	}
 }
 
-func TestWriteTimestampHeader(t *testing.T) {
-	// nil is a no-op (logging not configured).
-	WriteTimestampHeader(nil)
-
-	f, err := os.CreateTemp(t.TempDir(), "log")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if _, err := f.WriteString("prior\n"); err != nil {
-		t.Fatal(err)
-	}
-	WriteTimestampHeader(f)
-	got, err := os.ReadFile(f.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(got)
-	if !strings.HasPrefix(s, "prior\n") {
-		t.Errorf("header overwrote prior content: %q", s)
-	}
-	if !strings.Contains(s, "=== action started at ") {
-		t.Errorf("missing timestamp header: %q", s)
-	}
-}
-
 func TestLogDirPath(t *testing.T) {
 	wd := t.TempDir()
 	if got, want := LogDirPath(wd), filepath.Join(wd, LogDir); got != want {
@@ -101,20 +75,22 @@ func TestConfigureLogging_appendsAcrossSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []*os.File{tf1.StderrFile(), tf1.StdoutFile()} {
-		if _, err := f.WriteString("session-one\n"); err != nil {
-			t.Fatal(err)
+	writeSession := func(tf *Terraform, text string) {
+		t.Helper()
+		action := tf.BeginAction("plan")
+		for _, w := range []io.Writer{action.Stdout(nil), action.Stderr(nil)} {
+			if _, err := io.WriteString(w, text); err != nil {
+				t.Fatal(err)
+			}
 		}
+		action.Close()
 	}
+	writeSession(tf1, "session-one\n")
 	tf2, err := New(wd, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []*os.File{tf2.StderrFile(), tf2.StdoutFile()} {
-		if _, err := f.WriteString("session-two\n"); err != nil {
-			t.Fatal(err)
-		}
-	}
+	writeSession(tf2, "session-two\n")
 	for _, name := range []string{StderrLogName, StdoutLogName} {
 		got, err := os.ReadFile(filepath.Join(wd, LogDir, name))
 		if err != nil {
@@ -198,11 +174,12 @@ func TestApplyDirectCmd_gracefulInterrupt(t *testing.T) {
 // TestApplyDirect_teesToLogs guards the CLI-apply durability contract: a failed
 // `atelier apply` must leave terraform's output in .atelier/logs/, the way a
 // TUI plan/apply does. Without the tee, the first apply of a broken deployment
-// leaves nothing to read afterwards.
+// leaves nothing to read afterwards. It also pins the block format: a named
+// header, ANSI stripped from the log copy, and an end marker.
 func TestApplyDirect_teesToLogs(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "fake-terraform")
-	body := "#!/bin/sh\nprintf 'plan-output-line\\n'\nprintf 'error-line\\n' >&2\n"
+	body := "#!/bin/sh\nprintf 'plan-output-line\\n'\nprintf '\\033[31merror-line\\033[0m\\n' >&2\n"
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -227,16 +204,15 @@ func TestApplyDirect_teesToLogs(t *testing.T) {
 		if !strings.Contains(string(got), c.want) {
 			t.Errorf("%s = %q; want it to contain %q", c.name, got, c.want)
 		}
-	}
-}
-
-// TestMirrorLog_nilIsPassthrough covers the no-logging case: with logging not
-// configured the writer must be returned unchanged rather than wrapped around a
-// nil file.
-func TestMirrorLog_nilIsPassthrough(t *testing.T) {
-	var buf strings.Builder
-	if got := mirrorLog(&buf, nil); got != io.Writer(&buf) {
-		t.Errorf("mirrorLog with nil log = %T; want the original writer", got)
+		if !strings.Contains(string(got), "fake-terraform apply -auto-approve ("+dir+") ===") {
+			t.Errorf("%s = %q; want the action named in the header", c.name, got)
+		}
+		if !strings.Contains(string(got), "fake-terraform apply -auto-approve ("+dir+") finished ===") {
+			t.Errorf("%s = %q; want an end marker", c.name, got)
+		}
+		if strings.Contains(string(got), "\x1b") {
+			t.Errorf("%s = %q; ANSI escaped into the log", c.name, got)
+		}
 	}
 }
 

@@ -67,19 +67,6 @@ func LogDirPath(workdir string) string {
 	return dir
 }
 
-// WriteTimestampHeader appends a separator line with the current wall-clock
-// time to a persistent log file, delimiting one action's output (init, plan,
-// apply) from the next. It is a no-op for a nil handle (logging not
-// configured). The files are opened O_APPEND, so the explicit seek to the end
-// is only a fallback for a handle opened without it.
-func WriteTimestampHeader(f *os.File) {
-	if f == nil {
-		return
-	}
-	_, _ = f.Seek(0, 2) // seek to end
-	fmt.Fprintf(f, "\n=== action started at %s ===\n", time.Now().Format("2006-01-02 15:04:05"))
-}
-
 // Locate returns the path to the terraform (or tofu) binary on $PATH, or an
 // actionable error message if it isn't installed.
 func Locate() (string, error) {
@@ -132,12 +119,13 @@ func New(workdir, binPath string) (*Terraform, error) {
 // is swallowed, because diagnostics must never prevent terraform from running.
 //
 //   - Always on: terraform's stderr is teed to tf-stderr.log and its stdout to
-//     tf-stdout.log (both appended). terraform-exec still captures them
+//     tf-stdout.log (both appended) through an ActionLog, so the output is
+//     bounded by a header and an end marker. terraform-exec still captures them
 //     internally for its error messages and progress, so this only adds a
 //     durable copy — it changes nothing the caller sees. Successful commands
 //     write little or nothing to stderr, so tf-stderr.log stays small and fills
 //     mainly with the warnings and errors worth keeping; tf-stdout.log holds
-//     the plan/apply progress the logs view shows.
+//     the plan progress the TUI renders as a tree.
 //   - Opt-in (ATELIER_DEBUG truthy): terraform's own TRACE log is written to
 //     tf-trace.log via TF_LOG_PATH. This is verbose, so it stays off by
 //     default; leave it enabled and the next failure records the exact git
@@ -148,11 +136,10 @@ func (t *Terraform) configureLogging(workdir string) {
 		return
 	}
 	// Open (or create) the log files and store the handles. O_APPEND keeps
-	// every session's output: init writes without seeking first, and the
-	// planner's timestamp header seeks to the end, so without append a fresh
-	// session would clobber the start of the previous one's log. The handles
-	// are NOT set as stdout/stderr here — the planner writes a timestamp header
-	// and sets them before each action so binary junk never precedes the header.
+	// every session's output: without it a fresh session would clobber the
+	// start of the previous one's log. The handles are NOT set as
+	// stdout/stderr here — callers wrap them in an ActionLog, which writes the
+	// header lazily on the action's first output.
 	if f, err := os.OpenFile(filepath.Join(logDir, StderrLogName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		t.stderrFile = f
 	}
@@ -230,38 +217,6 @@ func (t *Terraform) SetStderr(w io.Writer) {
 	t.tf.SetStderr(w)
 }
 
-// StderrFile returns the log file handle for .atelier/logs/tf-stderr.log,
-// or nil if logging is not configured. Used by callers that need to tee
-// stderr to both the file and a progress tracker.
-func (t *Terraform) StderrFile() *os.File {
-	return t.stderrFile
-}
-
-// StdoutFile returns the log file handle for .atelier/logs/tf-stdout.log,
-// or nil if logging is not configured. Used by callers that need to tee
-// stdout to both the file and a progress tracker.
-func (t *Terraform) StdoutFile() *os.File {
-	return t.stdoutFile
-}
-
-// MirrorStdout returns w teed with the wrapper's durable tf-stdout.log, or w
-// unchanged when logging is not configured. The CLI `apply` streams terraform
-// straight to the terminal, so without this a failed CLI apply leaves no log to
-// read — the opposite of the TUI, which streams through the log file itself.
-func (t *Terraform) MirrorStdout(w io.Writer) io.Writer { return mirrorLog(w, t.stdoutFile) }
-
-// MirrorStderr is MirrorStdout for stderr and tf-stderr.log.
-func (t *Terraform) MirrorStderr(w io.Writer) io.Writer { return mirrorLog(w, t.stderrFile) }
-
-// mirrorLog writes to the durable log first, so a broken terminal (a closed
-// pipe, say) cannot swallow the copy that outlives the run.
-func mirrorLog(w io.Writer, log *os.File) io.Writer {
-	if log == nil {
-		return w
-	}
-	return io.MultiWriter(log, w)
-}
-
 // Validate runs `terraform validate -json`.
 func (t *Terraform) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
 	return t.tf.Validate(ctx)
@@ -330,18 +285,23 @@ func applyDirectCmd(ctx context.Context, execPath, workdir string, autoApprove b
 // whether stdin is a terminal.
 //
 // stdout and stderr are mirrored into .atelier/logs/, so a CLI apply leaves the
-// same durable evidence a TUI plan/apply does. Mirroring routes them through a
-// pipe, so terraform sees no terminal on stdout and drops its color; the
+// same durable evidence a TUI plan/apply does. The log copy has ANSI escapes
+// stripped; the terminal keeps them. Mirroring routes the streams through a
+// pipe, so terraform sees no terminal and drops its own color too; the
 // approval prompt is unaffected (it is read from stdin, which stays attached).
 //
 // An interrupted apply lets Terraform cancel itself rather than killing it; see
 // applyDirectCmd.
 func (t *Terraform) ApplyDirect(ctx context.Context, autoApprove bool) error {
+	command := "apply"
+	if autoApprove {
+		command += " -auto-approve"
+	}
+	action := t.BeginAction(command)
+	defer action.Close()
 	cmd := applyDirectCmd(ctx, t.binPath, t.workdir, autoApprove)
-	WriteTimestampHeader(t.stdoutFile)
-	WriteTimestampHeader(t.stderrFile)
-	cmd.Stdout = t.MirrorStdout(os.Stdout)
-	cmd.Stderr = t.MirrorStderr(os.Stderr)
+	cmd.Stdout = action.Stdout(os.Stdout)
+	cmd.Stderr = action.Stderr(os.Stderr)
 	if !autoApprove {
 		cmd.Stdin = os.Stdin
 	}

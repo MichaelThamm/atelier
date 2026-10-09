@@ -1156,12 +1156,18 @@ and both the TUI's plan and the CLI's `init`/`apply` leave their output on disk:
 ```
 
 Both files are appended, never truncated, so a record survives across sessions.
-Each action writes a timestamp header (`=== action started at HH:MM:05 ===`)
-before its output, so a session's blocks stay delimited. The TUI's `init`,
-`plan`, and ref-switch `init -upgrade` stream only to the logs (the TUI renders
-the plan tree itself); the CLI `apply` streams to the terminal and mirrors to
-the logs, so an apply that fails after Terraform printed an error still leaves
-that error behind to read.
+Each action writes a block around its output. The header names the terraform
+command, the wrapper directory, and an RFC3339 timestamp, e.g.
+`=== 2026-10-08T14:47:02-04:00 terraform apply (/home/me/proj) ===`; the stdout
+and stderr halves of one action share the same header, so they pair up. The
+header is written only when the action actually produces output on that stream,
+and a `... finished ===` line closes a block that has one, so an empty action
+leaves no orphan header. The logs are plain text — ANSI color escapes are
+stripped from what is appended, while a terminal the CLI apply mirrors to keeps
+its color. The TUI's `init`, `plan`, and ref-switch `init -upgrade` stream only
+to the logs (the TUI renders the plan tree itself); the CLI `apply` streams to
+the terminal and mirrors to the logs, so an apply that fails after Terraform
+printed an error still leaves that error behind to read.
 
 A failed plan is reported in the status bar as `plan failed: <terraform's first
 line>`; the rest of the diagnostics are in `tf-stderr.log`. `.atelier/` is
