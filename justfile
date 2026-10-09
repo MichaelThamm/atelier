@@ -61,12 +61,14 @@ code-check:
 site-build:
     go run ./tools/gallerysite -o website/docs/gallery.md
     go run ./tools/gallerysite -page juju -o website/docs/juju.md
+    cp docs/how-to/import-juju.md website/docs/import-juju.md
     {{site}} mkdocs build --strict -f website/mkdocs.yml
 
 # Serve the GitHub Pages site locally with live reload.
 site-serve:
     go run ./tools/gallerysite -o website/docs/gallery.md
     go run ./tools/gallerysite -page juju -o website/docs/juju.md
+    cp docs/how-to/import-juju.md website/docs/import-juju.md
     {{site}} mkdocs serve -f website/mkdocs.yml
 
 # Build the dev binary
