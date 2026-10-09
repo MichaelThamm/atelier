@@ -19,6 +19,16 @@ It works in the current directory, or in the one `--dir` names. With `--source` 
 
 > To avoid data loss, `juju_application` resources must not show `replace` or `create` actions in the Terraform plan.
 
+### Which case am I in?
+
+| Your situation | What to run |
+| --- | --- |
+| State was lost, or the deployment was created from the module | Import into a fresh wrapper with `--source`, `--module`, and `--ref`: [Importing a full deployment](#importing-a-full-deployment). |
+| The deployment was created by hand and you want the module to own it | The same command. Matching applications are adopted; the module's remaining resources are created on the next apply. |
+| A slice was deployed by hand and the module should deploy the rest | The same command, then apply: [Importing a partial deployment](#importing-a-partial-deployment). |
+| The deployment diverges from the module's defaults (no ingress, internal TLS off) | Supply the shape-changing inputs with `--var` or a preset `--var-file`: [When you still need `--var` or `--var-file`](#when-you-still-need---var-or---var-file). |
+| State is imported and you want a newer module revision | Switch the wrapper's ref: [Upgrading after import](#upgrading-after-import). |
+
 ### Importing a full deployment
 
 Given a running [Canonical Observability Stack Lite (COS Lite)](https://github.com/canonical/observability-stack/tree/main/terraform/cos-lite) deployment, note the model UUID from `juju models`, then run:
@@ -74,10 +84,10 @@ Atelier cannot invent values for variables the module requires:
   ```
 
   A value you have already set is never overwritten. Modules that take the UUID under a different shape, such as COS Lite's `model = { uuid = optional(string) }`, are handled separately by deriving it from the discovered resources.
-- **Variables that change the module's shape may need supplying.** Anything feeding a `count`, a `for_each`, or a resource name decides which addresses exist. If your deployment diverges from the module's defaults — an application renamed, a component disabled — the planned addresses will not line up with what is live. Atelier reports the discrepancy rather than guessing at it; see [Checking coverage first](#checking-coverage-first).
+- **Variables that change the module's shape may need supplying.** Anything feeding a `count`, a `for_each`, or a resource name decides which addresses exist. If your deployment diverges from the module's defaults — an application renamed, a component disabled, ingress turned off — the planned addresses will not line up with what is live. COS Lite's `internal_tls` is the common case: a deployment created with `internal_tls = false` must be imported with `--var internal_tls=false`, or the module plans to add the self-signed-certificates application and its integrations, which are not there. Supply these inputs the same way as any other — `--var internal_tls=false`, or a preset that carries them such as `--var-file cos-lite-no-ingress`. Atelier reports the discrepancy rather than guessing at it; see [Checking coverage first](#checking-coverage-first).
 - **Values that only affect attributes do not need supplying.** Channels, revisions, config, constraints, unit counts and similar do not affect matching, and after import the state holds whatever is actually deployed. The plan diff then tells you exactly what to set, which is more reliable than guessing up front.
 
-COS Lite gives every variable a default, which is why the command above needs no `--var` at all. A module with required inputs will need them.
+Every COS Lite variable has a default, so a deployment that matches those defaults needs no `--var` just to plan. That is not the same as needing none to *match*: a defaulted variable that changes the module's shape still has to describe the live deployment, as the topology bullet above explains. A module with required inputs always needs them supplied.
 
 ### Checking coverage first
 
@@ -103,7 +113,7 @@ Preview: 43 to import, 3 to add, 0 to change, 0 to destroy.
   Every importable resource the module declares is covered.
 ```
 
-The number to watch is **to add**. Those are resources the module would create rather than import — so if they already exist, your variables do not describe the live deployment. Terraform-internal types that can never be imported are sub-counted separately and are expected. Anything else is listed by address.
+The number to watch is **to add**. Those are resources the module would create rather than import — so if they already exist, your variables do not describe the live deployment. A component that is already deployed appearing here almost always means a shape-changing variable is unset or wrong, such as `internal_tls`; see [When you still need `--var` or `--var-file`](#when-you-still-need---var-or---var-file). Terraform-internal types that can never be imported are sub-counted separately and are expected. Anything else is listed by address.
 
 `imports.tf` is a reviewable artifact you can edit and keep. Note that Atelier does **not** apply it: importing is done with `terraform import`, which only writes state and so cannot alter infrastructure. Applying `imports.tf` yourself is riskier, because `import {}` blocks land in the same plan as everything else — a `terraform apply` would also create every resource the file does not cover.
 
@@ -185,6 +195,23 @@ loki:loki-cluster                  loki-write:loki-cluster          loki_cluster
 loki:loki-peers                    loki:loki-peers                  loki_peers    peer
 ```
 
+### Upgrading after import
+
+Import pins the wrapper to the revision you named, and the wrapper keeps that pin, so moving to a newer track is an ordinary ref switch. Import COS Lite at the revision it runs today, then re-point the block at the one you want:
+
+```bash
+# ... imported at track/3.0 ...
+atelier apply cos-lite --ref track/3.1
+```
+
+The imported state carries over; Terraform plans the move from the old revision to the new one. Re-point the block first, then read the plan before applying — the same review you would give any other change. You can also switch the ref in the TUI.
+
+### What import does not adopt
+
+Import adopts the resources the module declares. Live objects the module does not declare — a charm deployed outside it, a peer relation, a charm-created secret — are reported as unmatched and left alone. That is deliberate: an undeclared object has no address in the configuration, and Terraform cannot import into an address that does not exist.
+
+A wrapper can hold more than one module (`atelier add` appends one), and import adopts what each of them declares. To bring a second product under management, add its module to the same wrapper and then run `atelier import juju` in that directory without `--source`, so both modules' resources are matched together.
+
 ## Safety properties
 
 Worth knowing before you run this against something you care about:
@@ -198,4 +225,4 @@ Worth knowing before you run this against something you care about:
 
 ## Next steps
 
-With state imported, you can use Atelier like any other wrapper: edit variables in the TUI, plan to check the diff, apply to converge, or bump the module ref to upgrade the deployment. The wrapper is a normal Atelier wrapper; the import just gave it a head start.
+With state imported, you can use Atelier like any other wrapper: edit variables in the TUI, plan to check the diff, apply to converge, or [switch the module's ref to upgrade the deployment](#upgrading-after-import). The wrapper is a normal Atelier wrapper; the import just gave it a head start.
