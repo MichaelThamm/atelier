@@ -95,6 +95,9 @@ type Model struct {
 	planDiffFocus    bool // true when the diff pane is focused (Tab toggle)
 	planShowState    bool // true when left+right panes show state instead of diff
 	planSpinnerFrame int
+	// planErr is terraform's first error line, shown by the failure view when
+	// planState == planFailed.
+	planErr string
 
 	// applyState tracks the apply flow (idle → loading → done/error).
 	applyState applyState
@@ -158,17 +161,18 @@ type Model struct {
 	tfState *state.State
 }
 
-// planState enumerates the four states the plan flow can be in: idle (no
-// plan ever requested, or the user closed the plan view), loading (a plan
-// is in flight), ready (a fresh plan is rendered and interactive), and
-// error (the last plan attempt failed; rendered in the status bar, not the
-// plan view).
+// planState enumerates the states the plan flow can be in: idle (no plan ever
+// requested, or the user closed the plan view), loading (a plan is in flight),
+// ready (a fresh plan is rendered and interactive), and failed (the last plan
+// attempt failed; rendered as a failure view that names the logs, not the
+// status bar).
 type planState int
 
 const (
 	planIdle planState = iota
 	planLoading
 	planReady
+	planFailed
 )
 
 // applyState tracks the terraform apply lifecycle.
@@ -476,7 +480,7 @@ func (m *Model) View() string {
 	if m.refDetail {
 		return m.renderRefDetail()
 	}
-	if m.planState == planReady {
+	if m.planState == planReady || m.planState == planFailed {
 		return m.renderPlanScreen()
 	}
 	if m.savePresetModal {

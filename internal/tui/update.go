@@ -33,14 +33,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.planScroll = 0
 		m.planDiffScroll = 0
 		m.planState = planReady
+		m.planErr = ""
 		m.status = ""
 		return m, nil
 	case planErrorMsg:
-		m.planState = planIdle
-		cause, _, _ := strings.Cut(msg.err.Error(), "\n")
-		m.status = "plan failed: " + cause
-		m.statusLvl = statusError
-		m.statusAt = time.Now()
+		m.planState = planFailed
+		m.planErr, _, _ = strings.Cut(msg.err.Error(), "\n")
+		m.status = ""
 		return m, nil
 	case spinnerTickMsg:
 		if m.planState == planLoading || m.refSwitching || m.applyState == applyLoading {
@@ -190,6 +189,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// to the normal layout.
 	if m.planState == planReady {
 		return m.handlePlanKey(msg)
+	}
+	if m.planState == planFailed {
+		return m.handlePlanFailedKey(msg)
 	}
 	if m.planState == planLoading {
 		// Esc abandons the in-flight plan; the editor stays usable either way.
