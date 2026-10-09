@@ -451,7 +451,9 @@ initialised yet.
 Atelier appends terraform's diagnostics under the wrapper's `.atelier/logs/`
 directory (gitignored, regenerable). Applying from the plan view hands your
 terminal to terraform, so you see its progress as it happens; these files are
-what's left to read when a plan the TUI ran on your behalf fails.
+what's left to read when a plan the TUI ran on your behalf fails. Each action is
+a delimited, plain-text block headed by the terraform command, the wrapper
+directory, and a timestamp, so a file holding several actions stays scannable.
 
 - `tf-stderr.log` — terraform's stderr, appended across runs. Always on. It
   stays small because successful commands write little to stderr, so it

@@ -79,10 +79,14 @@ func (p *TfexecPlanner) runInit(ctx context.Context, upgrade bool) error {
 	// Terraform's output goes to the durable log files rather than the
 	// screen: the TUI renders the plan tree, not terraform's progress, and
 	// the files are what a failed plan leaves behind to read (ADR-0052).
-	p.Tf.SetStdout(p.Tf.StdoutFile())
-	p.Tf.SetStderr(p.Tf.StderrFile())
-	tfexec.WriteTimestampHeader(p.Tf.StderrFile())
-	tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
+	command := "init"
+	if upgrade {
+		command = "init -upgrade"
+	}
+	action := p.Tf.BeginAction(command)
+	defer action.Close()
+	p.Tf.SetStdout(action.Stdout(nil))
+	p.Tf.SetStderr(action.Stderr(nil))
 	defer p.Tf.SetStdout(nil)
 	defer p.Tf.SetStderr(nil)
 
@@ -115,10 +119,10 @@ func (p *TfexecPlanner) Plan(ctx context.Context) (*tfjson.Plan, error) {
 		return nil, err
 	}
 
-	p.Tf.SetStdout(p.Tf.StdoutFile())
-	p.Tf.SetStderr(p.Tf.StderrFile())
-	tfexec.WriteTimestampHeader(p.Tf.StderrFile())
-	tfexec.WriteTimestampHeader(p.Tf.StdoutFile())
+	action := p.Tf.BeginAction("plan")
+	defer action.Close()
+	p.Tf.SetStdout(action.Stdout(nil))
+	p.Tf.SetStderr(action.Stderr(nil))
 	defer p.Tf.SetStdout(nil)
 	defer p.Tf.SetStderr(nil)
 

@@ -550,10 +550,10 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 	}
 	// Terraform's output goes to the durable log files; the TUI shows only
 	// the spinner for this step (ADR-0052).
-	tf.SetStdout(tf.StdoutFile())
-	tf.SetStderr(tf.StderrFile())
-	tfexec.WriteTimestampHeader(tf.StdoutFile())
-	tfexec.WriteTimestampHeader(tf.StderrFile())
+	action := tf.BeginAction("init -upgrade")
+	defer action.Close()
+	tf.SetStdout(action.Stdout(nil))
+	tf.SetStderr(action.Stderr(nil))
 	defer tf.SetStdout(nil)
 	defer tf.SetStderr(nil)
 	// A ref switch that changes the module's API can leave the wrapper
