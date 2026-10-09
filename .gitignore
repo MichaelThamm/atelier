@@ -24,8 +24,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# GitHub Pages site: generated gallery/import pages and the MkDocs build output.
-website/docs/gallery.md
-website/docs/juju.md
-website/docs/import-juju.md
+# GitHub Pages site: generated pages and the MkDocs build output. Every
+# website page is generated from a source elsewhere in the repo, except the
+# hand-written index.
+website/docs/*.md
+!website/docs/index.md
 website/site/
