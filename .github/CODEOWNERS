@@ -1,0 +1,6 @@
+# The bundled gallery and the tools that generate and refresh it. A moved pin
+# changes what a published quick start deploys, so gallery changes are reviewed.
+/internal/gallery/ @MichaelThamm
+/tools/gallerybump/ @MichaelThamm
+/tools/gallerysite/ @MichaelThamm
+/.github/workflows/gallery-schedule.yml @MichaelThamm
