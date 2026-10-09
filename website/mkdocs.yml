@@ -40,6 +40,7 @@ nav:
   - Gallery: gallery.md
   - Juju: juju.md
   - Importing live infrastructure: import-juju.md
+  - Comparing module versions: comparing-module-versions.md
 
 markdown_extensions:
   - attr_list
