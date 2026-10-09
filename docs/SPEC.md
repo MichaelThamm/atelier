@@ -1126,8 +1126,9 @@ Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 m
   prompt a second time. The flags come before the plan file: Terraform accepts
   one positional argument and treats a trailing flag as a second. A failure is
   already on screen; the status bar says only that it failed.
-- A failed `P` sets the status bar to `plan failed: <terraform's first line>`.
-  Terraform's full output for the run is appended to `.atelier/logs/` (§7.7).
+- A failed `P` opens a failure view showing terraform's first error line and the
+  path to the full output (`.atelier/logs/tf-stderr.log`); `Esc` returns to the
+  editor and `P` re-plans. See §7.7.
 - `Esc` returns to the editor.
 - Inline per-attribute diffs *inside* tree nodes are not yet implemented; see
   [ADR-0011](adr/0011-plan-output-tree.md).
@@ -1163,8 +1164,8 @@ the plan tree itself); the CLI `apply` streams to the terminal and mirrors to
 the logs, so an apply that fails after Terraform printed an error still leaves
 that error behind to read.
 
-A failed plan is reported in the status bar as `plan failed: <terraform's first
-line>`; the rest of the diagnostics are in `tf-stderr.log`. `.atelier/` is
+A failed plan opens the failure view (§7.5), which names
+`.atelier/logs/tf-stderr.log`; the diagnostics are there. `.atelier/` is
 internal and regenerable state — deleting it loses the logs, not the wrapper.
 
 See [ADR-0029](adr/0029-live-logs-view.md) for the superseded in-TUI view and
@@ -1374,7 +1375,7 @@ that succeeded, so a failed one retries as an `-upgrade`.
 | `git clone` fails (network / not found)          | CLI-level error before TUI launch.                                                              |
 | `terraform init` fails at bootstrap              | CLI-level error before TUI launch.                                                              |
 | `terraform validate` errors in session           | Surface the first diagnostic in the status pane; non-blocking.                                   |
-| `terraform plan` fails in session                | Surface the first line of the error in the status pane; the full output is in `.atelier/logs/`; non-blocking; user re-plans after fixing. |
+| `terraform plan` fails in session                | Open the failure view with the first error line and the log path; `Esc` returns to the editor to fix and re-plan.               |
 | `git ls-remote` fails when resolving ref         | Show the literal ref but hide the resolved SHA; warn in status pane; user can retry.            |
 
 ## 14. Implementation notes

@@ -352,6 +352,10 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm%ds", m, s)
 }
 
+// logsDir is where terraform's output for a TUI-driven action lands; the help
+// modal names it for a failed plan or apply.
+const logsDir = ".atelier/logs/"
+
 func (m *Model) statusHints() string {
 	if m.height < 15 {
 		return "[?] help"
@@ -359,6 +363,8 @@ func (m *Model) statusHints() string {
 	switch m.planState {
 	case planLoading:
 		return "[Esc] cancel  [?] help"
+	case planFailed:
+		return "[Esc] back  [P] re-plan  [?] help"
 	case planReady:
 		if m.planDiffFocus {
 			return "[" + arrowUpDown + "] scroll diff  [Tab/Esc] back to tree  [?] help"

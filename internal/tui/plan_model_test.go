@@ -50,7 +50,7 @@ func samplePlan() *tfjson.Plan {
 	}
 }
 
-func TestPressP_withoutPlanner_emitsErrorStatus(t *testing.T) {
+func TestPressP_withoutPlanner_opensFailureView(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 
@@ -69,11 +69,11 @@ func TestPressP_withoutPlanner_emitsErrorStatus(t *testing.T) {
 	})
 	out, _ := m.Update(msg)
 	mm := out.(*Model)
-	if mm.planState != planIdle {
-		t.Errorf("after error, planState = %v; want planIdle", mm.planState)
+	if mm.planState != planFailed {
+		t.Errorf("after error, planState = %v; want planFailed", mm.planState)
 	}
-	if !strings.Contains(mm.status, "plan failed") {
-		t.Errorf("status = %q; expected plan-failed message", mm.status)
+	if mm.planErr == "" {
+		t.Error("planErr should carry the failure")
 	}
 }
 
@@ -113,7 +113,7 @@ func TestPressP_withPlanner_transitionsThroughLoadingToReady(t *testing.T) {
 	}
 }
 
-func TestPlanError_propagatesToStatus(t *testing.T) {
+func TestPlanError_opensFailureView(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.Planner = &stubPlanner{planErr: errors.New("BoOm")}
@@ -125,14 +125,11 @@ func TestPlanError_propagatesToStatus(t *testing.T) {
 	})
 	out, _ := m.Update(msg)
 	mm := out.(*Model)
-	if mm.planState != planIdle {
-		t.Errorf("planState after error = %v", mm.planState)
+	if mm.planState != planFailed {
+		t.Errorf("planState after error = %v; want planFailed", mm.planState)
 	}
-	if !strings.Contains(mm.status, "BoOm") {
-		t.Errorf("status should contain error text; got %q", mm.status)
-	}
-	if mm.statusLvl != statusError {
-		t.Errorf("statusLvl should be error")
+	if !strings.Contains(mm.planErr, "BoOm") {
+		t.Errorf("planErr should contain error text; got %q", mm.planErr)
 	}
 }
 

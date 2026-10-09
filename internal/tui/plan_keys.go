@@ -87,6 +87,24 @@ func (m *Model) handlePlanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handlePlanFailedKey routes keys for the failed-plan view. Esc returns to the
+// editor, where the wrapper can be fixed and re-planned; P re-plans from here.
+// ? is handled globally.
+func (m *Model) handlePlanFailedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.planState = planIdle
+		m.planErr = ""
+		return m, nil
+	case "p", "P":
+		m.planState = planLoading
+		m.planErr = ""
+		m.checkWarnings = nil
+		return m, tea.Batch(m.startPlan(), spinnerTick())
+	}
+	return m, nil
+}
+
 // handlePlanDiffKey handles keys when the diff pane is focused.
 // ↑↓ scroll the diff; Tab/Esc return focus to the tree.
 func (m *Model) handlePlanDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
