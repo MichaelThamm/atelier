@@ -91,20 +91,28 @@ jobs:
           # The bump PR is reviewed, never auto-merged: a moved pin changes what
           # a published quick start deploys.
           REVIEWERS: MichaelThamm
+          # The PR body, in the format the pr-description skill produces: the
+          # template's headings, one full-width line per paragraph, absolute
+          # links. The block scalar strips the YAML indentation, so GitHub
+          # renders prose instead of a leading-space code block.
+          BODY: |
+            ## Summary
+
+            Bumps every bundled gallery entry's pinned `ref` to its module's current revision, so a quick start does not deploy a stale module. Only the `ref` lines change.
+
+            ## Decision and spec
+
+            - **ADR:** [ADR-0040](https://github.com/MichaelThamm/atelier/blob/main/docs/adr/0040-automated-gallery-refresh.md).
+            - **SPEC:** none.
+
+            ## Tests
+
+            `just gallery-lint` and `just gallery-check` run in the bump job; the `Module gallery` CI job re-validates the bumped pins.
+
+            ## Notes
+
+            Review the diff for anything beyond the `ref` lines — the bump never touches presets or `requires`. Close this pull request to keep the previous pins.
         run: |
-          cat > /tmp/pr.md <<'MSG'
-          Automated refresh of the bundled module gallery.
-
-          Each entry's `ref` now points at its module's current tracked ref. The
-          bump was validated before this PR was opened: `just gallery-lint`
-          (every entry covers its module's required inputs) and `just
-          gallery-check` (every entry scaffolds and `terraform validate`).
-
-          Review the diff for anything beyond the `ref` lines. If a module
-          renamed a variable, changed a default, or added a required input, fix
-          the entry here — the bump deliberately does not touch presets or
-          `requires`. See ADR-0040 and the `gallery-bump` skill.
-          MSG
           git config user.name "atelier-bot"
           git config user.email "atelier-bot@users.noreply.github.com"
           git checkout -B "$BRANCH"
@@ -115,12 +123,13 @@ jobs:
           pr="$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number')"
           if [ -n "$pr" ]; then
             # Force-pushing the branch does not re-request review, so ask again
-            # for the refreshed pins before the run comment.
-            gh pr edit "$pr" --add-reviewer "$REVIEWERS"
+            # for the refreshed pins; refresh the body too, so it tracks the
+            # workflow rather than the first run.
+            gh pr edit "$pr" --body "$BODY" --add-reviewer "$REVIEWERS"
             gh pr comment "$pr" --body "Refreshed against main at $(date -u +%FT%TZ)."
           else
             gh pr create --base main --head "$BRANCH" \
               --title "chore(gallery): bump module refs to the current tracked ref" \
               --reviewer "$REVIEWERS" \
-              --body-file /tmp/pr.md
+              --body "$BODY"
           fi

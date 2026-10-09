@@ -39,14 +39,11 @@ bullets, headings, tables). This applies to issue bodies too.
      Avoid code identifiers unless essential, and gloss any unavoidable term in
      a few words.
    - **Decision and spec** — link the ADR(s) and SPEC section(s) touched, or
-     state "none needed" and why.
-   - **Scope check** — tick a box only when the diff supports it; otherwise
-     leave it unticked and append `TODO`.
+     state "none" and why.
    - **Tests** — one or two sentences: what proves it works, and whether a test
      fails without the change. Name the integration tier if one is affected.
-   - **Docs** — what was updated, or "none".
-   - **Risk and rollback**, **Reviewer notes** — one short sentence each, or
-     `TODO`.
+   - **Notes** — one short sentence each for risk/rollback and anything for the
+     reviewer to focus on, or "none".
 4. Never invent facts. Where the diff does not tell you something, keep the
    template's placeholder and write `TODO`.
 5. Write the body to `${TMPDIR:-/tmp}/atelier-pr.md`. Then print, in order:
