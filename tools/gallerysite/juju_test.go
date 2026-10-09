@@ -89,18 +89,26 @@ func TestJujuArgs_modelShapePerEntry(t *testing.T) {
 	}
 }
 
-// Every shipped entry must be either pin-able or declared own-model: a page
-// whose commands are the point cannot carry an entry that silently deploys
-// somewhere else, nor one that quietly has no variant.
-func TestJujuModels_coverEveryShippedEntry(t *testing.T) {
+// Every entry the generator pins or declares own-model must be a shipped
+// gallery entry, so a renamed or removed entry cannot leave a stale pin behind.
+// A provider-neutral entry carries neither and is not required to.
+func TestJujuMaps_nameShippedEntries(t *testing.T) {
 	entries, err := gallery.List()
 	if err != nil {
 		t.Fatal(err)
 	}
+	shipped := make(map[string]bool, len(entries))
 	for _, e := range entries {
-		_, pinned := jujuModels[e.Name]
-		if !pinned && !createsOwnModel(e) {
-			t.Errorf("entry %q has no Juju model pin and is not declared own-model", e.Name)
+		shipped[e.Name] = true
+	}
+	for name := range jujuModels {
+		if !shipped[name] {
+			t.Errorf("jujuModels names %q, which is not a shipped entry", name)
+		}
+	}
+	for name := range jujuOwnModel {
+		if !shipped[name] {
+			t.Errorf("jujuOwnModel names %q, which is not a shipped entry", name)
 		}
 	}
 }
@@ -297,10 +305,11 @@ func TestRender_bannerStatesConventionsOnce(t *testing.T) {
 	}
 }
 
-// Every shipped entry either gets a variant or states that its module always
-// creates its own model, so the page is never silent about which cards can
-// deploy into an existing model.
-func TestCard_everyShippedEntryIsAccountedFor(t *testing.T) {
+// A card offers a Juju variant exactly when the entry has a pin, and an
+// own-model note exactly when its module is declared to create its own model.
+// An entry with neither is provider-neutral: its card still carries the
+// gallery's own command, with no Juju layer.
+func TestCard_jujuVariantMatchesTheMaps(t *testing.T) {
 	entries, err := gallery.List()
 	if err != nil {
 		t.Fatal(err)
@@ -309,10 +318,16 @@ func TestCard_everyShippedEntryIsAccountedFor(t *testing.T) {
 		var b strings.Builder
 		writeCard(&b, e)
 		card := b.String()
+		_, pinned := jujuModels[e.Name]
+		own := createsOwnModel(e)
+
 		hasVariant := strings.Contains(card, "??? ")
 		statesOwnModel := strings.Contains(card, "No variant: ")
-		if !hasVariant && !statesOwnModel {
-			t.Errorf("entry %q has neither a Juju variant nor an own-model note", e.Name)
+		if hasVariant != pinned {
+			t.Errorf("entry %q: variant=%v, pinned=%v", e.Name, hasVariant, pinned)
+		}
+		if statesOwnModel != own {
+			t.Errorf("entry %q: own-model note=%v, declared=%v", e.Name, statesOwnModel, own)
 		}
 		if hasVariant && statesOwnModel {
 			t.Errorf("entry %q has both a variant and an own-model note", e.Name)

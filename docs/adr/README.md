@@ -63,6 +63,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0054 | [A nested `map(string)` is edited as HCL lines](0054-nested-map-string-edits-as-hcl-lines.md) | Accepted |
 | 0055 | [A gallery-sourced import names its own revision](0055-gallery-import-names-its-revision.md) | Accepted |
 | 0056 | [Terraform action logs name the action and are bounded](0056-named-bounded-action-logs.md) | Accepted |
+| 0058 | [The gallery admits first-party, non-Juju modules](0058-gallery-admits-non-juju-modules.md) | Accepted |
 | 0057 | [One generated gallery page, with provider variants on each card](0057-single-gallery-page.md) | Accepted |
 
 ## Conventions

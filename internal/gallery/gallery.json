@@ -9,6 +9,15 @@
     "requires": ["model_uuid"]
   },
   {
+    "name": "aks",
+    "description": "Azure Kubernetes Service: a managed Kubernetes cluster on Azure, from Microsoft's Azure Verified Module.",
+    "module": "https://github.com/Azure/terraform-azurerm-aks",
+    "subdir": ".",
+    "ref": "58ffc7c71a36871dc955ded13816fd29ac798791",
+    "block": "aks",
+    "requires": ["location", "resource_group_name"]
+  },
+  {
     "name": "authentik",
     "description": "Authentik for Kubernetes: an identity provider fronting the Identity Platform's login UI, wired to PostgreSQL and Traefik through cross-model offers.",
     "module": "https://github.com/canonical/authentik-server-operator",
@@ -86,6 +95,15 @@
     "block": "github_runner",
     "presets": ["github-runner-defaults"],
     "requires": ["model"]
+  },
+  {
+    "name": "gke",
+    "description": "Google Kubernetes Engine: a managed Kubernetes cluster on Google Cloud, from Google's Terraform module.",
+    "module": "https://github.com/terraform-google-modules/terraform-google-kubernetes-engine",
+    "subdir": ".",
+    "ref": "068af04e164ab3d0061d70b809ff603027e944b8",
+    "block": "gke",
+    "requires": ["project_id", "name", "network", "subnetwork", "ip_range_pods"]
   },
   {
     "name": "haproxy-product",
