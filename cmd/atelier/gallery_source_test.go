@@ -10,6 +10,12 @@ import (
 )
 
 func TestResolveModuleSource_galleryName(t *testing.T) {
+	// Compare against the manifest, not a literal SHA: the pin moves on its own
+	// cadence (ADR-0040), so a literal would fail every scheduled bump.
+	entry, ok := gallery.Find("haproxy-product")
+	if !ok {
+		t.Fatal("no gallery entry named haproxy-product")
+	}
 	opts := moduleOpts{Source: "haproxy-product"}
 	if err := resolveModuleSource(&opts); err != nil {
 		t.Fatalf("resolveModuleSource: %v", err)
@@ -23,8 +29,8 @@ func TestResolveModuleSource_galleryName(t *testing.T) {
 	if opts.As != "haproxy" {
 		t.Errorf("As = %q", opts.As)
 	}
-	if opts.Ref != "a4b85299f23740e8b7570b05a0d7d4aabcd3c476" {
-		t.Errorf("Ref = %q", opts.Ref)
+	if opts.Ref != entry.Ref {
+		t.Errorf("Ref = %q, want the entry's %q", opts.Ref, entry.Ref)
 	}
 	// The entry names no preset, so nothing is layered under a --var-file.
 	if len(opts.VarFiles) != 0 {
@@ -214,6 +220,12 @@ func TestResolvedSourceLine(t *testing.T) {
 // --- resolveImportSource: the same expansion, without the presets ---
 
 func TestResolveImportSource_expandsEntry(t *testing.T) {
+	// As with resolveModuleSource, the expected ref comes from the manifest so a
+	// scheduled ref bump does not fail this test (ADR-0040).
+	entry, ok := gallery.Find("cos-lite")
+	if !ok {
+		t.Fatal("no gallery entry named cos-lite")
+	}
 	opts := moduleOpts{Source: "cos-lite"}
 	if err := resolveImportSource(&opts); err != nil {
 		t.Fatalf("resolveImportSource: %v", err)
@@ -224,8 +236,8 @@ func TestResolveImportSource_expandsEntry(t *testing.T) {
 	if opts.ModulePath != "terraform/cos-lite" {
 		t.Errorf("ModulePath = %q", opts.ModulePath)
 	}
-	if opts.Ref != "d1598ff3bdf9a25af69145fd557a913e2a13a314" {
-		t.Errorf("Ref = %q", opts.Ref)
+	if opts.Ref != entry.Ref {
+		t.Errorf("Ref = %q, want the entry's %q", opts.Ref, entry.Ref)
 	}
 }
 

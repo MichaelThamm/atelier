@@ -88,6 +88,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: automation/gallery-bump
+          # The bump PR is reviewed, never auto-merged: a moved pin changes what
+          # a published quick start deploys.
+          REVIEWERS: MichaelThamm
         run: |
           cat > /tmp/pr.md <<'MSG'
           Automated refresh of the bundled module gallery.
@@ -111,9 +114,13 @@ jobs:
           git push --force origin "$BRANCH"
           pr="$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number')"
           if [ -n "$pr" ]; then
+            # Force-pushing the branch does not re-request review, so ask again
+            # for the refreshed pins before the run comment.
+            gh pr edit "$pr" --add-reviewer "$REVIEWERS"
             gh pr comment "$pr" --body "Refreshed against main at $(date -u +%FT%TZ)."
           else
             gh pr create --base main --head "$BRANCH" \
               --title "chore(gallery): bump module refs to the current tracked ref" \
+              --reviewer "$REVIEWERS" \
               --body-file /tmp/pr.md
           fi
