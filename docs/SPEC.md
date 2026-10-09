@@ -623,22 +623,24 @@ exactly like any other `--var-file`.
 - A gallery card names a required input once, as a `--var` in the apply
   one-liner it offers, and does not restate the list in prose
   ([ADR-0046](adr/0046-gallery-card-states-inputs-once.md)).
-- The GitHub Pages site publishes a second generated page, `/juju/`, beside the
-  provider-agnostic `/gallery/`. It is built by the same tool
-  ([ADR-0037](adr/0037-gallery-pages-site.md)) and holds the gallery's Juju
-  knowledge in `tools/gallerysite`, not in `internal/gallery` or the manifest,
-  so the binary and the CLI stay provider-agnostic
-  ([ADR-0041](adr/0041-juju-opinionated-gallery-page.md)). A card renders the
-  same command as the gallery page, and the Juju-specific variant — deploying
-  into the reader's current model, plus S3 credentials and a charm channel from
-  the environment — as a collapsed block beneath it. The variant is collapsed
+- The GitHub Pages site publishes one generated page, `/gallery/`, built by
+  `tools/gallerysite` from the manifest
+  ([ADR-0037](adr/0037-gallery-pages-site.md)). A Juju entry's card carries a
+  collapsed variant beneath the neutral command — deploying into the reader's
+  current model, plus S3 credentials and a charm channel from the environment —
+  while the provider-agnostic command stays the card's default. The Juju
+  knowledge lives in `tools/gallerysite`, not in `internal/gallery` or the
+  manifest, so the binary and the CLI stay provider-agnostic
+  ([ADR-0041](adr/0041-juju-opinionated-gallery-page.md),
+  [ADR-0057](adr/0057-single-gallery-page.md)). The variant is collapsed
   because it is an opinion: Juju has no single convention for naming a model
   (`model_uuid` takes a UUID, `model` an object whose `uuid` selects an existing
   model, or a model name), and on some modules pinning it overrides what the
   module would otherwise do. The model is read from the environment rather than
-  resolved per command: the page's banner exports `CURRENT_MODEL` (the current
-  model's UUID) and `CURRENT_MODEL_NAME` (its short name) from `juju show-model`,
-  and every pin passes one of them, so a card's command is one `--var` per input
+  resolved per command: a collapsed conventions block exports `CURRENT_MODEL`
+  (the current model's UUID) and `CURRENT_MODEL_NAME` (its short name) from
+  `juju show-model`, and every pin passes one of them, so a card's command is one
+  `--var` per input
   ([ADR-0049](adr/0049-juju-page-model-from-environment.md)). An entry may need
   more than one pin to make the model pin apply — Charmed Kubeflow reads
   `model_uuid` only when `create_model` is false — and a module that always

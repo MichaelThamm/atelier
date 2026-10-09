@@ -12,29 +12,23 @@ import (
 const siteIndexPath = "../../website/docs/index.md"
 
 // The generated site is read by people who have never seen this repository, so
-// no page may name an internal artefact. The gallery page is the same content
-// `atelier gallery list` prints and the Juju page is opinionated around it; both
-// are held to the rule. See the "Public-facing output" convention in AGENTS.md.
+// no page may name an internal artefact. The gallery page carries the same
+// content `atelier gallery list` prints, plus the Juju variants; it is held to
+// the rule. See the "Public-facing output" convention in AGENTS.md.
 func TestPublicFacingSite_hasNoInternalReferences(t *testing.T) {
 	entries, err := gallery.List()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var agnostic, juju strings.Builder
-	if err := render(&agnostic, entries); err != nil {
+	var page strings.Builder
+	if err := render(&page, entries); err != nil {
 		t.Fatalf("render: %v", err)
-	}
-	if err := renderJujuPage(&juju, entries); err != nil {
-		t.Fatalf("renderJujuPage: %v", err)
 	}
 	for _, ref := range []string{
 		"ADR-", "docs/adr", "docs/SPEC", "SPEC.md", "docs/ROADMAP", "internal/",
 	} {
-		if strings.Contains(agnostic.String(), ref) {
+		if strings.Contains(page.String(), ref) {
 			t.Errorf("the gallery page mentions %q", ref)
-		}
-		if strings.Contains(juju.String(), ref) {
-			t.Errorf("the Juju page mentions %q", ref)
 		}
 	}
 }

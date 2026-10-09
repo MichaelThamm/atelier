@@ -121,13 +121,13 @@ func TestJujuModels_disjointFromOwnModel(t *testing.T) {
 
 // The banner resolves the model once, so a card's command carries no
 // substitution of its own.
-func TestRenderJujuPage_resolvesTheModelOnceInTheBanner(t *testing.T) {
+func TestRender_resolvesTheModelOnceInTheBanner(t *testing.T) {
 	entries, err := gallery.List()
 	if err != nil {
 		t.Fatal(err)
 	}
 	var b strings.Builder
-	if err := renderJujuPage(&b, entries); err != nil {
+	if err := render(&b, entries); err != nil {
 		t.Fatal(err)
 	}
 	if n := strings.Count(b.String(), "juju show-model"); n != 2 {
@@ -217,7 +217,7 @@ func TestJujuCommand_indentsEveryLine(t *testing.T) {
 
 // A card must show the manifest's own command, so the site never displays a
 // command `atelier gallery list` would not print.
-func TestJujuCard_showsTheGalleryCommand(t *testing.T) {
+func TestCard_showsTheGalleryCommand(t *testing.T) {
 	var b strings.Builder
 	e := gallery.Entry{
 		Name:        "charmarr",
@@ -226,7 +226,7 @@ func TestJujuCard_showsTheGalleryCommand(t *testing.T) {
 		Ref:         "e01391758b45e50a1b018154490bec1b99636434",
 		Requires:    []string{"model", "vpn_provider"},
 	}
-	writeJujuCard(&b, e)
+	writeCard(&b, e)
 	got := b.String()
 
 	if want := "atelier apply charmarr --var model=<model> --var vpn_provider=<vpn_provider>"; !strings.Contains(got, want) {
@@ -245,9 +245,9 @@ func TestJujuCard_showsTheGalleryCommand(t *testing.T) {
 
 // Pinning a model that the module would have created is a change in behaviour,
 // so the card says so rather than presenting it as equivalent.
-func TestJujuCard_flagsAChangeInBehaviour(t *testing.T) {
+func TestCard_flagsAChangeInBehaviour(t *testing.T) {
 	var b strings.Builder
-	writeJujuCard(&b, gallery.Entry{Name: "cos-lite", Module: "https://x/y", Ref: "abc"})
+	writeCard(&b, gallery.Entry{Name: "cos-lite", Module: "https://x/y", Ref: "abc"})
 	got := b.String()
 	if !strings.Contains(got, "instead of creating one") {
 		t.Errorf("cos-lite's pin overrides its default; the card must say so\n\n%s", got)
@@ -257,7 +257,7 @@ func TestJujuCard_flagsAChangeInBehaviour(t *testing.T) {
 	}
 
 	b.Reset()
-	writeJujuCard(&b, gallery.Entry{Name: "loki-operators", Module: "https://x/y", Ref: "abc",
+	writeCard(&b, gallery.Entry{Name: "loki-operators", Module: "https://x/y", Ref: "abc",
 		Requires: []string{"model_uuid"}})
 	got = b.String()
 	// A required model leaves no choice, so the variant must not claim to change
@@ -267,22 +267,22 @@ func TestJujuCard_flagsAChangeInBehaviour(t *testing.T) {
 	}
 }
 
-// The banner states the Juju conventions once, and is explicit about which
-// entries have no choice about the model.
-func TestRenderJujuPage_bannerStatesConventionsOnce(t *testing.T) {
+// The banner states the Juju conventions once, in a collapsed block, and is
+// explicit about which entries have no choice about the model.
+func TestRender_bannerStatesConventionsOnce(t *testing.T) {
 	var b strings.Builder
 	entries := []gallery.Entry{
 		{Name: "loki-operators", Module: "https://x/y", Ref: "abc", Requires: []string{"model_uuid"}},
 		{Name: "cos-lite", Module: "https://x/y", Ref: "abc"},
 	}
-	if err := renderJujuPage(&b, entries); err != nil {
+	if err := render(&b, entries); err != nil {
 		t.Fatal(err)
 	}
 	got := b.String()
 
 	for _, want := range []string{
-		"# Juju modules",
-		"## Deploying into your current model",
+		"# Module gallery",
+		`??? "Deploying into a Juju model"`,
 		"`juju` and `jq` must be on your `PATH`",
 		`export CURRENT_MODEL="$(juju show-model`,
 		`export CURRENT_MODEL_NAME="$(juju show-model`,
@@ -295,23 +295,19 @@ func TestRenderJujuPage_bannerStatesConventionsOnce(t *testing.T) {
 			t.Errorf("rendered page missing %q\n\n%s", want, got)
 		}
 	}
-	// The agnostic page is linked, not duplicated: the two pages coexist.
-	if !strings.Contains(got, "(gallery.md)") {
-		t.Error("the Juju page should link the provider-agnostic gallery")
-	}
 }
 
 // Every shipped entry either gets a variant or states that its module always
 // creates its own model, so the page is never silent about which cards can
 // deploy into an existing model.
-func TestJujuCard_everyShippedEntryIsAccountedFor(t *testing.T) {
+func TestCard_everyShippedEntryIsAccountedFor(t *testing.T) {
 	entries, err := gallery.List()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
 		var b strings.Builder
-		writeJujuCard(&b, e)
+		writeCard(&b, e)
 		card := b.String()
 		hasVariant := strings.Contains(card, "??? ")
 		statesOwnModel := strings.Contains(card, "No variant: ")
