@@ -99,15 +99,17 @@ on Canonical K8s; for a module whose providers you already have credentials for,
 the same two commands run it. [Presets](#presets) seed values from a named
 `.tfvars` bundle instead of the defaults.
 
-The same flow works for any module — for example
-[`terraform-aws-modules/terraform-aws-vpc`](https://github.com/terraform-aws-modules/terraform-aws-vpc):
+The same flow works for any module. This is the gallery's `aks` quick start,
+[`Azure/terraform-azurerm-aks`](https://github.com/Azure/terraform-azurerm-aks),
+which targets Azure rather than Juju; a gallery entry name stands in for the
+module URL:
 
 ```bash
-atelier add https://github.com/terraform-aws-modules/terraform-aws-vpc.git
+atelier add aks
 ```
 
 `atelier add` creates a directory named after the module candidate (here
-`cos-lite`) unless `--dir`/`--as` names one, so there is no `mkdir`/`cd` to do
+`aks`) unless `--dir`/`--as` names one, so there is no `mkdir`/`cd` to do
 first. When the target — `--dir`, else the current directory — already holds a
 wrapper, it appends a module block instead; when it creates its own directory, a
 non-empty target is refused rather than scaffolded over. Run `atelier wrappers`
