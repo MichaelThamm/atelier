@@ -1,15 +1,12 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
-"""Import a hand-deployed slice of COS-Lite, then let the plan fill the rest.
+"""Adopt a hand-deployed slice of COS-Lite, then apply the rest.
 
 A user can deploy a couple of charms with the Juju client and want Terraform to
-own them, then add the rest. This deploys `alertmanager` and `catalogue` with
-Jubilant (no Terraform), imports them into a fresh cos-lite wrapper, and asserts
-the resulting plan *adds* the components that are missing instead of duplicating
-the two that are already live.
-
-No `apply`: the plan is the assertion. Applying would stand the whole stack up,
-which is the cost this arrangement avoids.
+own them, then converge the rest. This deploys `alertmanager` and `catalogue`
+with Jubilant (no Terraform), imports them into a fresh cos-lite wrapper, checks
+the plan adds the missing components rather than duplicating the two that are
+live, then applies and asserts the stack converges.
 """
 
 import json
@@ -17,19 +14,26 @@ import json
 import jubilant
 import pytest
 
-from helpers import atelier
+from helpers import TfDirManager, atelier, wait_for_active_idle_without_error
 
 COS_SOURCE = "cos-lite"  # gallery entry
 COS_REF = "main"
 COS_PRESET = "cos-lite-no-ingress"
 
-# The two applications deployed by hand; the module must adopt them rather than
+# The applications deployed by hand; the module must adopt them rather than
 # create fresh copies.
 HAND_DEPLOYED = (("alertmanager-k8s", "alertmanager"), ("catalogue-k8s", "catalogue"))
 
+APPLY = (
+    f"apply {COS_SOURCE} --ref {COS_REF} --var-file {COS_PRESET}"
+    f" --var internal_tls=false --dir wrapper --strict"
+)
+
 
 @pytest.mark.cloud
-def test_import_a_hand_deployed_slice_then_plan_the_rest(juju: jubilant.Juju, tmp_path):
+def test_adopt_a_hand_deployed_slice_then_apply_the_rest(
+    tf_manager: TfDirManager, juju: jubilant.Juju, tmp_path
+):
     model_uuid = juju.show_model(juju.model).model_uuid
 
     # GIVEN two charms deployed with the Juju client, no Terraform involved
@@ -62,3 +66,11 @@ def test_import_a_hand_deployed_slice_then_plan_the_rest(juju: jubilant.Juju, tm
         assert not any(f".juju_application.{app}" in a for a in adds), (app, adds)
     assert any("loki" in a for a in adds), adds
     assert any("grafana" in a for a in adds), adds
+
+    # WHEN the rest of the module is applied
+    atelier(APPLY, cwd=tmp_path)
+    wait_for_active_idle_without_error(juju)
+
+    # THEN the stack has converged on the module's main state
+    tf_manager.latch(tmp_path / "wrapper")
+    assert tf_manager.plan_changes() == [], "the converged stack still has drift"
