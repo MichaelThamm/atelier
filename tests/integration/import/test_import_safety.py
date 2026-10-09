@@ -8,26 +8,81 @@ a different model than the live resources came from would make the next apply
 destroy every resource it imported. The check runs between the plan and the
 match, so nothing is written — which is what this pins.
 
-No deployment is needed: the guard fires before any import, so an empty live
-model and an empty target model are enough. The dry-run and repeat-import safety
-checks live in ``test_import_cos_lite_roundtrip``, so they share its one deploy
-instead of standing a second COS-Lite up.
+The module is a local `file://` git repo declaring one importable resource, not
+a product module: the guard reads the planned `model_uuid` from any importable
+resource, so a product module buys nothing here and costs a clone of the whole
+observability stack plus a plan of fifty resources. The local module reaches the
+same check for a fraction of the runner time, and needs only `terraform validate`
+to stay honest about the provider schema.
+
+No deployment is needed either: the guard fires before any import, so an empty
+live model and an empty target model are enough. The dry-run and repeat-import
+safety checks live in ``test_import_cos_lite_roundtrip``, so they share its one
+deploy instead of standing a second COS-Lite up.
 """
+
+import os
+import subprocess
+from pathlib import Path
 
 import jubilant
 import pytest
 
 from helpers import atelier
 
-COS_REPO = "https://github.com/canonical/observability-stack.git"
-COS_MODULE = "terraform/cos-lite"
-COS_REF = "main"
-# The module's own preset, resolved by name from the clone (upstream discovery).
-COS_PRESET = "no-ingress"
+# One importable resource carrying `model_uuid`, which is all the model
+# consistency check reads. `charm` is required by the resource but never
+# resolved for a create, so a placeholder name is enough.
+PROBE_MODULE = """\
+terraform {
+  required_providers {
+    juju = { source = "juju/juju" }
+  }
+}
+
+variable "model_uuid" {
+  type = string
+}
+
+resource "juju_application" "probe" {
+  name       = "probe"
+  model_uuid = var.model_uuid
+
+  charm {
+    name = "probe"
+  }
+}
+"""
+
+
+def _git(repo: Path, *args: str) -> None:
+    """Run git in the fixture repo, hermetically (no signing, no editor, no hooks)."""
+    subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false",
+         "-c", "core.hooksPath=/dev/null", *args],
+        cwd=repo, check=True, capture_output=True,
+        env={**os.environ, "GIT_EDITOR": "true", "EDITOR": "true"},
+    )
+
+
+@pytest.fixture
+def probe_module(tmp_path) -> Path:
+    """A local `file://` git module declaring one importable juju resource."""
+    repo = tmp_path / "probe-module"
+    repo.mkdir()
+    (repo / "main.tf").write_text(PROBE_MODULE)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.invalid")
+    _git(repo, "config", "user.name", "Test")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "probe")
+    return repo
 
 
 @pytest.mark.cloud
-def test_import_refuses_a_configuration_targeting_another_model(juju: jubilant.Juju, tmp_path):
+def test_import_refuses_a_configuration_targeting_another_model(
+    juju: jubilant.Juju, tmp_path, probe_module: Path
+):
     """The model-mismatch guard, which is the one that prevents mass destruction.
 
     Both models are empty here: the point is not what runs, but that the
@@ -43,16 +98,10 @@ def test_import_refuses_a_configuration_targeting_another_model(juju: jubilant.J
         other_uuid = other.show_model(other.model).model_uuid
         assert other_uuid != live_uuid
 
-        # AND a bundle whose model is that other model, not the live one
-        (tmp_path / "wrong.tfvars").write_text(
-            f'model = {{ uuid = "{other_uuid}", name = "{other.model}" }}\n'
-            "internal_tls = false\n"
-        )
-
         # WHEN importing the live model with a configuration that targets another
         reported = atelier(
-            f"import juju --source {COS_REPO} --module {COS_MODULE} --ref {COS_REF} --dir wrapper"
-            f" --var-file wrong.tfvars --var-file {COS_PRESET}"
+            f"import juju --source file://{probe_module} --ref main --dir wrapper"
+            f" --var model_uuid={other_uuid}"
             f" --query-var model_uuid={live_uuid} --yes",
             cwd=tmp_path, check=False,
         )

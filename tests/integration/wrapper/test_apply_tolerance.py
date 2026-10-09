@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers import atelier
+from helpers import TfDirManager, atelier
 
 REPO_V1 = "v1.0.0"
 REPO_V2 = "v2.0.0"
@@ -426,3 +426,99 @@ module "cos_lite" {{
     # stale variable — the same fix applies to the TUI's ref switch.
     main_tf = (wrapper / "main.tf").read_text()
     assert arg_value(main_tf, "cos_lite", "depends_on") == "[module.loki]", main_tf
+
+
+# --- lifecycle: the wrapper measured against the state it produced -------------
+
+@pytest.fixture
+def versioned_value_repo(tmp_path) -> Path:
+    """A local git repo whose two tags differ only in one variable's default.
+
+    Both revisions declare the same variables and resources, so a ref change is
+    an in-place update of the same addresses rather than a different resource
+    set. `model_uuid` is required, so it is always written; `region` keeps its
+    default, so it is pruned and the change between tags rides in the module.
+    """
+    repo = tmp_path / "value-module"
+    write_module(repo, "value_module", {"model_uuid": ""}, {"region": "eu"})
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "user.email", "test@example.invalid")
+    git(repo, "config", "user.name", "Test")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "v1")
+    git(repo, "tag", REPO_V1)
+    write_module(repo, "value_module", {"model_uuid": ""}, {"region": "us"})
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "v2")
+    git(repo, "tag", REPO_V2)
+    return repo
+
+
+def test_ref_change_updates_in_place_and_keeps_state(tmp_path, versioned_value_repo):
+    # GIVEN a wrapper deployed at v1
+    wrapper = tmp_path / "wrapper"
+    wrapper.mkdir()
+    apply_repo(tmp_path, versioned_value_repo, REPO_V1, "--var model_uuid=u1")
+    tf = TfDirManager()
+    tf.latch(wrapper)
+    before = tf.state_addresses()
+    assert before, "apply should have written resources to state"
+
+    # WHEN the same module is applied at v2, whose only change is a default
+    apply_repo(tmp_path, versioned_value_repo, REPO_V2, "--var model_uuid=u1")
+
+    # THEN the block was re-pointed, not duplicated
+    main_tf = (wrapper / "main.tf").read_text()
+    assert f"ref={REPO_V2}" in main_tf, main_tf
+    assert module_blocks(main_tf) == ["value_module"], main_tf
+
+    # AND the change updated that value in place: the state addresses are
+    # identical and a fresh plan is empty, so nothing was re-created. Bumping the
+    # ref is not a re-key — the promise a live upgrade rests on.
+    assert tf.state_addresses() == before, "a ref change re-keyed the state"
+    assert tf.plan_changes() == []
+
+
+def test_apply_converges_leaving_nothing_to_plan(tmp_path, versioned_value_repo):
+    # GIVEN a wrapper Atelier deployed
+    wrapper = tmp_path / "wrapper"
+    wrapper.mkdir()
+    apply_repo(tmp_path, versioned_value_repo, REPO_V1, "--var model_uuid=u1")
+
+    # THEN a plain plan finds the configuration already satisfied — the claim a
+    # CI job that treats any pending change as drift depends on
+    tf = TfDirManager()
+    tf.latch(wrapper)
+    assert tf.plan_changes() == []
+
+
+def test_a_hand_edit_survives_the_next_apply(tmp_path, versioned_value_repo):
+    # GIVEN a deployed wrapper a user annotated by hand
+    wrapper = tmp_path / "wrapper"
+    wrapper.mkdir()
+    apply_repo(tmp_path, versioned_value_repo, REPO_V1, "--var model_uuid=u1")
+    main = wrapper / "main.tf"
+    text = main.read_text()
+    block = module_blocks(text)[0]
+    main.write_text(text.replace(f'module "{block}"',
+                                 f'# hand-written note: keep me\nmodule "{block}"', 1))
+
+    # WHEN a later run changes a value in that block
+    apply_repo(tmp_path, versioned_value_repo, REPO_V1, "--var model_uuid=u2")
+
+    # THEN the hand-written comment is still there and the value was written: the
+    # sparse-plus-required write preserves the user's edits (ADR-0007)
+    text = main.read_text()
+    assert "# hand-written note: keep me" in text, text
+    assert arg_value(text, block, "model_uuid") == '"u2"', text
+
+
+def test_wrapper_gitignores_state_and_private_dir(tmp_path, versioned_value_repo):
+    # GIVEN a wrapper Atelier authored
+    add_repo(tmp_path, versioned_value_repo, REPO_V1)
+
+    # THEN its .gitignore keeps Terraform state (which can hold secrets) and
+    # Atelier's regenerable private tree out of version control
+    gitignore = (tmp_path / "wrapper" / ".gitignore").read_text()
+    assert "terraform.tfstate" in gitignore, gitignore
+    assert ".atelier/" in gitignore, gitignore
