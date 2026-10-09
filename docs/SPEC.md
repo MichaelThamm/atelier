@@ -649,7 +649,11 @@ exactly like any other `--var-file`.
   apply` / `atelier import --source` in place of a URL. It expands to the entry's
   module, ref, block, and composed presets; an explicit `--ref`, `--module`,
   `--as`, or `--var-file` still wins,
-  and a URL or local path is never treated as a name. A bare name that matches
+  and a URL or local path is never treated as a name. A gallery-sourced
+  `add`/`apply` names the module and revision it resolved to on stderr; an
+  explicit `--ref` overrides the entry's pin and is called out, together with the
+  entry's composed presets having been validated against that pin
+  ([ADR-0039](adr/0039-composed-gallery-presets.md)). A bare name that matches
   nothing is an error naming `atelier gallery list`. `atelier import` differs in
   two ways: it takes the module and subdirectory but **not** the entry's ref — a
   gallery-sourced import must name the revision it deployed with `--ref`

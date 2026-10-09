@@ -137,6 +137,80 @@ func TestResolveModuleSource_unknownName(t *testing.T) {
 	}
 }
 
+// A gallery-sourced add/apply names the module and revision it resolved to, so
+// the pin a one-liner deploys is visible rather than implied.
+func TestResolveModuleSource_reportsResolvedSource(t *testing.T) {
+	entry, ok := gallery.Find("haproxy-product")
+	if !ok {
+		t.Fatal("no gallery entry named haproxy-product")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	opts := moduleOpts{Source: "haproxy-product"}
+	resolveErr := resolveModuleSource(&opts)
+	w.Close()
+	os.Stderr = old
+	got, _ := io.ReadAll(r)
+	if resolveErr != nil {
+		t.Fatalf("resolveModuleSource: %v", resolveErr)
+	}
+	// The entry names no preset, so the resolved source is the only thing to say.
+	for _, want := range []string{entry.Name, entry.Module, entry.ShortRef()} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("stderr = %q, want it to mention %q", got, want)
+		}
+	}
+}
+
+// An explicit --ref overrides the entry's pin, and the composed presets were
+// validated against that pin, so the override is called out for review.
+func TestResolveModuleSource_reportsRefOverride(t *testing.T) {
+	entry, ok := gallery.Find("cos")
+	if !ok {
+		t.Fatal("no gallery entry named cos")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	opts := moduleOpts{Source: "cos", Ref: "track/2"}
+	resolveErr := resolveModuleSource(&opts)
+	w.Close()
+	os.Stderr = old
+	got, _ := io.ReadAll(r)
+	if resolveErr != nil {
+		t.Fatalf("resolveModuleSource: %v", resolveErr)
+	}
+	for _, want := range []string{"track/2", entry.ShortRef(), "cos-grafana-single-unit"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("stderr = %q, want it to mention %q", got, want)
+		}
+	}
+}
+
+func TestResolvedSourceLine(t *testing.T) {
+	entry, ok := gallery.Find("cos-lite")
+	if !ok {
+		t.Fatal("no gallery entry named cos-lite")
+	}
+	// The pin is shown short.
+	opts := moduleOpts{Source: entry.Module, ModulePath: entry.Subdir, Ref: entry.Ref}
+	if got, want := resolvedSourceLine(entry, &opts, true), entry.Module+"//"+entry.Subdir+" @"+entry.ShortRef(); got != want {
+		t.Errorf("pinned line = %q, want %q", got, want)
+	}
+	// An explicit ref is shown as given, not truncated to ShortRef's width.
+	opts.Ref = "feat/a-long-branch-name"
+	if got := resolvedSourceLine(entry, &opts, false); !strings.Contains(got, "feat/a-long-branch-name") {
+		t.Errorf("override line = %q, want the full ref", got)
+	}
+}
+
 // --- resolveImportSource: the same expansion, without the presets ---
 
 func TestResolveImportSource_expandsEntry(t *testing.T) {

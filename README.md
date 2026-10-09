@@ -205,6 +205,21 @@ any), and the command to deploy it. An entry also lists the inputs it leaves to
 you, so you see them before running. `atelier gallery lint` checks that every
 entry covers the required inputs its module declares.
 
+A gallery name is a snapshot: each entry pins its module to a validated revision.
+`atelier add`/`apply` print the module and revision a name resolved to, so the
+revision being deployed is never implied. Passing `--ref` overrides the pin — the
+entry still supplies the module and subdirectory, so a name doubles as a short
+alias for both:
+
+```bash
+atelier apply cos-lite --ref track/2   # the alias, at a revision you choose
+```
+
+When you override the pin, the entry's composed presets are still applied, but
+they were validated against the pin, so Atelier says so — review them for the
+revision you chose, and supply any values the new revision needs with `--var` or
+`--var-file`.
+
 `atelier apply <module> --list-var-files` lists both sources
 (source-labelled `[local]`/`[repo]`, with the description taken from each
 file's leading comment) and `--var-file <name>` applies one. In the TUI, `S`
