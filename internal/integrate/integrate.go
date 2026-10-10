@@ -40,12 +40,18 @@ func Match(g *rootgraph.Graph) []Proposal {
 			continue
 		}
 		for _, v := range consumer.Contract.Variables {
+			// An integration interface is an object catalogue, so a scalar
+			// input never matches (it would wire incidental same-name values
+			// such as model_uuid).
+			if v.Type == nil || v.Type.Kind != tftypes.KindObject {
+				continue
+			}
 			for _, producer := range g.Nodes {
 				if producer.Name == consumer.Name || producer.Contract == nil {
 					continue
 				}
 				for _, o := range producer.Contract.Outputs {
-					if o.Name != v.Name || !Compatible(v.Type, o.Type) {
+					if o.Name != v.Name || o.Type == nil || o.Type.Kind != tftypes.KindObject || !Compatible(v.Type, o.Type) {
 						continue
 					}
 					out = append(out, Proposal{

@@ -79,6 +79,10 @@ func TestPropose_noMatch(t *testing.T) {
 			`output "cos_offers" { type = object({a = number}) value = {a = 1} }`,
 			`variable "cos_offers" { type = object({a = string}) }`,
 		},
+		"scalar same-name is not an interface": {
+			`output "model_uuid" { type = string value = "x" }`,
+			`variable "model_uuid" { type = string }`,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
