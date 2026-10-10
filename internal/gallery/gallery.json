@@ -9,15 +9,6 @@
     "requires": ["model_uuid"]
   },
   {
-    "name": "aks",
-    "description": "Azure Kubernetes Service: a managed Kubernetes cluster on Azure, from Microsoft's Azure Verified Module.",
-    "module": "https://github.com/Azure/terraform-azurerm-aks",
-    "subdir": ".",
-    "ref": "58ffc7c71a36871dc955ded13816fd29ac798791",
-    "block": "aks",
-    "requires": ["location", "resource_group_name"]
-  },
-  {
     "name": "authentik",
     "description": "Authentik for Kubernetes: an identity provider fronting the Identity Platform's login UI, wired to PostgreSQL and Traefik through cross-model offers.",
     "module": "https://github.com/canonical/authentik-server-operator",

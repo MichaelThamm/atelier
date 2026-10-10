@@ -29,17 +29,15 @@ The gallery may include a non-Juju module when it is maintained by the cloud
 vendor or a comparable first party, and it declares at least one required
 (no-default) input, so the published one-liner is complete.
 
-Add two entries:
+Add one entry:
 
-- `Azure/terraform-azurerm-aks` — Microsoft's Azure Verified Module for AKS.
-  Required inputs: `resource_group_name`, `location`.
 - `terraform-google-modules/terraform-google-kubernetes-engine` — Google's GKE
   module. Required inputs: `project_id`, `name`, `network`, `subnetwork`,
   `ip_range_pods`.
 
-Both are vendor-maintained and declare required inputs, so they need no preset and
-no change to the lint or the manifest model. They render like any other card, and
-because they carry no Juju model there is no variant beneath them.
+It is vendor-maintained and declares required inputs, so it needs no preset and
+no change to the lint or the manifest model. It renders like any other card, and
+because it carries no Juju model there is no variant beneath it.
 
 ## Alternatives considered
 
@@ -49,6 +47,10 @@ because they carry no Juju model there is no variant beneath them.
   Admitting it means redefining what `requires` may name — a change to the one
   gate that keeps the gallery trustworthy, not an example. Deferred as its own
   decision.
+- **Microsoft's AKS module (`Azure/terraform-azurerm-aks`).** Rejected: the
+  repository is archived, so it is no longer maintained and the scheduled bump
+  would track a dead repository. An archived module fails the "maintained by the
+  vendor" criterion above.
 - **A community module with no vendor owner.** Rejected: the bump PR would track
   an unowned repository's cadence, which the gallery cannot afford.
 - **A hand-written site example rather than an entry.** Rejected: that is exactly
@@ -57,10 +59,10 @@ because they carry no Juju model there is no variant beneath them.
 
 ## Consequences
 
-- The gallery shows the provider-agnostic claim with two concrete, runnable
-  examples; both are cheap to validate in CI (`terraform validate` needs no
+- The gallery shows the provider-agnostic claim with one concrete, runnable
+  example; it is cheap to validate in CI (`terraform validate` needs no
   credentials).
-- The maintenance surface grows by two vendor cadences. The scheduled bump still
+- The maintenance surface grows by one vendor cadence. The scheduled bump still
   opens a reviewed PR, and a broken pin still fails `gallery lint`/`gallery
   check`.
 - The admission criterion — vendor-maintained and declares a required input — is
