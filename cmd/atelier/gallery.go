@@ -150,10 +150,11 @@ func renderGallery(w io.Writer, entries []gallery.Entry, commands bool) error {
 }
 
 // moduleRef renders the module and pinned ref, with the subdirectory when the
-// module does not live at the repository root.
+// module does not live at the repository root. A "." subdir selects the root and
+// is not shown.
 func moduleRef(e gallery.Entry) string {
 	ref := e.Module
-	if e.Subdir != "" {
+	if e.Subdir != "" && e.Subdir != "." {
 		ref += "//" + e.Subdir
 	}
 	return fmt.Sprintf("%s  @%s", ref, e.ShortRef())

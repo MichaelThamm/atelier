@@ -88,6 +88,15 @@
     "requires": ["model"]
   },
   {
+    "name": "gke",
+    "description": "Google Kubernetes Engine: a managed Kubernetes cluster on Google Cloud, from Google's Terraform module.",
+    "module": "https://github.com/terraform-google-modules/terraform-google-kubernetes-engine",
+    "subdir": ".",
+    "ref": "068af04e164ab3d0061d70b809ff603027e944b8",
+    "block": "gke",
+    "requires": ["project_id", "name", "network", "subnetwork", "ip_range_pods"]
+  },
+  {
     "name": "haproxy-product",
     "description": "HAProxy product deployment protecting one hostname.",
     "module": "https://github.com/canonical/haproxy-operator",

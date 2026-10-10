@@ -92,6 +92,12 @@ test-import: build-bin
 gallery-bump *ARGS:
     go run ./tools/gallerybump {{ARGS}}
 
+# List product/solution Terraform modules in an org that the gallery does not cover yet.
+# An on-demand triage aid, not a gate: it never edits the manifest and runs on no schedule.
+# Needs a GitHub token (GITHUB_TOKEN, or `gh auth login`).
+gallery-candidates *ARGS:
+    go run ./tools/gallerycandidates {{ARGS}}
+
 # Lint the bundled module gallery: check that every entry covers the required inputs its pinned
 # module declares. This is the drift guard — `terraform validate` does not fail on a module call
 # that omits a required argument, so `gallery-check` alone cannot catch a module gaining one.

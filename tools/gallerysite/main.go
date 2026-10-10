@@ -101,7 +101,7 @@ func writeCard(b *strings.Builder, e gallery.Entry) {
 	fmt.Fprintf(b, "    [:octicons-mark-github-16: %s](%s)\n\n", repoLabel(e.Module), e.Module)
 
 	meta := make([]string, 0, 5)
-	if e.Subdir != "" {
+	if e.Subdir != "" && e.Subdir != "." {
 		meta = append(meta, "`"+e.Subdir+"`")
 	}
 	meta = append(meta, "pinned `"+e.ShortRef()+"`")
