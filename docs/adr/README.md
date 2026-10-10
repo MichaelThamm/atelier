@@ -23,7 +23,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0014 | [Unified layout budget and scroll support](0014-unified-layout-budget.md)                   | Accepted |
 | 0015 | [Multi-module grouping in the left pane](0015-multi-module-grouping.md)                     | Accepted |
 | 0016 | [Scope boundaries — no orchestration overlap with Terragrunt](0016-scope-boundaries-no-orchestration.md) | Accepted |
-| 0017 | [Inter-module wiring in the TUI](0017-inter-module-wiring.md)                               | Accepted |
+| 0017 | [Inter-module wiring in the TUI](0017-inter-module-wiring.md)                               | Superseded by ADR-0062 |
 | 0018 | [Additive `atelier module` command](0018-additive-module-command.md)                       | Superseded by ADR-0038 |
 | 0019 | [Unified module version display](0019-unified-module-version-display.md)                    | Proposed |
 | 0020 | [Readline-style text editing in variable editors](0020-readline-style-text-editing.md)      | Proposed |
@@ -66,8 +66,9 @@ Format follows the Michael Nygard template, lightly extended.
 | 0058 | [The gallery admits first-party, non-Juju modules](0058-gallery-admits-non-juju-modules.md) | Accepted |
 | 0057 | [One generated gallery page, with provider variants on each card](0057-single-gallery-page.md) | Accepted |
 | 0059 | [Gallery candidate discovery is an on-demand tool](0059-gallery-candidate-discovery.md) | Accepted |
-| 0060 | [Read the whole module contract — outputs are first-class](0060-module-contract-outputs.md) | Proposed |
+| 0060 | [Read the whole module contract — outputs are first-class](0060-module-contract-outputs.md) | Accepted |
 | 0061 | [The wrapper is a root graph](0061-root-graph.md) | Proposed |
+| 0062 | [Typed, producer-defined module interfaces are the integration contract](0062-typed-module-interfaces.md) | Proposed |
 
 ## Conventions
 

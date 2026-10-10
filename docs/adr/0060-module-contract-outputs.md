@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Accepted — ships ahead of the v1 work as the v0 module-contract reader.
 
 ## Context
 
