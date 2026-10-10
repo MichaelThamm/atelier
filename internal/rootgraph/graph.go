@@ -101,6 +101,7 @@ func Build(dir string) (*Graph, error) {
 		}
 		g.Nodes = append(g.Nodes, n)
 	}
+	seen := map[Edge]bool{}
 	for _, b := range blocks {
 		for _, arg := range b.Args {
 			for _, ref := range arg.Refs {
@@ -108,13 +109,20 @@ func Build(dir string) (*Graph, error) {
 				if !ok {
 					continue
 				}
-				g.Edges = append(g.Edges, Edge{
+				e := Edge{
 					Consumer: b.Name,
 					Argument: arg.Name,
 					Producer: producer,
 					Output:   output,
 					Kind:     edgeKind(arg.Name),
-				})
+				}
+				// One argument may reference the same output several times
+				// (e.g. three fields of an object); that is one edge.
+				if seen[e] {
+					continue
+				}
+				seen[e] = true
+				g.Edges = append(g.Edges, e)
 			}
 		}
 	}

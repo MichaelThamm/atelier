@@ -120,6 +120,31 @@ func TestBuild_missingModuleIsStillANode(t *testing.T) {
 	}
 }
 
+func TestBuild_dedupesReferencesToTheSameOutput(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "main.tf"), `module "p" {
+  source = "./p"
+}
+module "c" {
+  source = "./c"
+  x      = { a = module.p.o.foo, b = module.p.o.bar }
+}
+`)
+	write(t, filepath.Join(dir, "p", "outputs.tf"), "output \"o\" { value = 1 }\n")
+	write(t, filepath.Join(dir, "c", "variables.tf"), "variable \"x\" {}\n")
+
+	g, err := Build(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Edges) != 1 {
+		t.Fatalf("edges = %d, want 1 (both fields name p.o): %+v", len(g.Edges), g.Edges)
+	}
+	if g.Edges[0].Producer != "p" || g.Edges[0].Output != "o" {
+		t.Errorf("edge = %+v", g.Edges[0])
+	}
+}
+
 func nodeByName(t *testing.T, g *Graph, name string) Node {
 	t.Helper()
 	for _, n := range g.Nodes {
