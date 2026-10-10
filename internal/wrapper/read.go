@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
@@ -219,4 +222,122 @@ func ReadMainForBlock(dir string, blockName string, vars []tfvars.Variable) (*Pa
 		return pm, nil
 	}
 	return nil, nil
+}
+
+// ModuleArg is one argument of a module block: its name, the literal source of
+// its expression, and the references that expression makes (for example
+// "module.producer.greeting"). Refs are de-duplicated.
+type ModuleArg struct {
+	Name string
+	Raw  string
+	Refs []string
+}
+
+// ModuleBlockArgs describes a module block: its label, its `source` attribute,
+// and every other argument in declaration order.
+type ModuleBlockArgs struct {
+	Name   string
+	Source string
+	Args   []ModuleArg
+}
+
+// ReadModuleArgs parses main.tf and returns every module block with its
+// arguments and resolved references. Unlike ReadMain it does not stop at the
+// first block and does not need the module's variable schema; it is the read
+// path the root graph consumes (ADR-0061). If main.tf does not exist it returns
+// (nil, nil).
+func ReadModuleArgs(dir string) ([]ModuleBlockArgs, error) {
+	path := filepath.Join(dir, MainTF)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read main.tf: %w", err)
+	}
+
+	parser := hclparse.NewParser()
+	f, diags := parser.ParseHCL(data, path)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("parse main.tf: %s", diags.Error())
+	}
+	body, ok := f.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, fmt.Errorf("parse main.tf: unexpected body type")
+	}
+
+	var blocks []ModuleBlockArgs
+	for _, block := range body.Blocks {
+		if block.Type != "module" || len(block.Labels) != 1 {
+			continue
+		}
+		mb := ModuleBlockArgs{Name: block.Labels[0]}
+		for _, attr := range attrsInSourceOrder(block.Body) {
+			if attr.Name == "source" {
+				if val, dd := attr.Expr.Value(nil); !dd.HasErrors() && val.Type() == cty.String && !val.IsNull() {
+					mb.Source = val.AsString()
+				}
+				continue
+			}
+			mb.Args = append(mb.Args, ModuleArg{
+				Name: attr.Name,
+				Raw:  string(rangeBytes(data, attr.Expr.Range())),
+				Refs: refsOf(attr.Expr),
+			})
+		}
+		blocks = append(blocks, mb)
+	}
+	return blocks, nil
+}
+
+// attrsInSourceOrder returns a block's attributes ordered by source position.
+// hclsyntax stores attributes in a map, so declaration order has to be
+// recovered from their ranges.
+func attrsInSourceOrder(body *hclsyntax.Body) []*hclsyntax.Attribute {
+	attrs := make([]*hclsyntax.Attribute, 0, len(body.Attributes))
+	for _, a := range body.Attributes {
+		attrs = append(attrs, a)
+	}
+	sort.Slice(attrs, func(i, j int) bool {
+		return attrs[i].SrcRange.Start.Byte < attrs[j].SrcRange.Start.Byte
+	})
+	return attrs
+}
+
+// refsOf returns the de-duplicated references an expression makes, formatted as
+// dotted paths such as "module.producer.greeting".
+func refsOf(expr hcl.Expression) []string {
+	var refs []string
+	seen := map[string]bool{}
+	for _, t := range expr.Variables() {
+		s := traversalString(t)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		refs = append(refs, s)
+	}
+	return refs
+}
+
+func traversalString(t hcl.Traversal) string {
+	var b strings.Builder
+	for _, step := range t {
+		switch s := step.(type) {
+		case hcl.TraverseRoot:
+			b.WriteString(s.Name)
+		case hcl.TraverseAttr:
+			b.WriteString("." + s.Name)
+		case hcl.TraverseIndex:
+			switch {
+			case s.Key.Type() == cty.String:
+				b.WriteString("[" + strconv.Quote(s.Key.AsString()) + "]")
+			case s.Key.Type() == cty.Number:
+				b.WriteString("[" + s.Key.AsBigFloat().Text('g', -1) + "]")
+			default:
+				b.WriteString("[<key>]")
+			}
+		}
+	}
+	return b.String()
 }

@@ -1,6 +1,12 @@
-// Package tfvars parses the `variable` blocks of a Terraform module to
-// extract Atelier's view of each variable: its name, type, default value,
-// sensitive flag, description, and the source range of the declaration.
+// Package tfvars parses a Terraform module's declared contract: its `variable`
+// blocks (the inputs) and its `output` blocks (what it exposes). See ADR-0060.
+//
+// For a variable, Atelier extracts its name, type, default value, sensitive
+// flag, description, and the source range of the declaration. For an output,
+// it extracts its name, declared type (KindAny when the block declares none,
+// because Atelier does not evaluate the value expression), description,
+// sensitive/deprecated/ephemeral flags, and the source of the value
+// expression.
 //
 // The package deliberately ignores `validation {}` blocks: Atelier runs
 // `terraform validate` for validation rather than re-implementing HCL
@@ -54,14 +60,22 @@ func (v Variable) VarName() string { return v.Name }
 // VarIsRequired satisfies the wrapper-package tfvarsLike adapter.
 func (v Variable) VarIsRequired() bool { return !v.HasDefault }
 
-// LoadDir scans every *.tf file at the top level of `dir` and returns the
-// declared variables in declaration order (across files, sorted by source
-// position within each file; files in alphabetical order). Sub-directories
-// are not scanned: a Terraform module's variables are declared in its root.
-func LoadDir(dir string) ([]Variable, error) {
+// Module is a Terraform module's declared contract: the variables it accepts
+// and the outputs it exposes, each in declaration order.
+type Module struct {
+	Variables []Variable
+	Outputs   []Output
+}
+
+// LoadModule scans every *.tf file at the top level of `dir` and returns the
+// module's declared variables and outputs in declaration order (across files,
+// sorted by source position within each file; files in alphabetical order).
+// Sub-directories are not scanned: a module's contract is declared in its
+// root. This is the one directory walk the contract is read from (ADR-0060).
+func LoadModule(dir string) (Module, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("read module dir %s: %w", dir, err)
+		return Module{}, fmt.Errorf("read module dir %s: %w", dir, err)
 	}
 	var paths []string
 	for _, e := range entries {
@@ -76,27 +90,42 @@ func LoadDir(dir string) ([]Variable, error) {
 	sort.Strings(paths)
 
 	parser := hclparse.NewParser()
-	var vars []Variable
+	var mod Module
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", path, err)
+			return Module{}, fmt.Errorf("read %s: %w", path, err)
 		}
 		f, diags := parser.ParseHCL(data, path)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("parse %s: %s", path, diags.Error())
+			return Module{}, fmt.Errorf("parse %s: %s", path, diags.Error())
 		}
 		body, ok := f.Body.(*hclsyntax.Body)
 		if !ok {
-			return nil, fmt.Errorf("parse %s: unexpected body type", path)
+			return Module{}, fmt.Errorf("parse %s: unexpected body type", path)
 		}
 		fileVars, err := variablesInBody(body)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return Module{}, fmt.Errorf("%s: %w", path, err)
 		}
-		vars = append(vars, fileVars...)
+		fileOutputs, err := outputsInBody(body)
+		if err != nil {
+			return Module{}, fmt.Errorf("%s: %w", path, err)
+		}
+		mod.Variables = append(mod.Variables, fileVars...)
+		mod.Outputs = append(mod.Outputs, fileOutputs...)
 	}
-	return vars, nil
+	return mod, nil
+}
+
+// LoadDir returns the variables declared at the top level of `dir`. It is
+// LoadModule's variable half, kept for callers that only need the inputs.
+func LoadDir(dir string) ([]Variable, error) {
+	mod, err := LoadModule(dir)
+	if err != nil {
+		return nil, err
+	}
+	return mod.Variables, nil
 }
 
 // LoadFile parses a single .tf file. Useful for unit tests.
