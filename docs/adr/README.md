@@ -65,6 +65,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0056 | [Terraform action logs name the action and are bounded](0056-named-bounded-action-logs.md) | Accepted |
 | 0058 | [The gallery admits first-party, non-Juju modules](0058-gallery-admits-non-juju-modules.md) | Accepted |
 | 0057 | [One generated gallery page, with provider variants on each card](0057-single-gallery-page.md) | Accepted |
+| 0059 | [Gallery candidate discovery is an on-demand tool](0059-gallery-candidate-discovery.md) | Accepted |
 
 ## Conventions
 
