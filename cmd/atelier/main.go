@@ -16,6 +16,8 @@
 //	atelier purge [PATH] [--force]              remove .atelier/ and .clone/
 //	atelier gallery list [--commands]           list the bundled gallery quick starts
 //	atelier presets lint --module <dir> <f>...  check preset bundles against a module
+//	atelier contract lint --module <dir> --output <name> [--require <i>]...
+//	                                            check a module's integration interface
 //
 // All operation runs against the current working directory. The CLI defers
 // the heavy lifting (clone, candidate discovery, wrapper write, TUI loop) to
@@ -145,6 +147,10 @@ Usage:
                                                 Check preset .tfvars bundles against a module's variables.
                                                 Reports unknown variable names, unknown keys nested in object
                                                 values, and scalar type mismatches; exits non-zero on any finding.
+  atelier contract lint --module <dir> --output <name> [--require <interface>]...
+                                                Check a module's integration interface: the named output
+                                                must be a typed object, and every --require interface
+                                                must be one of its keys. Exits non-zero on any finding.
   atelier --version                            Print the version and exit.
   atelier --help                               Print this help.
 
@@ -184,6 +190,7 @@ const (
 	cmdPurge    command = "purge"
 	cmdImport   command = "import"
 	cmdPresets  command = "presets"
+	cmdContract command = "contract"
 	cmdGallery  command = "gallery"
 )
 
@@ -212,6 +219,8 @@ func resolveCommand(args []string) (command, []string) {
 		return cmdImport, args[1:]
 	case "presets":
 		return cmdPresets, args[1:]
+	case "contract":
+		return cmdContract, args[1:]
 	case "gallery":
 		return cmdGallery, args[1:]
 	default:
@@ -255,6 +264,8 @@ func run(args []string) error {
 		return runImport(rest)
 	case cmdPresets:
 		return runPresets(rest)
+	case cmdContract:
+		return runContract(rest)
 	case cmdGallery:
 		return runGallery(rest)
 	default:

@@ -62,6 +62,9 @@ type Node struct {
 	// RequiredInputs lists the module's declared variables with no default,
 	// when the module directory was readable.
 	RequiredInputs []string
+	// Contract is the module's full declared contract (variables and outputs),
+	// when the module directory was readable. Matching consumes it (ADR-0062).
+	Contract *tfvars.Module
 }
 
 // Graph is a wrapper's root as read from disk.
@@ -85,6 +88,7 @@ func Build(dir string) (*Graph, error) {
 		if mdir, ok := moduleDir(dir, b.Source); ok {
 			if mod, err := tfvars.LoadModule(mdir); err == nil {
 				n.OutputsKnown = true
+				n.Contract = &mod
 				for _, o := range mod.Outputs {
 					n.Outputs = append(n.Outputs, Output{
 						Name:      o.Name,

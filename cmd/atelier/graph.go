@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/MichaelThamm/atelier/internal/integrate"
 	"github.com/MichaelThamm/atelier/internal/rootgraph"
 )
 
@@ -44,14 +45,16 @@ func runGraph(args []string) error {
 		return err
 	}
 
+	proposals := integrate.Match(g)
+
 	if asJSON {
-		return renderJSON(os.Stdout, "graph", graphPayload(g))
+		return renderJSON(os.Stdout, "graph", graphPayload(g, proposals))
 	}
-	printGraph(g)
+	printGraph(g, proposals)
 	return nil
 }
 
-func printGraph(g *rootgraph.Graph) {
+func printGraph(g *rootgraph.Graph, proposals []integrate.Proposal) {
 	fmt.Printf("Root graph for %s\n\n", g.Dir)
 	if len(g.Nodes) == 0 {
 		fmt.Println("No module blocks found (is this a wrapper with a main.tf?).")
@@ -82,28 +85,43 @@ func printGraph(g *rootgraph.Graph) {
 
 	if len(g.Edges) == 0 {
 		fmt.Println("No module-to-module wiring.")
-		return
+	} else {
+		fmt.Println("Wiring:")
+		for _, e := range g.Edges {
+			ref := "module." + e.Producer
+			if e.Output != "" {
+				ref += "." + e.Output
+			}
+			note := ""
+			if e.Kind == rootgraph.EdgeDependency {
+				note = " (dependency)"
+			}
+			fmt.Printf("  %s.%s -> %s%s\n", e.Consumer, e.Argument, ref, note)
+		}
 	}
-	fmt.Println("Wiring:")
-	for _, e := range g.Edges {
-		ref := "module." + e.Producer
-		if e.Output != "" {
-			ref += "." + e.Output
+
+	if len(proposals) > 0 {
+		fmt.Println("\nProposed integrations:")
+		for _, p := range proposals {
+			fmt.Printf("  %s.%s <- module.%s.%s\n", p.Consumer, p.Input, p.Producer, p.Output)
 		}
-		note := ""
-		if e.Kind == rootgraph.EdgeDependency {
-			note = " (dependency)"
-		}
-		fmt.Printf("  %s.%s -> %s%s\n", e.Consumer, e.Argument, ref, note)
 	}
 }
 
 // --- JSON payload ------------------------------------------------------------
 
 type jsonGraph struct {
-	Dir   string          `json:"dir"`
-	Nodes []jsonGraphNode `json:"nodes"`
-	Edges []jsonGraphEdge `json:"edges"`
+	Dir       string              `json:"dir"`
+	Nodes     []jsonGraphNode     `json:"nodes"`
+	Edges     []jsonGraphEdge     `json:"edges"`
+	Proposals []jsonGraphProposal `json:"proposals"`
+}
+
+type jsonGraphProposal struct {
+	Consumer string `json:"consumer"`
+	Input    string `json:"input"`
+	Producer string `json:"producer"`
+	Output   string `json:"output"`
 }
 
 type jsonGraphNode struct {
@@ -128,11 +146,12 @@ type jsonGraphEdge struct {
 	Kind     string `json:"kind"`
 }
 
-func graphPayload(g *rootgraph.Graph) jsonGraph {
+func graphPayload(g *rootgraph.Graph, proposals []integrate.Proposal) jsonGraph {
 	out := jsonGraph{
-		Dir:   g.Dir,
-		Nodes: make([]jsonGraphNode, 0, len(g.Nodes)),
-		Edges: make([]jsonGraphEdge, 0, len(g.Edges)),
+		Dir:       g.Dir,
+		Nodes:     make([]jsonGraphNode, 0, len(g.Nodes)),
+		Edges:     make([]jsonGraphEdge, 0, len(g.Edges)),
+		Proposals: make([]jsonGraphProposal, 0, len(proposals)),
 	}
 	for _, n := range g.Nodes {
 		outputs := make([]jsonGraphOutput, 0, len(n.Outputs))
@@ -154,6 +173,14 @@ func graphPayload(g *rootgraph.Graph) jsonGraph {
 			Producer: e.Producer,
 			Output:   e.Output,
 			Kind:     e.Kind.String(),
+		})
+	}
+	for _, p := range proposals {
+		out.Proposals = append(out.Proposals, jsonGraphProposal{
+			Consumer: p.Consumer,
+			Input:    p.Input,
+			Producer: p.Producer,
+			Output:   p.Output,
 		})
 	}
 	return out

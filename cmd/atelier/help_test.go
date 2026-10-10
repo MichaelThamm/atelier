@@ -53,6 +53,8 @@ func TestEveryCommand_answersHelpFlags(t *testing.T) {
 		{"purge", runPurge, usage},
 		{"import", runImport, usage},
 		{"presets", runPresets, presetsUsage},
+		{"contract", runContract, contractUsage},
+		{"contract lint", runContractLint, contractUsage},
 		{"gallery", runGallery, galleryUsage},
 		// Sub-subcommands reached through a namespace.
 		{"gallery list", runGalleryList, galleryUsage},
@@ -91,12 +93,14 @@ func TestEveryCommand_answersHelpFlags(t *testing.T) {
 // directly and cannot see this layer.
 func TestRun_helpReachesTheDispatchedCommand(t *testing.T) {
 	scoped := map[string]string{
-		"wrappers":     wrappersUsage,
-		"graph":        graphUsage,
-		"gallery":      galleryUsage,
-		"gallery list": galleryUsage,
-		"presets":      presetsUsage,
-		"presets lint": presetsUsage,
+		"wrappers":      wrappersUsage,
+		"graph":         graphUsage,
+		"gallery":       galleryUsage,
+		"gallery list":  galleryUsage,
+		"presets":       presetsUsage,
+		"presets lint":  presetsUsage,
+		"contract":      contractUsage,
+		"contract lint": contractUsage,
 	}
 	for cmd, want := range scoped {
 		t.Run(cmd, func(t *testing.T) {
