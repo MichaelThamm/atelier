@@ -66,6 +66,8 @@ Format follows the Michael Nygard template, lightly extended.
 | 0058 | [The gallery admits first-party, non-Juju modules](0058-gallery-admits-non-juju-modules.md) | Accepted |
 | 0057 | [One generated gallery page, with provider variants on each card](0057-single-gallery-page.md) | Accepted |
 | 0059 | [Gallery candidate discovery is an on-demand tool](0059-gallery-candidate-discovery.md) | Accepted |
+| 0060 | [Read the whole module contract — outputs are first-class](0060-module-contract-outputs.md) | Proposed |
+| 0061 | [The wrapper is a root graph](0061-root-graph.md) | Proposed |
 
 ## Conventions
 
