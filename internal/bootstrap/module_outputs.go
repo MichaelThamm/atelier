@@ -6,7 +6,40 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
+
+// RegenerateOutputs rewrites the wrapper's outputs.tf from the module blocks it
+// currently declares, re-exporting each module's outputs as root outputs so
+// `terraform output` works. A root output is named "<module>_<output>" so names
+// never collide across modules, and an ephemeral module output is skipped (a
+// root output cannot be ephemeral). It is called after a composition change:
+// add, apply, rm, or a TUI save (which covers a ref switch).
+func RegenerateOutputs(wrapperDir string) error {
+	blocks, err := wrapper.ReadModuleBlocks(wrapperDir)
+	if err != nil {
+		return err
+	}
+	var exports []wrapper.OutputExport
+	for _, b := range blocks {
+		outs, err := ModuleOutputs(wrapperDir, b.Source)
+		if err != nil {
+			return err
+		}
+		for _, o := range outs {
+			if o.Ephemeral {
+				continue
+			}
+			exports = append(exports, wrapper.OutputExport{
+				Name:      b.Name + "_" + o.Name,
+				Module:    b.Name,
+				Output:    o.Name,
+				Sensitive: o.Sensitive,
+			})
+		}
+	}
+	return wrapper.WriteOutputsFile(wrapperDir, exports)
+}
 
 // ModuleOutputs returns the outputs a module block declares, resolving the
 // block's source to a local directory or an existing .atelier/clone checkout.

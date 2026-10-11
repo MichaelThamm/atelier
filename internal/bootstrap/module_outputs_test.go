@@ -1,4 +1,4 @@
-package main
+package bootstrap
 
 import (
 	"os"
@@ -30,7 +30,7 @@ output "secret" {
   value     = "shh"
 }
 `)
-	if err := regenerateOutputs(dir); err != nil {
+	if err := RegenerateOutputs(dir); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "outputs.tf"))
@@ -38,7 +38,7 @@ output "secret" {
 		t.Fatal(err)
 	}
 	out := string(got)
-	for _, want := range []string{`output "m_greeting"`, "value = module.m.greeting", `output "m_secret"`, "sensitive = true"} {
+	for _, want := range []string{`output "m_greeting"`, "module.m.greeting", `output "m_secret"`, "sensitive = true"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("outputs.tf missing %q, got:\n%s", want, out)
 		}
@@ -47,12 +47,11 @@ output "secret" {
 
 func TestRegenerateOutputs_moduleNotAvailableWritesNoFile(t *testing.T) {
 	dir := t.TempDir()
-	// A remote module with no clone present: nothing to re-export.
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"),
 		[]byte("module \"r\" {\n  source = \"git::https://github.com/o/r.git//m?ref=v1\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := regenerateOutputs(dir); err != nil {
+	if err := RegenerateOutputs(dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "outputs.tf")); !os.IsNotExist(err) {

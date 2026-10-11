@@ -653,7 +653,7 @@ func composeModuleBlock(cwd, dir string, opts moduleOpts, mode composeMode, prom
 	if err := state.Write(); err != nil {
 		return nil, err
 	}
-	if err := regenerateOutputs(dir); err != nil {
+	if err := bootstrap.RegenerateOutputs(dir); err != nil {
 		return nil, err
 	}
 
@@ -708,7 +708,7 @@ func updateModuleBlock(dir string, plan composePlan, state *wrapper.State, prep 
 	if err := state.Write(); err != nil {
 		return err
 	}
-	if err := regenerateOutputs(dir); err != nil {
+	if err := bootstrap.RegenerateOutputs(dir); err != nil {
 		return err
 	}
 	// .atelier/session.json records which module the wrapper is pinned at. Left
@@ -972,7 +972,7 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 		return "", nil, err
 	}
 	moved = true
-	if err := regenerateOutputs(target); err != nil {
+	if err := bootstrap.RegenerateOutputs(target); err != nil {
 		return "", nil, err
 	}
 	return target, res.State, nil
@@ -1292,7 +1292,7 @@ func runModuleRm(args []string) error {
 	if err := wrapper.RemoveModuleBlock(cwd, name); err != nil {
 		return fmt.Errorf("removing module block: %w", err)
 	}
-	if err := regenerateOutputs(cwd); err != nil {
+	if err := bootstrap.RegenerateOutputs(cwd); err != nil {
 		return err
 	}
 
