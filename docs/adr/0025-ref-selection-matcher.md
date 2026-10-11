@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — completes the ref-modal migration promised by
+Accepted — completes the ref-modal migration promised by
 [ADR-0020](0020-readline-style-text-editing.md) §1 and builds on
 [ADR-0018](0018-additive-module-command.md) (context-aware ref switch) and
 [ADR-0003](0003-gitops-loading.md) (`git ls-remote` ref discovery). Touches

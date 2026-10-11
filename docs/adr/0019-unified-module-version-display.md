@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — amends [ADR-0006](0006-two-pane-ui-layout.md) and
+Accepted — amends [ADR-0006](0006-two-pane-ui-layout.md) and
 [ADR-0015](0015-multi-module-grouping.md); relates to
 [ADR-0014](0014-unified-layout-budget.md) and
 [ADR-0017](0017-inter-module-wiring.md).

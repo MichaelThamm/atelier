@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
 ## Context
 
@@ -98,6 +98,12 @@ topology view and is reported by `atelier add`/`apply`; it is written on
 accept, or non-interactively with an explicit flag. What it writes is plain
 `module.<producer>.<output>` HCL, so the wrapper stays standard Terraform and
 the change is visible and reversible.
+
+An integration Atelier has written is not final. The topology view and
+`atelier integrate` report an existing wire — with its current selection — so it
+can be adjusted and overwritten in place, rather than torn down and rebuilt.
+And `Ctrl+R` on a wired input unwires it, returning the input to the module's
+default.
 
 ### Verification
 
