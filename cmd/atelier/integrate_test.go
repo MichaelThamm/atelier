@@ -11,10 +11,10 @@ import (
 
 func TestWireExpr(t *testing.T) {
 	p := integrate.Proposal{Producer: "cos_lite", Output: "cos_offers", Interfaces: []string{"a", "b", "c"}}
-	if got := wireExpr(p, []string{"a", "b", "c"}); got != "module.cos_lite.cos_offers" {
+	if got := p.WireExpr([]string{"a", "b", "c"}); got != "module.cos_lite.cos_offers" {
 		t.Errorf("all-interfaces expr = %q", got)
 	}
-	if got := wireExpr(p, []string{"b"}); got != "{ b = module.cos_lite.cos_offers.b }" {
+	if got := p.WireExpr([]string{"b"}); got != "{ b = module.cos_lite.cos_offers.b }" {
 		t.Errorf("subset expr = %q", got)
 	}
 }

@@ -6,6 +6,7 @@ package integrate
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/MichaelThamm/atelier/internal/rootgraph"
 	"github.com/MichaelThamm/atelier/internal/tftypes"
@@ -93,6 +94,21 @@ func Match(g *rootgraph.Graph) []Proposal {
 		return out[i].Producer < out[j].Producer
 	})
 	return out
+}
+
+// WireExpr is the HCL expression the chosen interfaces of a proposal become:
+// the whole producer output when every interface is chosen, otherwise an object
+// literal of the chosen ones. It is the value written as consumer.input.
+func (p Proposal) WireExpr(ifaces []string) string {
+	ref := "module." + p.Producer + "." + p.Output
+	if len(ifaces) == len(p.Interfaces) {
+		return ref
+	}
+	parts := make([]string, 0, len(ifaces))
+	for _, name := range ifaces {
+		parts = append(parts, name+" = "+ref+"."+name)
+	}
+	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
 // isInterfaceInput reports whether an input can accept an integration
