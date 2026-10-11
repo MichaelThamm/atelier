@@ -69,7 +69,7 @@ module "charmed_spark" {
 }
 `)
 	write("consumer/variables.tf", `variable "cos_offers" {
-  type = object({ grafana_dashboard = optional(string), loki_push_api = optional(string), prometheus_remote_write = optional(string) })
+  type = map(string)
 }
 `)
 

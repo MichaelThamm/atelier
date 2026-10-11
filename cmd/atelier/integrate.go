@@ -101,6 +101,11 @@ func runIntegrate(args []string) error {
 			if chosen != nil {
 				ifaces = chosen[i]
 			}
+			// Only a map-typed input can honour a subset: a wired object value
+			// is unknown at plan, so its count/for_each cannot gate on it.
+			if !p.Subsettable {
+				ifaces = p.Interfaces
+			}
 			if len(ifaces) == 0 {
 				continue
 			}
