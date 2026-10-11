@@ -20,25 +20,74 @@ func RegenerateOutputs(wrapperDir string) error {
 	if err != nil {
 		return err
 	}
-	var exports []wrapper.OutputExport
+
+	// Group blocks by the clone directory they resolve to. One clone is checked
+	// out at one revision, so if the blocks sharing it are pinned at different
+	// refs, the clone can only match one of them — reading it would re-export
+	// outputs that a block at the other ref may not declare, which Terraform
+	// then rejects. Such a repo is skipped rather than guessed at.
+	type group struct {
+		refs   map[string]bool
+		blocks []wrapper.ModuleBlockInfo
+	}
+	groups := map[string]*group{}
+	var order []string
 	for _, b := range blocks {
-		outs, err := ModuleOutputs(wrapperDir, b.Source)
-		if err != nil {
-			return err
+		key, ref := cloneKeyAndRef(wrapperDir, b.Source)
+		g := groups[key]
+		if g == nil {
+			g = &group{refs: map[string]bool{}}
+			groups[key] = g
+			order = append(order, key)
 		}
-		for _, o := range outs {
-			if o.Ephemeral {
-				continue
+		g.refs[ref] = true
+		g.blocks = append(g.blocks, b)
+	}
+
+	var exports []wrapper.OutputExport
+	for _, key := range order {
+		g := groups[key]
+		if len(g.refs) > 1 {
+			continue
+		}
+		for _, b := range g.blocks {
+			outs, err := ModuleOutputs(wrapperDir, b.Source)
+			if err != nil {
+				return err
 			}
-			exports = append(exports, wrapper.OutputExport{
-				Name:      b.Name + "_" + o.Name,
-				Module:    b.Name,
-				Output:    o.Name,
-				Sensitive: o.Sensitive,
-			})
+			for _, o := range outs {
+				if o.Ephemeral {
+					continue
+				}
+				exports = append(exports, wrapper.OutputExport{
+					Name:      b.Name + "_" + o.Name,
+					Module:    b.Name,
+					Output:    o.Name,
+					Sensitive: o.Sensitive,
+				})
+			}
 		}
 	}
 	return wrapper.WriteOutputsFile(wrapperDir, exports)
+}
+
+// cloneKeyAndRef returns the directory a block's source resolves to and its
+// literal ref. Two blocks share a clone exactly when their keys are equal.
+func cloneKeyAndRef(wrapperDir, source string) (key, ref string) {
+	if source == "" {
+		return "", ""
+	}
+	_, ref = modulesource.Decompose(source)
+	if modulesource.IsLocal(source) {
+		p := source
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(wrapperDir, p)
+		}
+		return p, ""
+	}
+	sub := modulesource.ModulePath(source)
+	clone := filepath.Join(CloneSubdir(wrapperDir), modulesource.RepoBasename(modulesource.Remote(source)))
+	return filepath.Join(clone, filepath.Clean(sub)), ref
 }
 
 // ModuleOutputs returns the outputs a module block declares, resolving the

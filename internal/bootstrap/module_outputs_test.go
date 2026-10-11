@@ -45,6 +45,32 @@ output "secret" {
 	}
 }
 
+func TestRegenerateOutputs_skipsARepoPinnedAtTwoRefs(t *testing.T) {
+	dir := t.TempDir()
+	// A clone exists and declares an output, but two blocks point the same repo
+	// at different refs; one clone serves only one of them, so nothing is
+	// re-exported rather than guessing.
+	clone := filepath.Join(dir, ".atelier", "clone", "r", "m")
+	if err := os.MkdirAll(clone, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(clone, "outputs.tf"),
+		[]byte("output \"x\" {\n  value = \"1\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(
+		"module \"a\" {\n  source = \"git::https://github.com/o/r.git//m?ref=v1\"\n}\n"+
+			"module \"b\" {\n  source = \"git::https://github.com/o/r.git//m?ref=v2\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegenerateOutputs(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "outputs.tf")); !os.IsNotExist(err) {
+		t.Errorf("no outputs.tf expected when one clone serves two refs, err=%v", err)
+	}
+}
+
 func TestRegenerateOutputs_moduleNotAvailableWritesNoFile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"),
