@@ -47,6 +47,21 @@ both halves of the API from one directory walk:
 - The package doc is broadened from "parses `variable` blocks" to "parses a
   module's declared contract: variables and outputs."
 
+### Re-exporting into the wrapper
+
+A module's outputs are not root outputs, so `terraform output` in a wrapper shows
+nothing until the wrapper declares its own `output` blocks. Atelier therefore
+generates an `outputs.tf` re-exporting every module's outputs as root outputs,
+regenerated whenever the wrapper's composition changes (add, apply, rm):
+
+- A root output is named `<module>_<output>` (`cos_lite_model_uuid`), so names
+  never collide across modules and the mapping is unambiguous.
+- `sensitive` is propagated from the module's output, because Terraform rejects
+  a root output that re-exports a sensitive value without it.
+- `ephemeral` module outputs are skipped: a root output cannot be ephemeral.
+
+The file is plain Terraform and regenerable; it is not a new artifact kind.
+
 ## Alternatives considered
 
 - **A separate `internal/tfoutputs` package.** Rejected: it would walk the same
