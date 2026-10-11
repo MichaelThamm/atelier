@@ -34,6 +34,11 @@ func Propose(dir string) ([]Proposal, error) {
 
 // Match returns the proposed wires over an already-built root graph.
 func Match(g *rootgraph.Graph) []Proposal {
+	// A wire that already exists is not a proposal.
+	wired := map[[4]string]bool{}
+	for _, e := range g.Edges {
+		wired[[4]string{e.Consumer, e.Argument, e.Producer, e.Output}] = true
+	}
 	var out []Proposal
 	for _, consumer := range g.Nodes {
 		if consumer.Contract == nil {
@@ -52,6 +57,9 @@ func Match(g *rootgraph.Graph) []Proposal {
 				}
 				for _, o := range producer.Contract.Outputs {
 					if o.Name != v.Name || o.Type == nil || o.Type.Kind != tftypes.KindObject || !Compatible(v.Type, o.Type) {
+						continue
+					}
+					if wired[[4]string{consumer.Name, v.Name, producer.Name, o.Name}] {
 						continue
 					}
 					out = append(out, Proposal{

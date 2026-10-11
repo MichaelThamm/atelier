@@ -97,6 +97,29 @@ func TestPropose_noMatch(t *testing.T) {
 	}
 }
 
+func TestPropose_skipsAnAlreadyWiredInput(t *testing.T) {
+	dir := wrapperWith(t,
+		`output "cos_offers" { type = object({a = string}) value = {a = "x"} }`,
+		`variable "cos_offers" { type = object({a = string}) }`,
+	)
+	// Wire it by hand, as a user would.
+	write(t, filepath.Join(dir, "main.tf"), `module "cos_lite" {
+  source = "./producer"
+}
+module "charmed_spark" {
+  source     = "./consumer"
+  cos_offers = module.cos_lite.cos_offers
+}
+`)
+	got, err := Propose(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("proposals = %+v, want none for an already-wired input", got)
+	}
+}
+
 func TestCompatible(t *testing.T) {
 	obj := func(attrs map[string]tftypes.Kind) *tftypes.Type {
 		ty := &tftypes.Type{Kind: tftypes.KindObject, Attributes: map[string]*tftypes.ObjectAttr{}}
