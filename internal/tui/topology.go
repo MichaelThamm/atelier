@@ -81,6 +81,11 @@ func (m *Model) applyTopology() (tea.Model, tea.Cmd) {
 				selected = append(selected, name)
 			}
 		}
+		// Only a map-typed input can honour a subset: a wired object value is
+		// unknown at plan, so its count/for_each cannot gate on it.
+		if !p.Subsettable {
+			selected = p.Interfaces
+		}
 		if len(selected) == 0 {
 			continue
 		}
