@@ -124,6 +124,33 @@ module "charmed_spark" {
 	}
 }
 
+func TestPropose_mapConsumerIsSubsettable(t *testing.T) {
+	dir := wrapperWith(t,
+		`output "cos_offers" {
+  type  = object({ a = string, b = string })
+  value = { a = "1", b = "2" }
+}
+`,
+		`variable "cos_offers" {
+  type = map(string)
+}
+`)
+	got, err := Propose(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("proposals = %+v, want 1", got)
+	}
+	p := got[0]
+	if !p.Subsettable {
+		t.Error("a map(string) consumer should be subsettable")
+	}
+	if strings.Join(p.Interfaces, ",") != "a,b" {
+		t.Errorf("interfaces = %v, want the producer's keys", p.Interfaces)
+	}
+}
+
 func TestCompatible(t *testing.T) {
 	obj := func(attrs map[string]tftypes.Kind) *tftypes.Type {
 		ty := &tftypes.Type{Kind: tftypes.KindObject, Attributes: map[string]*tftypes.ObjectAttr{}}
@@ -141,5 +168,12 @@ func TestCompatible(t *testing.T) {
 	}
 	if Compatible(&tftypes.Type{Kind: tftypes.KindAny}, obj(map[string]tftypes.Kind{"a": tftypes.KindString})) {
 		t.Error("undeclared type should be incompatible")
+	}
+	mapStr := &tftypes.Type{Kind: tftypes.KindMap, Element: &tftypes.Type{Kind: tftypes.KindString}}
+	if !isInterfaceInput(mapStr) {
+		t.Error("map(string) should be an interface input")
+	}
+	if !Compatible(mapStr, obj(map[string]tftypes.Kind{"a": tftypes.KindString})) {
+		t.Error("map(string) should accept an all-string object")
 	}
 }

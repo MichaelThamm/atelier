@@ -72,6 +72,24 @@ requires exists in the producer with a compatible type. A consumer that names
 a subset is fine: Terraform drops the attributes it does not name, so a
 producer may offer every interface while a consumer takes only those it uses.
 
+### Gating on a wired value
+
+A wired value is a module output, which Terraform cannot know until the
+producer applies, and `count` / `for_each` must be known at plan. A consumer
+therefore must **not** gate on the value it is handed: `count = var.x != null`
+fails when `x = module.….`. It gates on the **provided keys**, which means the
+subset-capable consumer input is a `map(string)`:
+
+```hcl
+count = contains(keys(var.cos_offers), "loki_push_api") ? 1 : 0
+```
+
+A consumer that needs no subsetting takes the object and integrates all of it.
+Atelier wires the whole object for an object-typed input and offers the subset
+only for a `map`-typed input, so it never proposes a subset a consumer cannot
+honour. This is what makes "producer offers every interface, consumer chooses"
+work with a wired — not pasted — value.
+
 ### Writing the wire
 
 Atelier **proposes, it does not silently wire** (extending
