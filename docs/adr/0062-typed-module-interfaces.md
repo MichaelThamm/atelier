@@ -86,9 +86,9 @@ the change is visible and reversible.
 - **Producer gate.** `atelier contract lint --module <dir>` verifies a module
   publishes a well-formed, interface-keyed catalogue; the gallery gate calls
   the same check over its pinned entries.
-- **Integration gate.** When composing, Atelier checks that every interface a
-  consumer requires is provided by some producer in the wrapper, and reports
-  the gaps.
+- **Subset gate.** When a subset is wired, Atelier checks it against the
+  consumer's own declared type: an interface the consumer declares as required
+  (not `optional`) must be selected. It reads only that type and never guesses.
 
 Both use only interface names and Terraform types; neither reads charm
 metadata.
@@ -135,6 +135,11 @@ metadata.
 - **Per-interface composition** (sourcing interfaces from several producers into
   one input). Deferred to a later version; whole-object matching is the
   smallest thing that wires the observability ecosystem.
+- **A "missing producer" check** (warn when no module in the wrapper provides an
+  interface a consumer names). Rejected: without a marker, an ordinary object
+  input (a `model` object, say) is indistinguishable from an interface
+  requirement, so it would cry wolf. The subset gate catches the failure that
+  matters without guessing.
 
 ## Consequences
 
