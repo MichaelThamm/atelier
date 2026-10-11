@@ -23,7 +23,8 @@ func topologyModel(t *testing.T) *Model {
 		topoProposals: []integrate.Proposal{{
 			Consumer: "charmed_spark", Input: "cos_offers",
 			Producer: "cos_lite", Output: "cos_offers",
-			Interfaces: []string{"grafana_dashboard", "loki_push_api"},
+			Interfaces:  []string{"grafana_dashboard", "loki_push_api"},
+			Subsettable: true,
 		}},
 		topoSel:   [][]bool{{true, true}},
 		topoModal: true,
