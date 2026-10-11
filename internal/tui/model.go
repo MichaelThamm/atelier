@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/MichaelThamm/atelier/internal/integrate"
 	"github.com/MichaelThamm/atelier/internal/state"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
@@ -155,6 +156,14 @@ type Model struct {
 	RefUnresolved *RefUnresolvedInfo
 
 	helpModal bool // true when the [?] help overlay is visible
+
+	// topology modal: the wrapper's proposed interface integrations (ADR-0062).
+	// Built when the modal opens; topoSel[i][j] is whether interface j of
+	// proposal i is selected; topoCursor is the focused interface row.
+	topoModal     bool
+	topoProposals []integrate.Proposal
+	topoSel       [][]bool
+	topoCursor    int
 
 	// tfState is the parsed terraform.tfstate loaded at TUI startup.
 	// Used to show state context in the plan view. May be nil.
@@ -473,6 +482,9 @@ func (m *Model) View() string {
 
 	if m.helpModal {
 		return m.renderHelpModal()
+	}
+	if m.topoModal {
+		return m.renderTopology()
 	}
 	if m.warnDetail {
 		return m.renderWarnDetail()

@@ -37,6 +37,7 @@ func (m *Model) renderHelpModal() string {
 		fmt.Fprintln(&b, "  Ctrl+R         Reset variable to default")
 		fmt.Fprintln(&b, "  P              Run terraform plan")
 		fmt.Fprintln(&b, "  S              Save current config as a preset")
+		fmt.Fprintln(&b, "  T              Wire proposed module integrations")
 		if m.activeSwitcher() != nil {
 			fmt.Fprintln(&b, "  R              Switch module ref")
 		}

@@ -104,7 +104,7 @@ func runIntegrate(args []string) error {
 			if len(ifaces) == 0 {
 				continue
 			}
-			expr := wireExpr(p, ifaces)
+			expr := p.WireExpr(ifaces)
 			if err := wrapper.WireModuleInput(dir, p.Consumer, p.Input, expr); err != nil {
 				return err
 			}
@@ -118,20 +118,6 @@ func runIntegrate(args []string) error {
 		return renderJSON(os.Stdout, "integrate", integratePayload(proposals, apply))
 	}
 	return nil
-}
-
-// wireExpr is the HCL for a proposal: the whole producer output when every
-// interface is chosen, or an explicit object of the chosen ones.
-func wireExpr(p integrate.Proposal, ifaces []string) string {
-	ref := "module." + p.Producer + "." + p.Output
-	if len(ifaces) == len(p.Interfaces) {
-		return ref
-	}
-	parts := make([]string, 0, len(ifaces))
-	for _, name := range ifaces {
-		parts = append(parts, name+" = "+ref+"."+name)
-	}
-	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
 // filterInterfaces narrows each proposal to the named interfaces (keeping the
