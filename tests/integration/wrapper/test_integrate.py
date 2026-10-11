@@ -81,3 +81,21 @@ def test_integrate_dry_run_writes_nothing(tmp_path):
     before = (wrapper / "main.tf").read_text()
     atelier("integrate --dry-run", cwd=wrapper)
     assert (wrapper / "main.tf").read_text() == before
+
+
+def test_integrate_reports_an_existing_wire_without_rewriting_it(tmp_path):
+    wrapper = stack(tmp_path)
+    atelier("integrate --yes --interfaces=loki_push_api", cwd=wrapper)
+    before = (wrapper / "main.tf").read_text()
+    done = atelier("integrate --dry-run", cwd=wrapper)
+    assert "(existing)" in done.stdout, done.stdout
+    assert (wrapper / "main.tf").read_text() == before
+
+
+def test_integrate_overwrites_an_existing_wire(tmp_path):
+    wrapper = stack(tmp_path)
+    atelier("integrate --yes --interfaces=loki_push_api", cwd=wrapper)
+    atelier("integrate --yes --interfaces=grafana_dashboard", cwd=wrapper)
+    main = (wrapper / "main.tf").read_text()
+    assert "grafana_dashboard =" in main, main
+    assert "loki_push_api =" not in main, main

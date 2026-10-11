@@ -28,6 +28,13 @@ type Proposal struct {
 	// producer applies, so a subset chosen from it cannot be gated on with
 	// count/for_each; for an object-typed input only the whole object is wired.
 	Subsettable bool
+	// Existing is true when the input is already wired to this producer/output,
+	// so the proposal reports a current integration the user can adjust rather
+	// than a new one to add.
+	Existing bool
+	// Selected is the interfaces the existing wire names, sorted; nil when the
+	// whole object is wired (or when the proposal is not Existing).
+	Selected []string
 }
 
 // Propose builds the wrapper's root graph and returns every whole-object
@@ -44,11 +51,6 @@ func Propose(dir string) ([]Proposal, error) {
 
 // Match returns the proposed wires over an already-built root graph.
 func Match(g *rootgraph.Graph) []Proposal {
-	// A wire that already exists is not a proposal.
-	wired := map[[4]string]bool{}
-	for _, e := range g.Edges {
-		wired[[4]string{e.Consumer, e.Argument, e.Producer, e.Output}] = true
-	}
 	var out []Proposal
 	for _, consumer := range g.Nodes {
 		if consumer.Contract == nil {
@@ -69,9 +71,7 @@ func Match(g *rootgraph.Graph) []Proposal {
 					if o.Name != v.Name || o.Type == nil || o.Type.Kind != tftypes.KindObject || !Compatible(v.Type, o.Type) {
 						continue
 					}
-					if wired[[4]string{consumer.Name, v.Name, producer.Name, o.Name}] {
-						continue
-					}
+					existing, selected := currentWire(g, consumer.Name, v.Name, producer.Name, o.Name)
 					out = append(out, Proposal{
 						Consumer:    consumer.Name,
 						Input:       v.Name,
@@ -79,6 +79,8 @@ func Match(g *rootgraph.Graph) []Proposal {
 						Output:      o.Name,
 						Interfaces:  proposalInterfaces(v.Type, o.Type),
 						Subsettable: v.Type.Kind == tftypes.KindMap,
+						Existing:    existing,
+						Selected:    selected,
 					})
 				}
 			}
@@ -109,6 +111,40 @@ func (p Proposal) WireExpr(ifaces []string) string {
 		parts = append(parts, name+" = "+ref+"."+name)
 	}
 	return "{ " + strings.Join(parts, ", ") + " }"
+}
+
+// currentWire reports whether the consumer's input is already wired to the
+// producer's output, and which interfaces the wire selects (nil when the whole
+// object is wired). It reads the raw argument references, so a subset literal
+// like `{ loki_push_api = module.cos_lite.cos_offers.loki_push_api }` is
+// recognised as selecting only that interface.
+func currentWire(g *rootgraph.Graph, consumer, input, producer, output string) (bool, []string) {
+	prefix := "module." + producer + "." + output
+	for _, b := range g.Blocks {
+		if b.Name != consumer {
+			continue
+		}
+		for _, a := range b.Args {
+			if a.Name != input {
+				continue
+			}
+			var selected []string
+			for _, ref := range a.Refs {
+				if ref == prefix {
+					return true, nil // the whole object
+				}
+				if strings.HasPrefix(ref, prefix+".") {
+					selected = append(selected, strings.TrimPrefix(ref, prefix+"."))
+				}
+			}
+			if len(selected) > 0 {
+				sort.Strings(selected)
+				return true, selected
+			}
+			return false, nil
+		}
+	}
+	return false, nil
 }
 
 // isInterfaceInput reports whether an input can accept an integration

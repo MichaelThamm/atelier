@@ -72,6 +72,10 @@ type Graph struct {
 	Dir   string
 	Nodes []Node
 	Edges []Edge
+	// Blocks is the raw parse of main.tf's module blocks, kept so a caller can
+	// inspect a specific argument's references (e.g. which interfaces an
+	// existing integration wire selects).
+	Blocks []wrapper.ModuleBlockArgs
 }
 
 // Build reads the wrapper at dir and derives its graph. Outputs are resolved
@@ -82,7 +86,7 @@ func Build(dir string) (*Graph, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &Graph{Dir: dir}
+	g := &Graph{Dir: dir, Blocks: blocks}
 	for _, b := range blocks {
 		n := Node{Name: b.Name, Source: b.Source}
 		if mdir, ok := moduleDir(dir, b.Source); ok {

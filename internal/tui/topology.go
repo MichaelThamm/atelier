@@ -31,9 +31,18 @@ func (m *Model) openTopology() (tea.Model, tea.Cmd) {
 	m.topoProposals = proposals
 	m.topoSel = make([][]bool, len(proposals))
 	for i, p := range proposals {
+		selected := map[string]bool{}
+		for _, name := range p.Selected {
+			selected[name] = true
+		}
 		m.topoSel[i] = make([]bool, len(p.Interfaces))
-		for j := range m.topoSel[i] {
+		for j, name := range p.Interfaces {
+			// A new proposal defaults to every interface; an existing wire keeps
+			// the interfaces it already selects (all of them for the whole object).
 			m.topoSel[i][j] = true
+			if p.Existing && p.Selected != nil {
+				m.topoSel[i][j] = selected[name]
+			}
 		}
 	}
 	m.topoCursor = 0
@@ -155,7 +164,11 @@ func (m *Model) renderTopology() string {
 	var b strings.Builder
 	row := 0
 	for i, p := range m.topoProposals {
-		fmt.Fprintf(&b, "%s.%s <- module.%s.%s\n", p.Consumer, p.Input, p.Producer, p.Output)
+		note := ""
+		if p.Existing {
+			note = " (existing)"
+		}
+		fmt.Fprintf(&b, "%s.%s <- module.%s.%s%s\n", p.Consumer, p.Input, p.Producer, p.Output, note)
 		for j, name := range p.Interfaces {
 			mark := "[ ]"
 			if m.topoSel[i][j] {

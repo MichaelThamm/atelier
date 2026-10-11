@@ -100,6 +100,8 @@ func runIntegrate(args []string) error {
 			ifaces := p.Interfaces
 			if chosen != nil {
 				ifaces = chosen[i]
+			} else {
+				ifaces = defaultSelection(p)
 			}
 			// Only a map-typed input can honour a subset: a wired object value
 			// is unknown at plan, so its count/for_each cannot gate on it.
@@ -212,10 +214,23 @@ func splitList(s string) []string {
 	return out
 }
 
+// defaultSelection is the interfaces to wire when the caller names none: an
+// existing wire keeps its current selection, a new one takes every interface.
+func defaultSelection(p integrate.Proposal) []string {
+	if p.Existing && p.Selected != nil {
+		return p.Selected
+	}
+	return p.Interfaces
+}
+
 func printProposals(proposals []integrate.Proposal) {
 	fmt.Println("Proposed integrations:")
 	for _, p := range proposals {
-		fmt.Printf("  %s.%s <- module.%s.%s\n", p.Consumer, p.Input, p.Producer, p.Output)
+		note := ""
+		if p.Existing {
+			note = " (existing)"
+		}
+		fmt.Printf("  %s.%s <- module.%s.%s%s\n", p.Consumer, p.Input, p.Producer, p.Output, note)
 		if len(p.Interfaces) > 0 {
 			fmt.Printf("      interfaces: %s\n", strings.Join(p.Interfaces, ", "))
 		}

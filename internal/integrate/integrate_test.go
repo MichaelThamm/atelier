@@ -101,12 +101,18 @@ func TestPropose_noMatch(t *testing.T) {
 	}
 }
 
-func TestPropose_skipsAnAlreadyWiredInput(t *testing.T) {
+func TestPropose_reportsAnExistingWholeObjectWire(t *testing.T) {
 	dir := wrapperWith(t,
-		`output "cos_offers" { type = object({a = string}) value = {a = "x"} }`,
-		`variable "cos_offers" { type = object({a = string}) }`,
+		`output "cos_offers" {
+  type  = object({ a = string })
+  value = { a = "x" }
+}
+`,
+		`variable "cos_offers" {
+  type = object({ a = string })
+}
+`,
 	)
-	// Wire it by hand, as a user would.
 	write(t, filepath.Join(dir, "main.tf"), `module "cos_lite" {
   source = "./producer"
 }
@@ -119,8 +125,44 @@ module "charmed_spark" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 0 {
-		t.Errorf("proposals = %+v, want none for an already-wired input", got)
+	if len(got) != 1 {
+		t.Fatalf("proposals = %+v, want one existing integration", got)
+	}
+	if !got[0].Existing || got[0].Selected != nil {
+		t.Errorf("proposal = %+v, want Existing with nil (whole-object) selection", got[0])
+	}
+}
+
+func TestPropose_infersAnExistingSubset(t *testing.T) {
+	dir := wrapperWith(t,
+		`output "cos_offers" {
+  type  = object({ a = string, b = string })
+  value = { a = "1", b = "2" }
+}
+`,
+		`variable "cos_offers" {
+  type = map(string)
+}
+`,
+	)
+	write(t, filepath.Join(dir, "main.tf"), `module "cos_lite" {
+  source = "./producer"
+}
+module "charmed_spark" {
+  source     = "./consumer"
+  cos_offers = { a = module.cos_lite.cos_offers.a }
+}
+`)
+	got, err := Propose(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("proposals = %+v, want one existing integration", got)
+	}
+	p := got[0]
+	if !p.Existing || strings.Join(p.Selected, ",") != "a" {
+		t.Errorf("proposal = %+v, want Existing selecting just \"a\"", p)
 	}
 }
 
