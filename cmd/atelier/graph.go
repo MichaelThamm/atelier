@@ -104,6 +104,9 @@ func printGraph(g *rootgraph.Graph, proposals []integrate.Proposal) {
 		fmt.Println("\nProposed integrations:")
 		for _, p := range proposals {
 			fmt.Printf("  %s.%s <- module.%s.%s\n", p.Consumer, p.Input, p.Producer, p.Output)
+			if len(p.Interfaces) > 0 {
+				fmt.Printf("      interfaces: %s\n", strings.Join(p.Interfaces, ", "))
+			}
 		}
 	}
 }
@@ -118,10 +121,11 @@ type jsonGraph struct {
 }
 
 type jsonGraphProposal struct {
-	Consumer string `json:"consumer"`
-	Input    string `json:"input"`
-	Producer string `json:"producer"`
-	Output   string `json:"output"`
+	Consumer   string   `json:"consumer"`
+	Input      string   `json:"input"`
+	Producer   string   `json:"producer"`
+	Output     string   `json:"output"`
+	Interfaces []string `json:"interfaces"`
 }
 
 type jsonGraphNode struct {
@@ -177,10 +181,11 @@ func graphPayload(g *rootgraph.Graph, proposals []integrate.Proposal) jsonGraph 
 	}
 	for _, p := range proposals {
 		out.Proposals = append(out.Proposals, jsonGraphProposal{
-			Consumer: p.Consumer,
-			Input:    p.Input,
-			Producer: p.Producer,
-			Output:   p.Output,
+			Consumer:   p.Consumer,
+			Input:      p.Input,
+			Producer:   p.Producer,
+			Output:     p.Output,
+			Interfaces: nonNil(p.Interfaces),
 		})
 	}
 	return out

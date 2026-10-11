@@ -18,6 +18,10 @@ type Proposal struct {
 	Input    string
 	Producer string
 	Output   string
+	// Interfaces are the interface names the consumer's input declares and the
+	// producer's output provides — the keys a user can choose from when wiring
+	// a subset.
+	Interfaces []string
 }
 
 // Propose builds the wrapper's root graph and returns every whole-object
@@ -62,11 +66,19 @@ func Match(g *rootgraph.Graph) []Proposal {
 					if wired[[4]string{consumer.Name, v.Name, producer.Name, o.Name}] {
 						continue
 					}
+					ifaces := make([]string, 0, len(v.Type.AttrOrder))
+					for _, name := range v.Type.AttrOrder {
+						if _, ok := o.Type.Attributes[name]; ok {
+							ifaces = append(ifaces, name)
+						}
+					}
+					sort.Strings(ifaces)
 					out = append(out, Proposal{
-						Consumer: consumer.Name,
-						Input:    v.Name,
-						Producer: producer.Name,
-						Output:   o.Name,
+						Consumer:   consumer.Name,
+						Input:      v.Name,
+						Producer:   producer.Name,
+						Output:     o.Name,
+						Interfaces: ifaces,
 					})
 				}
 			}

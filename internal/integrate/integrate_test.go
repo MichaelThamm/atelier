@@ -3,6 +3,7 @@ package integrate
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MichaelThamm/atelier/internal/tftypes"
@@ -55,6 +56,9 @@ func TestPropose_wholeObjectSubsetMatches(t *testing.T) {
 	p := got[0]
 	if p.Consumer != "charmed_spark" || p.Input != "cos_offers" || p.Producer != "cos_lite" || p.Output != "cos_offers" {
 		t.Errorf("proposal = %+v", p)
+	}
+	if strings.Join(p.Interfaces, ",") != "grafana_dashboard,prometheus_remote_write" {
+		t.Errorf("interfaces = %v, want the consumer's two keys", p.Interfaces)
 	}
 }
 
