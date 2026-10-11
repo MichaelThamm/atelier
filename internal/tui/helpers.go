@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/MichaelThamm/atelier/internal/bootstrap"
 	"github.com/MichaelThamm/atelier/internal/tftypes"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
@@ -60,15 +61,24 @@ func abs(x int) int {
 
 // writeAllModules writes the state for every module in the session.
 // Each module's State.Write() is idempotent on its own block in main.tf.
+// The wrapper's outputs.tf is regenerated afterwards, so a change to a module's
+// ref (or anything else that alters its outputs) keeps the re-export current.
 func writeAllModules(modules []ModuleEntry) error {
+	var dir string
 	for _, mod := range modules {
 		if mod.State != nil {
 			if err := mod.State.Write(); err != nil {
 				return err
 			}
+			if dir == "" {
+				dir = mod.State.Dir
+			}
 		}
 	}
-	return nil
+	if dir == "" {
+		return nil
+	}
+	return bootstrap.RegenerateOutputs(dir)
 }
 
 // Format helper: short SHA.

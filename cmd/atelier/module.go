@@ -653,6 +653,9 @@ func composeModuleBlock(cwd, dir string, opts moduleOpts, mode composeMode, prom
 	if err := state.Write(); err != nil {
 		return nil, err
 	}
+	if err := bootstrap.RegenerateOutputs(dir); err != nil {
+		return nil, err
+	}
 
 	fmt.Fprintf(os.Stderr, "Added module %q from %s\n", state.ModuleBlockName, opts.Source)
 
@@ -703,6 +706,9 @@ func updateModuleBlock(dir string, plan composePlan, state *wrapper.State, prep 
 	}
 
 	if err := state.Write(); err != nil {
+		return err
+	}
+	if err := bootstrap.RegenerateOutputs(dir); err != nil {
 		return err
 	}
 	// .atelier/session.json records which module the wrapper is pinned at. Left
@@ -966,6 +972,9 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 		return "", nil, err
 	}
 	moved = true
+	if err := bootstrap.RegenerateOutputs(target); err != nil {
+		return "", nil, err
+	}
 	return target, res.State, nil
 }
 
@@ -1282,6 +1291,9 @@ func runModuleRm(args []string) error {
 	// Remove the module block from main.tf.
 	if err := wrapper.RemoveModuleBlock(cwd, name); err != nil {
 		return fmt.Errorf("removing module block: %w", err)
+	}
+	if err := bootstrap.RegenerateOutputs(cwd); err != nil {
+		return err
 	}
 
 	// Clean up the clone directory if it exists.
