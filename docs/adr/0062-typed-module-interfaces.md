@@ -93,11 +93,29 @@ the change is visible and reversible.
 Both use only interface names and Terraform types; neither reads charm
 metadata.
 
-### Scope
+### Boundaries
 
-Only modules that publish a typed catalogue are matched. There is no heuristic
-fallback ([ADR-0017](0017-inter-module-wiring.md)'s "too magical" name match
-stays rejected) and no curated interface table in v1.
+- **Only adopting modules are matched.** A module that does not publish a typed
+  catalogue is not matched; there is no heuristic fallback
+  ([ADR-0017](0017-inter-module-wiring.md)'s "too magical" name match stays
+  rejected) and no curated interface table in v1.
+- **Atelier carries no provider vocabulary.** Matching reads the keys a producer
+  publishes and their declared types; Atelier knows nothing of Juju, charms,
+  offers, or collectors. The interface names in the examples are the vocabulary
+  the *products* choose; a non-Juju producer uses whatever role names it
+  publishes, and the mechanism is identical. Atelier must not grow a curated
+  interface vocabulary — that is the provider-specific drift to avoid.
+- **Version boundary.** Reading the module contract is v0
+  ([ADR-0060](0060-module-contract-outputs.md)); the root graph
+  ([ADR-0061](0061-root-graph.md)) is v1; this matching, writing, and
+  verification is v1.
+- **Capability, not a visual layer.** The deliverable is read → match → write →
+  verify. A visual surface (a topology view) is at most an aid to choosing a
+  subset, not the point of the version; it ships only if it measurably improves
+  that choice over the CLI.
+- **Annotations are wire-level.** Any later "explain the plan" feature
+  attributes a change to the wrapper's modules, arguments, and wires — never to
+  a charm role or a collector type.
 
 ## Alternatives considered
 
