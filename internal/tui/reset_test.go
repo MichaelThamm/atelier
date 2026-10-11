@@ -147,7 +147,7 @@ func TestReset_objectFromLeftPane_clearsAllFields(t *testing.T) {
 // Ctrl+R on a variable wired to a reference expression must RESTORE the
 // preserved raw form (the [→] view), not wipe it. The user expects reset to
 // undo their concrete override and bring back the original reference.
-func TestReset_restoresPreservedExpression(t *testing.T) {
+func TestReset_clearsOverrideAndWire(t *testing.T) {
 	state := sampleState(t)
 	state.UnknownAttrs = []wrapper.RawAttr{
 		{
@@ -168,18 +168,17 @@ func TestReset_restoresPreservedExpression(t *testing.T) {
 		t.Fatalf("setup: override did not land; got %v", v.GoString())
 	}
 
-	// ...then reset. The concrete override should be gone and the original
-	// reference should resurface.
+	// ...then reset. Both the concrete override and the wire are cleared, so the
+	// variable returns to its default.
 	m = feed(m, key("ctrl+r"))
 	if _, ok := m.State.Values["model_uuid"]; ok {
 		t.Errorf("after reset, the concrete override should be removed from Values")
 	}
-	expr, wired := m.State.WiredExpression("model_uuid")
-	if !wired || expr != "data.juju_model.m.uuid" {
-		t.Errorf("after reset, the wired expression should be restored; got %q wired=%v", expr, wired)
+	if expr, wired := m.State.WiredExpression("model_uuid"); wired {
+		t.Errorf("after reset, the wire should be cleared too; got %q", expr)
 	}
-	if got := stripANSI(varMarker(m.State, "model_uuid")); got != "[→]" {
-		t.Errorf("post-reset marker = %q; want [→]", got)
+	if got := stripANSI(varMarker(m.State, "model_uuid")); got == "[→]" {
+		t.Errorf("post-reset marker should not be the wired marker; got %q", got)
 	}
 }
 

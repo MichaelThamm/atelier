@@ -165,19 +165,15 @@ func (m *Model) resetCurrent() {
 		}
 	}
 
-	// Whole-variable reset.
+	// Whole-variable reset: drop the override and any preserved reference, so
+	// the variable returns to the module's default (unset when it has none). A
+	// wired input is a reference, not a value, so it must be cleared here too —
+	// otherwise Ctrl+R could not unwire a variable Atelier (or the user) wired.
 	st := m.ActiveModuleState()
 	delete(st.Values, v.Name)
-	// We do NOT drop any preserved reference expression here. Removing the
-	// concrete override lets the original wiring resurface, so a variable that
-	// was read as e.g. `data.vault_generic_secret.s3.data["..."]` returns to
-	// its [→] view instead of becoming an empty/required field.
+	st.ClearUnknownAttr(v.Name)
 	m.dirty = true
 	m.refreshEditor()
-	if _, wired := st.WiredExpression(v.Name); wired {
-		m.status = "variable reset to original reference"
-	} else {
-		m.status = "variable reset to default"
-	}
+	m.status = "variable reset to default"
 	m.statusLvl = statusInfo
 }
