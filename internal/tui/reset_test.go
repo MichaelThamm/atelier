@@ -169,8 +169,7 @@ func TestReset_clearsOverrideAndWire(t *testing.T) {
 	}
 
 	// ...then reset. Both the concrete override and the wire are cleared, so the
-	// variable returns to its default (ADR-0017: "Ctrl+R removes the wire and
-	// restores the default").
+	// variable returns to its default.
 	m = feed(m, key("ctrl+r"))
 	if _, ok := m.State.Values["model_uuid"]; ok {
 		t.Errorf("after reset, the concrete override should be removed from Values")

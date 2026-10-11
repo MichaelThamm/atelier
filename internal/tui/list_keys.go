@@ -168,9 +168,7 @@ func (m *Model) resetCurrent() {
 	// Whole-variable reset: drop the override and any preserved reference, so
 	// the variable returns to the module's default (unset when it has none). A
 	// wired input is a reference, not a value, so it must be cleared here too —
-	// otherwise Ctrl+R could not unwire something Atelier wired. This restores
-	// ADR-0017's stated behaviour ("Ctrl+R removes the wire and restores the
-	// default"), which the code had preserved against.
+	// otherwise Ctrl+R could not unwire a variable Atelier (or the user) wired.
 	st := m.ActiveModuleState()
 	delete(st.Values, v.Name)
 	st.ClearUnknownAttr(v.Name)
