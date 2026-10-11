@@ -10,6 +10,7 @@
 //	atelier ls                                  list modules in the wrapper
 //	atelier wrappers [PATH]                     list wrappers directly under a directory
 //	atelier graph                               print the wrapper's root graph
+//	atelier integrate                           apply the wrapper's proposed integrations
 //	atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH]
 //	                                            compose into the wrapper the target holds and deploy
 //	                                            it, or scaffold a new one and init and apply it
@@ -92,6 +93,12 @@ Usage:
                                                references its arguments make. Read-only; resolves
                                                outputs from a local module directory or an existing
                                                .atelier/clone checkout.
+  atelier integrate [--dry-run] [--yes] [--json]
+                                               Apply the wrapper's proposed integrations: for every
+                                               consumer input that names a producer's interface, write
+                                               input = module.<producer>.<output> into main.tf. Plain
+                                               HCL, reviewable and reversible. --dry-run shows them
+                                               without writing; --yes skips the confirmation.
   atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--as NAME]
                                 [--dir PATH] [--var-file PATH|NAME]
                                 [--var KEY=VALUE] [--list-var-files] [--all]
@@ -180,18 +187,19 @@ func main() {
 type command string
 
 const (
-	cmdOpen     command = "open"
-	cmdAdd      command = "add"
-	cmdRm       command = "rm"
-	cmdLs       command = "ls"
-	cmdApply    command = "apply"
-	cmdWrappers command = "wrappers"
-	cmdGraph    command = "graph"
-	cmdPurge    command = "purge"
-	cmdImport   command = "import"
-	cmdPresets  command = "presets"
-	cmdContract command = "contract"
-	cmdGallery  command = "gallery"
+	cmdOpen      command = "open"
+	cmdAdd       command = "add"
+	cmdRm        command = "rm"
+	cmdLs        command = "ls"
+	cmdApply     command = "apply"
+	cmdWrappers  command = "wrappers"
+	cmdGraph     command = "graph"
+	cmdIntegrate command = "integrate"
+	cmdPurge     command = "purge"
+	cmdImport    command = "import"
+	cmdPresets   command = "presets"
+	cmdContract  command = "contract"
+	cmdGallery   command = "gallery"
 )
 
 // resolveCommand maps the first non-empty argument to its canonical command.
@@ -213,6 +221,8 @@ func resolveCommand(args []string) (command, []string) {
 		return cmdWrappers, args[1:]
 	case "graph":
 		return cmdGraph, args[1:]
+	case "integrate":
+		return cmdIntegrate, args[1:]
 	case "purge":
 		return cmdPurge, args[1:]
 	case "import":
@@ -258,6 +268,8 @@ func run(args []string) error {
 		return runWrappers(rest)
 	case cmdGraph:
 		return runGraph(rest)
+	case cmdIntegrate:
+		return runIntegrate(rest)
 	case cmdPurge:
 		return runPurge(rest)
 	case cmdImport:
