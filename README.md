@@ -434,6 +434,30 @@ To assert on what Terraform actually did — state, plan changes — reach for
 reference for both (`TfDirManager.state_list`, `plan_changes`) and is not an
 Atelier API.
 
+### Reading a module's outputs
+
+Atelier re-exports every module's outputs into the wrapper's `outputs.tf`, named
+`<module>_<output>` so they never collide across modules, so standard Terraform
+tooling sees them:
+
+```bash
+atelier apply cos-lite --dir stack
+terraform -chdir=stack output                     # every re-exported output
+terraform -chdir=stack output -raw cos_lite_model_uuid
+```
+
+This is how one deployment feeds another: deploy a producer, read one of its
+outputs, and pass it into a consumer's input.
+
+```bash
+MODEL_UUID=$(terraform -chdir=stack output -raw cos_lite_model_uuid)
+atelier apply <consumer> --dir stack --var "model_uuid=$MODEL_UUID"
+```
+
+`-raw` returns an unquoted string; `-json` returns JSON, which is also valid HCL
+expression syntax, so it can be passed to `--var` for structured values. Outputs
+are recorded at apply, so read them after the producer has been applied.
+
 ## Comparing versions
 
 Press `R` to switch the module ref without leaving the TUI. Atelier

@@ -112,6 +112,7 @@ or owns are listed below; the user may add their own (`.git/`, additional
 ├── main.tf              # module {} block calling the chosen module via git
 ├── versions.tf          # terraform { required_providers {...} } block
 ├── providers.tf         # provider "X" {...} blocks
+├── outputs.tf           # re-exports each module's outputs as root outputs
 ├── README.md            # one-time auto-generated; user may edit freely
 ├── .gitignore           # one-time auto-generated; user may add to it
 └── .atelier/            # internal state; gitignored
@@ -420,9 +421,9 @@ adding modules:
   leaving the target as it was found.
 
 `atelier rm <name>` removes a module block and its clone under
-`.atelier/clone/`. It removes no outputs, because Atelier writes none — see
-§7.6. Does not run `terraform apply -destroy` — state cleanup is the user's
-responsibility.
+`.atelier/clone/`. It regenerates `outputs.tf` without the removed module's
+outputs (§7.6) but changes no Terraform state. Does not run
+`terraform apply -destroy` — state cleanup is the user's responsibility.
 
 `atelier ls` prints a table (name, source, ref) without launching
 the TUI. If the current directory has no `main.tf`, it reports that it is not
@@ -1143,11 +1144,20 @@ See [ADR-0006](adr/0006-two-pane-ui-layout.md), [ADR-0011](adr/0011-plan-output-
 [ADR-0014](adr/0014-unified-layout-budget.md), and
 [ADR-0052](adr/0052-hand-the-terminal-to-terraform.md).
 
-### 7.6 Output view
+### 7.6 Outputs
 
-Not implemented. Earlier drafts specified an `O`-triggered modal and a
-generated `outputs.tf`; neither exists in the code today. `terraform output`
-still works by running it directly in the wrapper. Tracked in
+Atelier re-exports each module's outputs into the wrapper's `outputs.tf` (§4),
+so `terraform output` works in the wrapper. Root outputs are named
+`<module>_<output>` so they never collide across modules; `sensitive` is
+propagated and `ephemeral` module outputs are skipped (a root output cannot be
+ephemeral). The file is regenerated when the wrapper's composition changes:
+`atelier add`, `atelier apply`, and `atelier rm`.
+
+`terraform output -json <name>` and `-raw <name>` then expose a producer's
+outputs to a script, which is how one deployment feeds another in CI.
+
+Not implemented: an `O`-triggered modal showing planned and live output values
+in the TUI, which would surface them before an apply. Tracked in
 [ROADMAP.md](ROADMAP.md).
 
 ### 7.7 Terraform output

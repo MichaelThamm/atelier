@@ -114,11 +114,12 @@ presenting its attributes as a `Provider: <name>` pane. Today Atelier only
 writes empty stub `provider {}` blocks derived from the module's declared
 `required_providers`; the schema-driven pane is not implemented.
 
-### In-TUI output view and `outputs.tf`
+### In-TUI output view
 
-An `O`-keyed modal showing planned and live output values, and a generated
-`outputs.tf` re-exporting the module's outputs, were specified but are not
-implemented. `terraform output` works by running it directly in the wrapper.
+An `O`-keyed modal showing planned and live output values, so they are visible
+before an apply and without leaving the TUI. Not implemented. (The wrapper-side
+half has shipped: Atelier generates an `outputs.tf` re-exporting each module's
+outputs as root outputs, so `terraform output` works — see SPEC §7.6.)
 
 ### Conditional autoplan
 
