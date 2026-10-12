@@ -118,6 +118,7 @@ converts, clones, or writes, find the one that already does it:
 | If you are about to… | Use |
 | --- | --- |
 | parse a module source (`git::`, `//subpath`, `?ref=`, local path) | `internal/modulesource` (`Decompose`, `Remote`, `ModulePath`, `Compose`, `IsLocal`, `IsFullSHA`) |
+| resolve a module source to its local or clone directory | `wrapper.ModuleDir` / `wrapper.ModuleDirPath` / `wrapper.CloneDir` |
 | apply `--var` / `--var-file` values, or convert a string to a variable's type | `wrapper.ApplyVarOverrides`, `wrapper.ApplyVarFiles`, `wrapper.ConvertStringToCty` |
 | clone + read a module block's schema and values, or re-read after a ref change | `bootstrap.BlockLoader.LoadModuleBlock`, `bootstrap.LoadRefState` |
 | write `main.tf` / any file atomically | `wrapper.RenderMain` + `State.Write`; leaf packages that cannot import `wrapper` (session, state) keep their own |
