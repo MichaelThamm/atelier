@@ -144,6 +144,8 @@ Usage:
   atelier gallery list [--commands]            List Atelier's bundled gallery of module quick starts:
                                                 module, pinned ref, preset, and the command to deploy them.
                                                 --commands prints the non-applying scaffold command per entry.
+
+  Module authors and CI:
   atelier presets lint --module <dir> <file.tfvars>...
                                                 Check preset .tfvars bundles against a module's variables.
                                                 Reports unknown variable names, unknown keys nested in object
