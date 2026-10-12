@@ -1,9 +1,6 @@
 package bootstrap
 
 import (
-	"os"
-	"path/filepath"
-
 	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
@@ -78,16 +75,7 @@ func cloneKeyAndRef(wrapperDir, source string) (key, ref string) {
 		return "", ""
 	}
 	_, ref = modulesource.Decompose(source)
-	if modulesource.IsLocal(source) {
-		p := source
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(wrapperDir, p)
-		}
-		return p, ""
-	}
-	sub := modulesource.ModulePath(source)
-	clone := filepath.Join(CloneSubdir(wrapperDir), modulesource.RepoBasename(modulesource.Remote(source)))
-	return filepath.Join(clone, filepath.Clean(sub)), ref
+	return wrapper.ModuleDirPath(wrapperDir, source), ref
 }
 
 // ModuleOutputs returns the outputs a module block declares, resolving the
@@ -95,7 +83,7 @@ func cloneKeyAndRef(wrapperDir, source string) (key, ref string) {
 // It returns (nil, nil) when the module is not available locally — the caller
 // then simply re-exports nothing for it.
 func ModuleOutputs(wrapperDir, source string) ([]tfvars.Output, error) {
-	dir, ok := ModuleDirForSource(wrapperDir, source)
+	dir, ok := wrapper.ModuleDir(wrapperDir, source)
 	if !ok {
 		return nil, nil
 	}
@@ -104,37 +92,4 @@ func ModuleOutputs(wrapperDir, source string) ([]tfvars.Output, error) {
 		return nil, err
 	}
 	return mod.Outputs, nil
-}
-
-// ModuleDirForSource resolves a module block's source to the directory holding
-// its .tf files: a local path relative to the wrapper, or an existing clone
-// under .atelier/clone/. It is the read-side counterpart to ResolveAndClone.
-func ModuleDirForSource(wrapperDir, source string) (string, bool) {
-	if source == "" {
-		return "", false
-	}
-	if modulesource.IsLocal(source) {
-		p := source
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(wrapperDir, p)
-		}
-		if isDir(p) {
-			return p, true
-		}
-		return "", false
-	}
-	sub := modulesource.ModulePath(source)
-	clone := filepath.Join(CloneSubdir(wrapperDir), modulesource.RepoBasename(modulesource.Remote(source)))
-	if sub != "" {
-		clone = filepath.Join(clone, filepath.Clean(sub))
-	}
-	if isDir(clone) {
-		return clone, true
-	}
-	return "", false
-}
-
-func isDir(path string) bool {
-	st, err := os.Stat(path)
-	return err == nil && st.IsDir()
 }

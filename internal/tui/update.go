@@ -167,6 +167,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Topology modal: choose which interfaces to wire (ADR-0062).
+	if m.topoModal {
+		return m.handleTopologyKey(msg)
+	}
+
 	// Check-warnings detail modal: same dismiss pattern as the error modal,
 	// toggled by W (or Esc/q).
 	if m.warnDetail {
@@ -255,6 +260,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// from the left pane — in the right pane the key belongs to the editor.
 		if m.focus == focusLeft {
 			return m.openSavePreset()
+		}
+	case "t", "T":
+		// Open the topology modal showing proposed interface integrations
+		// (ADR-0062) from the left pane, like p/s/r.
+		if m.focus == focusLeft {
+			return m.openTopology()
 		}
 	case "r", "R":
 		// Open the ref switch modal for the module under the cursor. Gated on

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — refines [ADR-0020](0020-readline-style-text-editing.md)
+Accepted — refines [ADR-0020](0020-readline-style-text-editing.md)
 (readline-style editing) and relates to [ADR-0006](0006-two-pane-ui-layout.md)
 (two-pane layout). Touches `mapEditor`, `mapObjectEditor`, and `objectEditor`
 in `internal/tui/editor.go`, plus the key-routing in `internal/tui/model.go`.

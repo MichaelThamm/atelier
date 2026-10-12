@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — inspired by Terraform Stacks' `component.<name>.<output>` references.
+Superseded by [ADR-0062](0062-typed-module-interfaces.md).
 
 ## Context
 

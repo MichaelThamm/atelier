@@ -106,7 +106,7 @@ type RefBump struct {
 // CloneSubdir is the path under .atelier/ where Atelier shallow-clones
 // module repositories.
 func CloneSubdir(wrapperDir string) string {
-	return filepath.Join(wrapperDir, ".atelier", "clone")
+	return wrapper.CloneDir(wrapperDir)
 }
 
 // ResolveAndClone clones the source into .atelier/clone/<basename> and

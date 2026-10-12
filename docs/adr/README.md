@@ -23,15 +23,15 @@ Format follows the Michael Nygard template, lightly extended.
 | 0014 | [Unified layout budget and scroll support](0014-unified-layout-budget.md)                   | Accepted |
 | 0015 | [Multi-module grouping in the left pane](0015-multi-module-grouping.md)                     | Accepted |
 | 0016 | [Scope boundaries — no orchestration overlap with Terragrunt](0016-scope-boundaries-no-orchestration.md) | Accepted |
-| 0017 | [Inter-module wiring in the TUI](0017-inter-module-wiring.md)                               | Accepted |
+| 0017 | [Inter-module wiring in the TUI](0017-inter-module-wiring.md)                               | Superseded by ADR-0062 |
 | 0018 | [Additive `atelier module` command](0018-additive-module-command.md)                       | Superseded by ADR-0038 |
-| 0019 | [Unified module version display](0019-unified-module-version-display.md)                    | Proposed |
-| 0020 | [Readline-style text editing in variable editors](0020-readline-style-text-editing.md)      | Proposed |
+| 0019 | [Unified module version display](0019-unified-module-version-display.md)                    | Accepted |
+| 0020 | [Readline-style text editing in variable editors](0020-readline-style-text-editing.md)      | Accepted |
 
 | 0022 | [Local presets: `atelier.local.yaml`](0022-local-presets.md)                                | Superseded by ADR-0031 |
-| 0023 | [Map / map(object) row editing lifecycle](0023-map-row-editing-lifecycle.md)                | Proposed |
+| 0023 | [Map / map(object) row editing lifecycle](0023-map-row-editing-lifecycle.md)                | Accepted |
 | 0024 | [Surfacing Terraform `check` block warnings](0024-check-block-warnings.md)                   | Accepted |
-| 0025 | [Interactive ref selection in the ref-switch modal](0025-ref-selection-matcher.md)          | Proposed |
+| 0025 | [Interactive ref selection in the ref-switch modal](0025-ref-selection-matcher.md)          | Accepted |
 | 0026 | [Generate a preset from the current configuration](0026-save-preset.md)                      | Superseded by ADR-0031 |
 | 0027 | [`atelier import` — import live infrastructure into an existing module](0027-atelier-import.md) | Accepted |
 | 0028 | [Provider-specific import IDs — scoped to Juju for v1](0028-provider-specific-import-ids.md) | Accepted |
@@ -67,6 +67,8 @@ Format follows the Michael Nygard template, lightly extended.
 | 0057 | [One generated gallery page, with provider variants on each card](0057-single-gallery-page.md) | Accepted |
 | 0059 | [Gallery candidate discovery is an on-demand tool](0059-gallery-candidate-discovery.md) | Accepted |
 | 0060 | [Read the whole module contract — outputs are first-class](0060-module-contract-outputs.md) | Accepted |
+| 0061 | [The wrapper is a root graph](0061-root-graph.md) | Accepted |
+| 0062 | [Typed, producer-defined module interfaces are the integration contract](0062-typed-module-interfaces.md) | Accepted |
 
 ## Conventions
 

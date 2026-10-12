@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — relates to [ADR-0006](0006-two-pane-ui-layout.md) (two-pane TUI
+Accepted — relates to [ADR-0006](0006-two-pane-ui-layout.md) (two-pane TUI
 layout). Sensitive fields are rendered with masked input (see §4).
 Touches every variable widget defined in `internal/tui/editor.go`.
 

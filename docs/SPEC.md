@@ -271,6 +271,8 @@ atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ direct
 atelier gallery list [--commands]          # list the bundled gallery quick starts
 atelier gallery lint                      # check each entry covers its module's required inputs
 atelier presets lint --module <dir> <file.tfvars>  # check preset bundles against a module's variables
+atelier integrate [--interfaces NAME,...] [--dry-run] [--yes] [--json]  # apply proposed integrations (§6.12)
+atelier contract lint --module <dir> --output <name> [--require I]...  # check a module's interface (§6.13)
 atelier --help                             # print usage
 ```
 
@@ -946,6 +948,28 @@ already in state). A plan failure there is printed and reported as `null`, never
 an error, because the imports are already in state by then. A reader that gates on
 drift must therefore treat `null` as "not measured", not as "clean".
 
+### 6.12 `atelier integrate` — apply proposed integrations
+
+For each proposed integration, writes `input = module.<producer>.<output>` into
+the consumer's block, as plain HCL, so the wrapper stays standard Terraform
+([ADR-0062](adr/0062-typed-module-interfaces.md)). `--interfaces NAME,...` wires
+only the named interfaces; at a terminal with no `--interfaces` you are prompted
+to choose; `--dry-run` prints without writing; `--yes` skips the prompt; `--json`
+writes the result to stdout.
+
+An input already wired is reported as `(existing)`, and re-running is
+idempotent. Only a `map(string)`-typed consumer input can take a subset: a wired
+object value is unknown until the producer applies, so it cannot be gated on
+with `count`/`for_each`; an object-typed input is wired whole. `--interfaces`
+overwrites an existing wire's selection.
+
+### 6.13 `atelier contract lint` — a module's integration interface
+
+Checks that `--module <dir>` publishes a well-formed interface catalogue: the
+named `--output` exists and is an object of strings, and every `--require
+<interface>` is one of its keys. Exits non-zero on any finding, so a producer can
+gate its own CI. See [ADR-0062](adr/0062-typed-module-interfaces.md).
+
 ## 7. TUI layout
 
 The TUI is a two-pane layout enclosed in rounded-border panels, with a
@@ -1193,6 +1217,19 @@ internal and regenerable state — deleting it loses the logs, not the wrapper.
 See [ADR-0029](adr/0029-live-logs-view.md) for the superseded in-TUI view and
 [ADR-0052](adr/0052-hand-the-terminal-to-terraform.md) for the decision that
 replaced it.
+
+### 7.8 Topology view (modal)
+
+`T` opens a modal listing the wrapper's interface integrations: each proposed
+or already-wired integration, with a checkbox per interface. `↑`/`↓` move,
+`Space` toggles an interface, `a`/`n` select all/none, `Enter` wires the chosen
+subset (or overwrites an existing wire), and `Esc`/`T` closes. Only a
+`map(string)` consumer input can take a subset; an object input is wired whole.
+An already-wired input opens with its current selection checked and is labelled
+`(existing)`. See [ADR-0062](adr/0062-typed-module-interfaces.md).
+
+`Ctrl+R` on a variable resets it to the module's default, removing both a
+concrete override and any wire.
 
 ## 8. Type-to-widget mapping
 
