@@ -10,11 +10,12 @@ import (
 )
 
 const contractUsage = `Usage:
-  atelier contract lint --module <dir> --output <name> [--require <interface>]...
-                                               Check a module's integration interface (ADR-0062): the
-                                               named output must exist and be a typed object, and every
-                                               --require interface must be one of its keys. Exits
-                                               non-zero on any finding, so it can gate a producer's CI.
+  atelier contract lint [--module <dir>] --output <name> [--require <interface>]...
+                                               Check a module's integration interface: the named output
+                                               must exist and be a typed object, and every --require
+                                               interface must be one of its keys. Exits non-zero on any
+                                               finding, so it can gate a producer's CI. --module defaults
+                                               to the current directory.
 `
 
 // runContract dispatches the `atelier contract` subcommand. A module's
@@ -72,7 +73,7 @@ func parseContractLintArgs(args []string) (contractLintOpts, error) {
 		return opts, fmt.Errorf("unknown flag %q for contract lint", args[i])
 	}
 	if opts.Module == "" {
-		return opts, fmt.Errorf("contract lint requires --module <dir>")
+		opts.Module = "."
 	}
 	if opts.Output == "" {
 		return opts, fmt.Errorf("contract lint requires --output <name>")

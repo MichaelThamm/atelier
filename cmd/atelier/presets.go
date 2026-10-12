@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/MichaelThamm/atelier/internal/tfvars"
@@ -9,11 +11,15 @@ import (
 )
 
 const presetsUsage = `Usage:
-  atelier presets lint --module <dir> <file.tfvars>...
+  atelier presets lint [--module <dir>] [<file.tfvars>...]
                                                Check preset .tfvars bundles against a module's declared
                                                variables. Reports names the module does not declare, keys
                                                nested in object values that the object type does not declare,
                                                and scalar type mismatches. Exits non-zero on any finding.
+                                               --module defaults to the current directory. With no files,
+                                               every .tfvars under <module>/presets/ is checked, so from a
+                                               module directory plain 'atelier presets lint' lints its
+                                               committed presets.
 `
 
 // runPresets dispatches the `atelier presets` subcommand. A preset is a
@@ -62,10 +68,20 @@ func parsePresetsLintArgs(args []string) (presetsLintOpts, error) {
 		}
 	}
 	if opts.Module == "" {
-		return opts, fmt.Errorf("presets lint requires --module <dir>")
+		opts.Module = "."
 	}
 	if len(opts.Files) == 0 {
-		return opts, fmt.Errorf("presets lint requires at least one .tfvars file")
+		// No files named: check the module's own committed presets, which is the
+		// obvious thing to lint from inside a module directory.
+		matches, err := filepath.Glob(filepath.Join(opts.Module, "presets", "*.tfvars"))
+		if err != nil {
+			return opts, err
+		}
+		if len(matches) == 0 {
+			return opts, fmt.Errorf("presets lint: no .tfvars given and none in %s", filepath.Join(opts.Module, "presets"))
+		}
+		sort.Strings(matches)
+		opts.Files = matches
 	}
 	return opts, nil
 }

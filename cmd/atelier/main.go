@@ -146,11 +146,11 @@ Usage:
                                                 --commands prints the non-applying scaffold command per entry.
 
   Module authors and CI:
-  atelier presets lint --module <dir> <file.tfvars>...
+  atelier presets lint [--module <dir>] [<file.tfvars>...]
                                                 Check preset .tfvars bundles against a module's variables.
                                                 Reports unknown variable names, unknown keys nested in object
                                                 values, and scalar type mismatches; exits non-zero on any finding.
-  atelier contract lint --module <dir> --output <name> [--require <interface>]...
+  atelier contract lint [--module <dir>] --output <name> [--require <interface>]...
                                                 Check a module's integration interface: the named output
                                                 must be a typed object, and every --require interface
                                                 must be one of its keys. Exits non-zero on any finding.

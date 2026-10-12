@@ -16,8 +16,8 @@ func TestParsePresetsLintArgs(t *testing.T) {
 	}{
 		{name: "module flag", args: []string{"--module", "terraform", "a.tfvars"}, wantMod: "terraform", want: []string{"a.tfvars"}},
 		{name: "module equals", args: []string{"--module=terraform", "a.tfvars", "b.tfvars"}, wantMod: "terraform", want: []string{"a.tfvars", "b.tfvars"}},
-		{name: "missing module", args: []string{"a.tfvars"}, wantErr: true},
-		{name: "missing files", args: []string{"--module", "terraform"}, wantErr: true},
+		{name: "module defaults to cwd", args: []string{"a.tfvars"}, wantMod: ".", want: []string{"a.tfvars"}},
+		{name: "no files and no presets found", args: []string{"--module", "terraform"}, wantErr: true},
 		{name: "unknown flag", args: []string{"--module", "terraform", "--bogus", "a.tfvars"}, wantErr: true},
 	}
 	for _, c := range cases {
@@ -82,5 +82,17 @@ variable "worker" {
 	}
 	if err := runPresetsLint([]string{"--module", moduleDir, bad}); err == nil {
 		t.Error("a preset naming a removed nested field must fail")
+	}
+
+	// With no files named, the module's own committed presets are linted.
+	presetsDir := filepath.Join(moduleDir, "presets")
+	if err := os.MkdirAll(presetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(presetsDir, "single-unit.tfvars"), []byte("name = \"demo\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPresetsLint([]string{"--module", moduleDir}); err != nil {
+		t.Errorf("defaulting to <module>/presets/ must pass: %v", err)
 	}
 }
