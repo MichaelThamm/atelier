@@ -44,36 +44,32 @@ type contractLintOpts struct {
 
 func parseContractLintArgs(args []string) (contractLintOpts, error) {
 	var opts contractLintOpts
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--module":
-			i++
-			if i >= len(args) {
-				return opts, fmt.Errorf("--module requires a directory")
+	for i := 0; i < len(args); {
+		if v, next, ok, err := flagValue(args, i, "--module"); ok {
+			if err != nil {
+				return opts, err
 			}
-			opts.Module = args[i]
-		case strings.HasPrefix(a, "--module="):
-			opts.Module = strings.TrimPrefix(a, "--module=")
-		case a == "--output":
-			i++
-			if i >= len(args) {
-				return opts, fmt.Errorf("--output requires a name")
-			}
-			opts.Output = args[i]
-		case strings.HasPrefix(a, "--output="):
-			opts.Output = strings.TrimPrefix(a, "--output=")
-		case a == "--require":
-			i++
-			if i >= len(args) {
-				return opts, fmt.Errorf("--require requires an interface name")
-			}
-			opts.Require = append(opts.Require, args[i])
-		case strings.HasPrefix(a, "--require="):
-			opts.Require = append(opts.Require, strings.TrimPrefix(a, "--require="))
-		default:
-			return opts, fmt.Errorf("unknown flag %q for contract lint", a)
+			opts.Module = v
+			i = next
+			continue
 		}
+		if v, next, ok, err := flagValue(args, i, "--output"); ok {
+			if err != nil {
+				return opts, err
+			}
+			opts.Output = v
+			i = next
+			continue
+		}
+		if v, next, ok, err := flagValue(args, i, "--require"); ok {
+			if err != nil {
+				return opts, err
+			}
+			opts.Require = append(opts.Require, v)
+			i = next
+			continue
+		}
+		return opts, fmt.Errorf("unknown flag %q for contract lint", args[i])
 	}
 	if opts.Module == "" {
 		return opts, fmt.Errorf("contract lint requires --module <dir>")

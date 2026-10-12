@@ -43,21 +43,22 @@ type presetsLintOpts struct {
 
 func parsePresetsLintArgs(args []string) (presetsLintOpts, error) {
 	var opts presetsLintOpts
-	for i := 0; i < len(args); i++ {
+	for i := 0; i < len(args); {
+		if v, next, ok, err := flagValue(args, i, "--module"); ok {
+			if err != nil {
+				return opts, err
+			}
+			opts.Module = v
+			i = next
+			continue
+		}
 		a := args[i]
 		switch {
-		case a == "--module":
-			i++
-			if i >= len(args) {
-				return opts, fmt.Errorf("--module requires a directory")
-			}
-			opts.Module = args[i]
-		case strings.HasPrefix(a, "--module="):
-			opts.Module = strings.TrimPrefix(a, "--module=")
 		case strings.HasPrefix(a, "-"):
 			return opts, fmt.Errorf("unknown flag %q for presets lint", a)
 		default:
 			opts.Files = append(opts.Files, a)
+			i++
 		}
 	}
 	if opts.Module == "" {
