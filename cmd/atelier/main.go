@@ -9,7 +9,6 @@
 //	atelier rm <name> [--force]                 remove a module from the wrapper
 //	atelier ls                                  list modules in the wrapper
 //	atelier wrappers [PATH]                     list wrappers directly under a directory
-//	atelier graph                               print the wrapper's root graph
 //	atelier integrate                           apply the wrapper's proposed integrations
 //	atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH]
 //	                                            compose into the wrapper the target holds and deploy
@@ -88,11 +87,6 @@ Usage:
                                                current directory): each child directory holding a
                                                main.tf or .atelier/, with the modules it declares.
                                                Read-only and one level only.
-  atelier graph [--json]                       Print the wrapper's root graph: each module block,
-                                               the outputs it exposes, and the module-output
-                                               references its arguments make. Read-only; resolves
-                                               outputs from a local module directory or an existing
-                                               .atelier/clone checkout.
   atelier integrate [--dry-run] [--yes] [--json]
                                                Apply the wrapper's proposed integrations: for every
                                                consumer input that names a producer's interface, write
@@ -193,7 +187,6 @@ const (
 	cmdLs        command = "ls"
 	cmdApply     command = "apply"
 	cmdWrappers  command = "wrappers"
-	cmdGraph     command = "graph"
 	cmdIntegrate command = "integrate"
 	cmdPurge     command = "purge"
 	cmdImport    command = "import"
@@ -219,8 +212,6 @@ func resolveCommand(args []string) (command, []string) {
 		return cmdApply, args[1:]
 	case "wrappers":
 		return cmdWrappers, args[1:]
-	case "graph":
-		return cmdGraph, args[1:]
 	case "integrate":
 		return cmdIntegrate, args[1:]
 	case "purge":
@@ -266,8 +257,6 @@ func run(args []string) error {
 		return runModuleApply(rest)
 	case cmdWrappers:
 		return runWrappers(rest)
-	case cmdGraph:
-		return runGraph(rest)
 	case cmdIntegrate:
 		return runIntegrate(rest)
 	case cmdPurge:

@@ -271,9 +271,8 @@ atelier purge [PATH] [--force]             # remove .atelier/ and .clone/ direct
 atelier gallery list [--commands]          # list the bundled gallery quick starts
 atelier gallery lint                      # check each entry covers its module's required inputs
 atelier presets lint --module <dir> <file.tfvars>  # check preset bundles against a module's variables
-atelier graph [--json]                     # print the wrapper's root graph (§6.12)
-atelier integrate [--interfaces NAME,...] [--dry-run] [--yes] [--json]  # apply proposed integrations (§6.13)
-atelier contract lint --module <dir> --output <name> [--require I]...  # check a module's interface (§6.14)
+atelier integrate [--interfaces NAME,...] [--dry-run] [--yes] [--json]  # apply proposed integrations (§6.12)
+atelier contract lint --module <dir> --output <name> [--require I]...  # check a module's interface (§6.13)
 atelier --help                             # print usage
 ```
 
@@ -949,17 +948,7 @@ already in state). A plan failure there is printed and reported as `null`, never
 an error, because the imports are already in state by then. A reader that gates on
 drift must therefore treat `null` as "not measured", not as "clean".
 
-### 6.12 `atelier graph` — the wrapper as a root graph
-
-Read-only. Prints each module block, the `module.<name>.<output>` references its
-arguments make (argument-level edges), and each module's outputs and required
-inputs; `--json` wraps it in the standard envelope. It also proposes **interface
-integrations**: a consumer input and a producer output that name the same
-interface with a compatible type. An input already wired is reported as
-`(existing)` rather than as a new proposal. See [ADR-0061](adr/0061-root-graph.md)
-and [ADR-0062](adr/0062-typed-module-interfaces.md).
-
-### 6.13 `atelier integrate` — apply proposed integrations
+### 6.12 `atelier integrate` — apply proposed integrations
 
 For each proposed integration, writes `input = module.<producer>.<output>` into
 the consumer's block, as plain HCL, so the wrapper stays standard Terraform
@@ -974,7 +963,7 @@ object value is unknown until the producer applies, so it cannot be gated on
 with `count`/`for_each`; an object-typed input is wired whole. `--interfaces`
 overwrites an existing wire's selection.
 
-### 6.14 `atelier contract lint` — a module's integration interface
+### 6.13 `atelier contract lint` — a module's integration interface
 
 Checks that `--module <dir>` publishes a well-formed interface catalogue: the
 named `--output` exists and is an object of strings, and every `--require

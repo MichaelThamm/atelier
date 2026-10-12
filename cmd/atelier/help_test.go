@@ -49,7 +49,6 @@ func TestEveryCommand_answersHelpFlags(t *testing.T) {
 		{"ls", runModuleList, usage},
 		{"apply", runModuleApply, usage},
 		{"wrappers", runWrappers, wrappersUsage},
-		{"graph", runGraph, graphUsage},
 		{"integrate", runIntegrate, integrateUsage},
 		{"purge", runPurge, usage},
 		{"import", runImport, usage},
@@ -95,7 +94,6 @@ func TestEveryCommand_answersHelpFlags(t *testing.T) {
 func TestRun_helpReachesTheDispatchedCommand(t *testing.T) {
 	scoped := map[string]string{
 		"wrappers":      wrappersUsage,
-		"graph":         graphUsage,
 		"integrate":     integrateUsage,
 		"gallery":       galleryUsage,
 		"gallery list":  galleryUsage,
