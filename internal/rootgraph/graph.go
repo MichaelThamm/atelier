@@ -5,11 +5,8 @@
 package rootgraph
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/MichaelThamm/atelier/internal/modulesource"
 	"github.com/MichaelThamm/atelier/internal/tfvars"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
@@ -89,7 +86,7 @@ func Build(dir string) (*Graph, error) {
 	g := &Graph{Dir: dir, Blocks: blocks}
 	for _, b := range blocks {
 		n := Node{Name: b.Name, Source: b.Source}
-		if mdir, ok := moduleDir(dir, b.Source); ok {
+		if mdir, ok := wrapper.ModuleDir(dir, b.Source); ok {
 			if mod, err := tfvars.LoadModule(mdir); err == nil {
 				n.OutputsKnown = true
 				n.Contract = &mod
@@ -160,36 +157,4 @@ func splitModuleRef(ref string) (producer, output string, ok bool) {
 		output = parts[2]
 	}
 	return parts[1], output, true
-}
-
-// moduleDir resolves a module block's source to a local directory: a local path
-// relative to the wrapper, or an existing clone under .atelier/clone/.
-func moduleDir(wrapperDir, source string) (string, bool) {
-	if source == "" {
-		return "", false
-	}
-	if modulesource.IsLocal(source) {
-		p := source
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(wrapperDir, p)
-		}
-		if isDir(p) {
-			return p, true
-		}
-		return "", false
-	}
-	sub := modulesource.ModulePath(source)
-	clone := filepath.Join(wrapperDir, ".atelier", "clone", modulesource.RepoBasename(modulesource.Remote(source)))
-	if sub != "" {
-		clone = filepath.Join(clone, filepath.Clean(sub))
-	}
-	if isDir(clone) {
-		return clone, true
-	}
-	return "", false
-}
-
-func isDir(path string) bool {
-	st, err := os.Stat(path)
-	return err == nil && st.IsDir()
 }
