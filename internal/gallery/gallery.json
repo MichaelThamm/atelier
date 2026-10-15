@@ -4,7 +4,7 @@
     "description": "Airbyte for Kubernetes: an ELT data-integration platform, with the Postgres and Temporal it needs.",
     "module": "https://github.com/canonical/airbyte-k8s-operator",
     "subdir": "terraform/product",
-    "ref": "3c9de2070a317767d957353452373b9ca945aec8",
+    "ref": "c51995725e766423311b9ed6cdcd56f8aa2dd7fd",
     "block": "airbyte",
     "requires": ["model_uuid"]
   },
@@ -13,7 +13,7 @@
     "description": "Authentik for Kubernetes: an identity provider fronting the Identity Platform's login UI, wired to PostgreSQL and Traefik through cross-model offers.",
     "module": "https://github.com/canonical/authentik-server-operator",
     "subdir": "terraform/solution",
-    "ref": "baf398ffa27a8d5ea89cd98609b190040a1060fd",
+    "ref": "572776de8a7c751010e67d4f7fc753926271f703",
     "block": "authentik",
     "requires": ["model", "postgresql_offer_url", "traefik_route_offer_url"]
   },
@@ -22,7 +22,7 @@
     "description": "bingo: a small pastebin app, deployed with the dependency charms it needs.",
     "module": "https://github.com/canonical/bingo",
     "subdir": "terraform/product",
-    "ref": "e17cb8c717c969b2d13e968c526f7a07046eb142",
+    "ref": "eb6df958a6b1541c2861fa0781463648387cceeb",
     "block": "bingo",
     "requires": ["model_uuid"]
   },
@@ -47,7 +47,7 @@
     "description": "Charmed Spark on Kubernetes, sized for a dev controller. The product module creates its own Juju model.",
     "module": "https://github.com/canonical/spark-k8s-bundle",
     "subdir": "terraform/products/charmed-spark",
-    "ref": "7944d930d14d8d6def051deee7f646256621055d",
+    "ref": "29f0663ad36582b010ed9a88f0cffed4fbece208",
     "available_presets": ["spark-single-unit"]
   },
   {
@@ -55,7 +55,7 @@
     "description": "The full Canonical Observability Stack: logging, metrics, and tracing, plus a catalogue and dashboard.",
     "module": "https://github.com/canonical/observability-stack",
     "subdir": "terraform/cos",
-    "ref": "7e5bddaea38c23175124ef7d3a8870ed31a75872",
+    "ref": "341c2198df1f06ff5755f3fd5585a7096d6eba88",
     "presets": ["cos-grafana-single-unit"],
     "available_presets": ["cos-single-unit", "cos-no-ingress"],
     "requires": ["s3_access_key", "s3_secret_key", "s3_endpoint"]
@@ -65,7 +65,7 @@
     "description": "COS Lite: the lightest Canonical Observability Stack — metrics, logs, dashboards, and alerts.",
     "module": "https://github.com/canonical/observability-stack",
     "subdir": "terraform/cos-lite",
-    "ref": "7e5bddaea38c23175124ef7d3a8870ed31a75872",
+    "ref": "341c2198df1f06ff5755f3fd5585a7096d6eba88",
     "available_presets": ["cos-lite-no-ingress"]
   },
   {
@@ -101,7 +101,7 @@
     "description": "HAProxy product deployment protecting one hostname.",
     "module": "https://github.com/canonical/haproxy-operator",
     "subdir": "terraform/product",
-    "ref": "39f59f5607d85b9556fd51ec35e446829de38da7",
+    "ref": "33d96fe5c5c57da62165f6ad9186c1afb4f810f9",
     "block": "haproxy",
     "requires": ["protected_hostnames_configuration=[]"]
   },
@@ -119,7 +119,7 @@
     "description": "Indico for Kubernetes: open-source event organisation, archival, and collaboration.",
     "module": "https://github.com/canonical/indico-operator",
     "subdir": "terraform/product",
-    "ref": "3ac968dcee16490de32a6c26049d3f4218ab0d2f",
+    "ref": "f1bee0e268b17d7c13634da365e6fb6c5fdeac5e",
     "block": "indico"
   },
   {
@@ -127,7 +127,7 @@
     "description": "Charmed Kubeflow on Kubernetes: the ML platform with Istio, Katib, KFP, KServe, MLflow, and Feast.",
     "module": "https://github.com/canonical/charmed-kubeflow-solutions",
     "subdir": "terraform/products/kubeflow",
-    "ref": "764be6f304e962bb292760989f08388858c2b8d3",
+    "ref": "8fa29c8e91baa2c873851525003d8a963fed3efa",
     "block": "kubeflow"
   },
   {
@@ -135,7 +135,7 @@
     "description": "Charmed Kubeflow with the Canonical Identity Platform deployed into its own model.",
     "module": "https://github.com/canonical/charmed-kubeflow-solutions",
     "subdir": "terraform/products/iam",
-    "ref": "764be6f304e962bb292760989f08388858c2b8d3",
+    "ref": "8fa29c8e91baa2c873851525003d8a963fed3efa",
     "block": "kubeflow_iam"
   },
   {
@@ -143,7 +143,7 @@
     "description": "Loki for Kubernetes: a horizontally scalable, multi-tenant log aggregation system.",
     "module": "https://github.com/canonical/loki-operators",
     "subdir": "terraform",
-    "ref": "a46d30a042a96720f4b8f3ffaa1e3fb0149413af",
+    "ref": "828a0049c9f77fa246e4efc5288a5d173cdccbe7",
     "requires": ["channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
   },
   {
@@ -151,7 +151,7 @@
     "description": "Mimir for Kubernetes: horizontally scalable, long-term Prometheus-compatible metrics storage.",
     "module": "https://github.com/canonical/mimir-operators",
     "subdir": "terraform",
-    "ref": "9e9426d4d7f1b1f938f344938a739df99e56079c",
+    "ref": "c10c459cde8470f6e37a5c3ee80dda709ebefdc3",
     "requires": ["channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
   },
   {
@@ -159,7 +159,7 @@
     "description": "NetBox for Kubernetes: infrastructure asset management (DCIM and IPAM), with Redis, S3, and optional SSO.",
     "module": "https://github.com/canonical/netbox-k8s-operator",
     "subdir": "terraform/product",
-    "ref": "078dbfc382d93614b2b1fac208c4249e268c73be",
+    "ref": "87d1173602d36c37d581073fe59618824ef75ecf",
     "block": "netbox",
     "presets": ["netbox-defaults"],
     "requires": ["model_uuid"]
@@ -169,7 +169,7 @@
     "description": "A SAML integrator on Kubernetes, for signing in to a product with an external identity provider.",
     "module": "https://github.com/canonical/saml-integrator-operator",
     "subdir": "terraform/product",
-    "ref": "fcadcae1e84e70437665ad31af54ece1f39f9e9c",
+    "ref": "3af135c9a51b086ea059eb5c30aa348df1480eae",
     "block": "saml_integrator",
     "presets": ["saml-integrator-defaults"],
     "requires": ["model_uuid"]
@@ -179,7 +179,7 @@
     "description": "Apache Superset on Kubernetes: BI with Postgres, Redis, a TLS ingress, and optional SSO.",
     "module": "https://github.com/canonical/superset-k8s-operator",
     "subdir": "terraform/product",
-    "ref": "c162307c026df8daa0ceb9ba6b2848dc9094ed59",
+    "ref": "b77365dbdb5eb0f8239375a54642c37433527497",
     "block": "superset",
     "requires": ["model_uuid"]
   },
@@ -196,7 +196,7 @@
     "description": "Trino on Kubernetes: distributed SQL with a Traefik ingress and optional OAuth. The product owns and creates the Juju model it deploys into.",
     "module": "https://github.com/canonical/trino-k8s-operator",
     "subdir": "terraform/product",
-    "ref": "39883e1bb65f587b7b4e17cb4e8039f9f0aee1bd",
+    "ref": "aadb5eb6e1472338de17afe44d60c42ea8b12e3f",
     "block": "trino",
     "presets": ["trino-defaults"],
     "requires": ["logging_config=all", "model_name", "risk=edge"]
