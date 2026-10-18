@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +70,74 @@ func TestCheckImportTarget_requiresExistingRootWithoutSource(t *testing.T) {
 	if err := checkImportTarget(empty, false); err != nil {
 		t.Errorf("an existing directory is importable without --source: %v", err)
 	}
+}
+
+// --- loadAdoptedWrapperState: no-source import into an existing wrapper ---
+
+// A no-source import must still load the wrapper it finds. Provider preflight
+// steps need the module's variable declarations to fold in a live-derived model
+// UUID; without them the plan targets a new model and replaces everything the
+// import just adopted.
+func TestLoadAdoptedWrapperState_loadsWrapper(t *testing.T) {
+	dir := localWrapper(t, `variable "model_uuid" {
+  type = string
+}`)
+
+	state, cloneDir, modulePath, err := loadAdoptedWrapperState(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("loadAdoptedWrapperState: %v", err)
+	}
+	if state == nil {
+		t.Fatal("expected the wrapper's state, got nil")
+	}
+	if state.ModuleBlockName != "mod" {
+		t.Errorf("module block = %q, want mod", state.ModuleBlockName)
+	}
+	if state.FindVar("model_uuid") == nil {
+		t.Error("module variable declarations were not loaded")
+	}
+	if cloneDir == "" || modulePath != "" {
+		t.Errorf("cloneDir = %q, modulePath = %q, want a local clone and empty module path", cloneDir, modulePath)
+	}
+}
+
+// A plain Terraform root is not a wrapper and must stay untouched: import runs
+// against it as-is, without Atelier writing a main.tf it does not own.
+func TestLoadAdoptedWrapperState_ignoresPlainRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte("# mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	state, cloneDir, modulePath, err := loadAdoptedWrapperState(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("loadAdoptedWrapperState: %v", err)
+	}
+	if state != nil || cloneDir != "" || modulePath != "" {
+		t.Errorf("plain root produced state=%v cloneDir=%q modulePath=%q, want zero values", state, cloneDir, modulePath)
+	}
+}
+
+// localWrapper builds a wrapper whose module is a local directory, so load can
+// exercise the real rehydration path without a network clone.
+func localWrapper(t *testing.T, variables string) string {
+	t.Helper()
+	dir := t.TempDir()
+	mod := filepath.Join(dir, "mod")
+	if err := os.MkdirAll(mod, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mod, "variables.tf"), []byte(variables), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main := "module \"mod\" {\n  source = \"./mod\"\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(main), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".atelier"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // --- sourceConflict: --source/--module/--ref against a wrapper's source ---

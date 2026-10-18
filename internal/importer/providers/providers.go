@@ -9,6 +9,7 @@ package providers
 import (
 	"github.com/MichaelThamm/atelier/internal/importer"
 	"github.com/MichaelThamm/atelier/internal/importer/providers/juju"
+	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
 // Provider is the contract a Terraform provider must implement to be
@@ -25,6 +26,14 @@ type Provider interface {
 	// declared in the target directory (e.g. "juju/juju"). The first
 	// registered provider whose Detect matches is selected for the run.
 	Detect(detected []string) bool
+
+	// QueryDefaults returns query-engine inputs the target already records, so
+	// the user does not have to repeat them on the command line (e.g. the Juju
+	// model UUID, which is usually already in the wrapper or in Terraform
+	// state). Explicit --query-var values are supplied so the provider can
+	// refuse one that contradicts a recorded identity. The caller merges the
+	// returned map under the explicit values.
+	QueryDefaults(explicit map[string]string, wrapperState *wrapper.State, dir string) (map[string]string, error)
 
 	// PreflightSteps run after the live query but before `terraform plan` —
 	// the only window in which a step can still influence the plan (e.g. by

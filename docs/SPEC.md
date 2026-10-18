@@ -348,7 +348,9 @@ Flags:
   (repeatable), e.g. `model_uuid` for the Juju provider. Not a module input in
   general, so not written to `main.tf` — except that when the module declares a
   variable of the same name and leaves it unset, that input is seeded from it,
-  so the same value never has to be given twice.
+  so the same value never has to be given twice. For Juju, the model UUID is
+  supplied automatically when the wrapper or existing state records it; the
+  flag is needed only when neither does.
 - `--var-file <path|name>` — seed values from a `.tfvars` file (repeatable): a
   local path, a walk-up `atelier.presets/` bundle, or a name committed to the
   module repo.
@@ -369,7 +371,14 @@ Variables the module declares without a default must be supplied (via `--var`,
 a `--var-file`, or the wrapper): Terraform cannot plan without them, and
 `terraform query` — which loads the root module — rejects the run first.
 Identity values such as the Juju model UUID are not among them; Atelier seeds or
-derives those itself.
+derives those itself. The query model is read from the wrapper (or, failing
+that, existing state); a wrapper whose model does not appear in state is refused
+before discovery, and state spanning several models needs an explicit
+`--query-var` unless the wrapper names one of them. When the target directory is
+an Atelier wrapper, import rehydrates it even without `--source`, so a value
+derived from the live
+deployment can be written to `main.tf` before the plan rather than planning
+against a new one.
 
 `--source` against a directory that already holds a wrapper imports into that
 wrapper, so `--source`, `--module` and `--ref` describe a module it already

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -249,13 +250,27 @@ func runImport(args []string) error {
 		}
 	}
 
+	ctx, cancel := interruptContext()
+	defer cancel()
+
 	// When --source is given, clone the module and write an Atelier wrapper
 	// so the directory has a proper Terraform root to import into.
 	var wrapperState *wrapper.State
 	var cloneDir, srcModulePath string
 	if sourceArg != "" {
 		var err error
-		dir, wrapperState, cloneDir, srcModulePath, err = setupSourceModule(dir, sourceArg, moduleArg, refArg)
+		dir, wrapperState, cloneDir, srcModulePath, err = setupSourceModule(ctx, dir, sourceArg, moduleArg, refArg)
+		if err != nil {
+			return err
+		}
+	} else if !listOnly {
+		// Without --source the directory is a Terraform root, but it may still
+		// be a wrapper. Rehydrating it is what lets provider preflight steps
+		// fold live-derived identity values (e.g. a Juju model UUID) into
+		// main.tf before the plan, and what lets post-import steps normalise it.
+		// --list only reads the provider schema, so it skips the clone.
+		var err error
+		wrapperState, cloneDir, srcModulePath, err = loadAdoptedWrapperState(ctx, dir)
 		if err != nil {
 			return err
 		}
@@ -278,10 +293,43 @@ func runImport(args []string) error {
 		}
 	}
 
-	// Merge --var flag values into the wrapper state and persist to main.tf.
-	// This ensures the values are visible to terraform plan via main.tf (not
-	// just the temp .auto.tfvars, which can't represent complex types
-	// correctly).
+	// Apply --var overrides before QueryDefaults reads the wrapper: a model
+	// supplied on the command line is just as good a source for the query as
+	// one already in main.tf.
+	if wrapperState != nil {
+		for _, w := range wrapper.ApplyVarOverrides(wrapperState, config) {
+			fmt.Fprintln(os.Stderr, "warning:", w)
+		}
+	}
+
+	// Resolve the provider before writing the wrapper: its QueryDefaults can
+	// supply an identity the target already records (e.g. the Juju model UUID),
+	// and seedFromQueryVars below then sees it.
+	provider := resolveProviderSource(providerArg)
+
+	if provider == "" && !importer.HasProviderConfig(dir) {
+		provider = resolveProviderSource(promptProvider())
+	}
+
+	// Detection considers the directory's own declarations as well as the
+	// PROVIDER argument: that argument is only given when Atelier has to
+	// scaffold provider config, so a directory that already declares its
+	// providers would otherwise wire nothing and import nothing.
+	detected := append([]string{provider}, importer.DeclaredProviderSources(dir)...)
+	providerImpl := providers.For(detected)
+	// --list only reads the provider schema; a model recorded in the target
+	// must not turn listing into a conflict check.
+	if providerImpl != nil && !listOnly {
+		defaults, derr := providerImpl.QueryDefaults(queryConfig, wrapperState, dir)
+		if derr != nil {
+			return derr
+		}
+		applyQueryDefaults(queryConfig, defaults)
+	}
+
+	// Persist the wrapper values this run added or changed. Terraform must see
+	// them through main.tf rather than the temporary .auto.tfvars, which cannot
+	// represent complex types correctly.
 	if wrapperState != nil {
 		// Seed unset module variables from like-named query variables, before
 		// anything runs. `terraform query` loads the root module, so it is the
@@ -292,30 +340,24 @@ func runImport(args []string) error {
 		// This cannot be left to the preflight step: preflight runs after the
 		// query, so it is too late to stop the query failing. Nor does it need
 		// to be, since the value is already in hand.
-		if seeded := seedFromQueryVars(wrapperState, queryConfig); len(seeded) > 0 {
+		seeded := seedFromQueryVars(wrapperState, queryConfig)
+		if len(seeded) > 0 {
 			fmt.Fprintf(os.Stderr, "Using query variable(s) for module input(s): %s\n",
 				strings.Join(seeded, ", "))
 		}
-		for _, w := range wrapper.ApplyVarOverrides(wrapperState, config) {
-			fmt.Fprintln(os.Stderr, "warning:", w)
-		}
+		// An adopted wrapper with nothing to persist stays byte-for-byte as the
+		// user left it; --source mode still writes unconditionally, as before.
+		needsWrite := sourceArg != "" || len(varFiles) > 0 || len(config) > 0 || len(seeded) > 0
 		// Propagate wrapper values back into config so that downstream
 		// consumers (e.g. the provider's import-ID builder, which looks up
 		// model_uuid in opts.Config) can see them, not just --var flags.
 		mergeWrapperStateIntoConfig(wrapperState, config)
-		if err := wrapperState.Write(); err != nil {
-			return fmt.Errorf("write values to main.tf: %w", err)
+		if needsWrite {
+			if err := wrapperState.Write(); err != nil {
+				return fmt.Errorf("write values to main.tf: %w", err)
+			}
 		}
 	}
-
-	provider := resolveProviderSource(providerArg)
-
-	if provider == "" && !importer.HasProviderConfig(dir) {
-		provider = resolveProviderSource(promptProvider())
-	}
-
-	ctx, cancel := interruptContext()
-	defer cancel()
 
 	opts := importer.Options{
 		Dir:             dir,
@@ -339,18 +381,12 @@ func runImport(args []string) error {
 	// is registered per provider (internal/importer/providers): the importer
 	// core stays provider-agnostic, and adding a provider is a new registered
 	// implementation rather than a branch here.
-	//
-	// Detection considers the directory's own declarations as well as the
-	// PROVIDER argument: that argument is only given when Atelier has to
-	// scaffold provider config, so a directory that already declares its
-	// providers would otherwise wire nothing and import nothing.
-	detected := append([]string{provider}, importer.DeclaredProviderSources(dir)...)
-	if p := providers.For(detected); p != nil {
-		opts.PreflightSteps = p.PreflightSteps()
-		opts.PlanChecks = p.PlanChecks()
-		opts.PostImportSteps = p.PostImportSteps()
-		opts.BuildImportID = p.BuildImportID()
-		opts.MatchFallback = p.MatchFallback()
+	if providerImpl != nil {
+		opts.PreflightSteps = providerImpl.PreflightSteps()
+		opts.PlanChecks = providerImpl.PlanChecks()
+		opts.PostImportSteps = providerImpl.PostImportSteps()
+		opts.BuildImportID = providerImpl.BuildImportID()
+		opts.MatchFallback = providerImpl.MatchFallback()
 	} else {
 		// Be explicit rather than letting the run reach the end and report every
 		// resource as "could not build an import ID" with no reason given.
@@ -751,12 +787,33 @@ func describeProviders(sources []string) string {
 	return strings.Join(out, ", ")
 }
 
+// loadAdoptedWrapperState rehydrates the wrapper already in dir when import was
+// not given --source. Without the wrapper's variable declarations, a provider
+// preflight step cannot fold a live-derived identity value (e.g. a Juju model
+// UUID) into main.tf, so the plan would target a different model and propose
+// replacing every imported resource. A plain Terraform root has no wrapper to
+// load and is left untouched.
+func loadAdoptedWrapperState(ctx context.Context, dir string) (*wrapper.State, string, string, error) {
+	if !isWrapperDir(dir) {
+		return nil, "", "", nil
+	}
+	fmt.Fprintln(os.Stderr, "Wrapper detected; loading module variables…")
+	res, err := bootstrap.LoadExisting(ctx, dir, nil)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("load the wrapper to derive module inputs: %w\n"+
+			"The wrapper's module could not be read, so a live-derived value such as\n"+
+			"the Juju model UUID cannot be placed before the plan. Restore access to\n"+
+			"the module source, or set the value yourself with --var and re-run", err)
+	}
+	return res.State, res.CloneDir, res.ModulePath, nil
+}
+
 // setupSourceModule clones a remote module source, writes an Atelier wrapper,
 // and returns the directory containing the wrapper (ready for import) plus the
 // parsed wrapper state (with variable declarations from the module). If the
 // repo has multiple module candidates and --module was not given, it prints the
 // candidates and exits with an error.
-func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.State, string, string, error) {
+func setupSourceModule(ctx context.Context, dir, source, modulePath, ref string) (string, *wrapper.State, string, string, error) {
 	// Check terraform is available.
 	if err := tfexecLocate(); err != nil {
 		return "", nil, "", "", err
@@ -770,8 +827,6 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 			return "", nil, "", "", err
 		}
 		fmt.Fprintln(os.Stderr, "Wrapper already exists; loading module variables…")
-		ctx, cancel := interruptContext()
-		defer cancel()
 		res, err := bootstrap.LoadExisting(ctx, dir, nil)
 		if err != nil {
 			return "", nil, "", "", err
@@ -798,6 +853,18 @@ func setupSourceModule(dir, source, modulePath, ref string) (string, *wrapper.St
 	}
 
 	return dir, res.State, res.CloneDir, res.ModulePath, nil
+}
+
+// applyQueryDefaults adds provider-supplied query inputs under the user's
+// explicit --query-var values. An explicit value always wins: the provider has
+// already refused a contradiction with a recorded identity, so reaching here
+// means the override is the intended one.
+func applyQueryDefaults(explicit, defaults map[string]string) {
+	for k, v := range defaults {
+		if _, ok := explicit[k]; !ok {
+			explicit[k] = v
+		}
+	}
 }
 
 // seedFromQueryVars fills module variables the wrapper leaves unset with
