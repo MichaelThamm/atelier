@@ -286,6 +286,32 @@ func TestDescribeProviders(t *testing.T) {
 	}
 }
 
+// --- applyQueryDefaults ---
+
+func TestApplyQueryDefaults_FillsMissing(t *testing.T) {
+	explicit := map[string]string{}
+	applyQueryDefaults(explicit, map[string]string{"model_uuid": "from-wrapper"})
+	if explicit["model_uuid"] != "from-wrapper" {
+		t.Errorf("model_uuid = %q, want from-wrapper", explicit["model_uuid"])
+	}
+}
+
+func TestApplyQueryDefaults_ExplicitWins(t *testing.T) {
+	explicit := map[string]string{"model_uuid": "from-flag"}
+	applyQueryDefaults(explicit, map[string]string{"model_uuid": "from-wrapper"})
+	if explicit["model_uuid"] != "from-flag" {
+		t.Errorf("model_uuid = %q, want the explicit from-flag", explicit["model_uuid"])
+	}
+}
+
+func TestApplyQueryDefaults_NilDefaults(t *testing.T) {
+	explicit := map[string]string{"model_uuid": "from-flag"}
+	applyQueryDefaults(explicit, nil)
+	if len(explicit) != 1 || explicit["model_uuid"] != "from-flag" {
+		t.Errorf("explicit values changed: %v", explicit)
+	}
+}
+
 // --- seedFromQueryVars ---
 
 func seedState(t *testing.T, vars ...tfvars.Variable) *wrapper.State {

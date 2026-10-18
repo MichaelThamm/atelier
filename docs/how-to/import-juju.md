@@ -58,7 +58,7 @@ atelier import juju \
     --query-var model_uuid=2af837d8-f470-488e-84cb-c588a39732d8
 ```
 
-The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. `--source` also accepts a gallery entry name (`atelier gallery list`); the entry supplies the module and its subdirectory but not a revision, so a gallery-sourced import must pass `--ref`. Pin `--ref` to the revision you deployed: matching happens against the addresses the module declares at that ref, so a moving branch can yield addresses your deployment does not have. `--query-var model_uuid` is required by the Juju provider's query engine — it selects which model to enumerate.
+The `--source`, `--module`, and `--ref` flags tell Atelier which upstream module to clone. `--source` also accepts a gallery entry name (`atelier gallery list`); the entry supplies the module and its subdirectory but not a revision, so a gallery-sourced import must pass `--ref`. Pin `--ref` to the revision you deployed: matching happens against the addresses the module declares at that ref, so a moving branch can yield addresses your deployment does not have. `--query-var model_uuid` selects which model the query engine enumerates. It is optional when the wrapper already records the model (as `model.uuid` or `model_uuid`) or when state from a partial import still holds it; pass it for a fresh wrapper, where nothing else identifies the model.
 
 When the directory already holds a wrapper, the module comes from that wrapper rather than from these flags — so a `--module` or `--ref` that contradicts it is refused instead of ignored. Flags you leave out are not a contradiction, so the recovery command above also works with only `--source` and `--query-var`.
 
@@ -77,7 +77,7 @@ Atelier cannot invent values for variables the module requires:
 
   Supply them with `--var`, a `--var-file`, or by editing the wrapper.
 
-- **The model UUID is not one of them.** You never need to pass it twice. If the module declares a variable with the same name as one of your `--query-var` values — as `loki-operators` does with its required `model_uuid` — Atelier seeds the module input from the query variable before anything runs, and says so:
+- **The model UUID is not one of them.** You never need to pass it twice. When the wrapper or existing state already records the model, Atelier uses it for the query as well, so no query variable is needed. If the module declares a variable with the same name as one of your `--query-var` values — as `loki-operators` does with its required `model_uuid` — Atelier seeds the module input from the query variable before anything runs, and says so:
 
   ```
   Using query variable(s) for module input(s): model_uuid
