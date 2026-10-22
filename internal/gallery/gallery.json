@@ -115,6 +115,14 @@
     "requires": ["model_uuid"]
   },
   {
+    "name": "immich",
+    "description": "Immich for Kubernetes: self-hosted photo and video management, with its PostgreSQL and Redis backends.",
+    "module": "https://github.com/sinapah/immich-k8s-operator",
+    "subdir": "terraform",
+    "ref": "a6c0c8bd4147f3d0573b6bd12104bfffefd8800b",
+    "block": "immich"
+  },
+  {
     "name": "indico",
     "description": "Indico for Kubernetes: open-source event organisation, archival, and collaboration.",
     "module": "https://github.com/canonical/indico-operator",
