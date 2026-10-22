@@ -46,6 +46,7 @@ var jujuModels = map[string][]string{
 	"github-runner":   {uuidPin("model")},
 	"haproxy-product": {uuidPin("model_uuid")},
 	"hrms":            {uuidPin("model_uuid")},
+	"immich":          {modelObjectPin},
 	"kubeflow":        {`create_model=false`, uuidPin("model_uuid")},
 	"kubeflow-iam":    {`create_model=false`, uuidPin("model_uuid"), uuidPin("iam_core_model_uuid")},
 	"loki-operators":  {uuidPin("model_uuid")},
