@@ -65,6 +65,10 @@ func (m *Model) renderPlanFailure() string {
 	}
 	logPath := filepath.Join(tfexec.LogDirPath(m.WrapperDir), tfexec.StderrLogName)
 	b.WriteString(ansi.Wordwrap("Full output: "+logPath, contentW, " "))
+	// The wrapper is a normal Terraform project, so name the fallback rather
+	// than leaving a failed plan as a dead end (ADR-0063).
+	b.WriteString("\n\n")
+	b.WriteString(ansi.Wordwrap("Or run it yourself: "+tfexec.ManualRunHint(m.WrapperDir, "plan"), contentW, " "))
 
 	header := m.renderHeader()
 	summary := stylePlanHeaderIndent.Render(styleStatusError.Render("✗ Plan failed"))

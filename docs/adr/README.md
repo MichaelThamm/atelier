@@ -69,6 +69,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0060 | [Read the whole module contract — outputs are first-class](0060-module-contract-outputs.md) | Accepted |
 | 0061 | [Import derives the Juju model from the target, not the command line](0061-import-derives-the-juju-model.md) | Accepted |
 | 0062 | [`atelier apply` runs `init -upgrade` only when the wrapper changed](0062-apply-upgrades-only-when-changed.md) | Accepted |
+| 0063 | [Per-phase Terraform budgets and naming the manual fallback](0063-terraform-budgets-and-manual-fallback.md) | Accepted |
 
 ## Conventions
 

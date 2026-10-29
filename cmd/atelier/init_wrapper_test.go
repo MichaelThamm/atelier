@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,27 @@ import (
 	"github.com/MichaelThamm/atelier/internal/tfexec"
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
+
+// TestPrintManualRunHint pins the fallback a failed apply names: the wrapper's
+// own directory and the command that runs it without Atelier (ADR-0063).
+func TestPrintManualRunHint(t *testing.T) {
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	printManualRunHint("/tmp/w", "apply")
+	_ = w.Close()
+	os.Stderr = old
+
+	got, _ := io.ReadAll(r)
+	for _, want := range []string{"/tmp/w", "terraform init && terraform apply"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("hint = %q; want it to contain %q", got, want)
+		}
+	}
+}
 
 func TestWrapperDeclarationsChanged(t *testing.T) {
 	blocks := func(pairs ...string) []wrapper.ModuleBlockInfo {

@@ -22,7 +22,14 @@ func TestPlanFailure_opensFailureViewWithLogs(t *testing.T) {
 		t.Fatalf("planState = %v; want planFailed", m.planState)
 	}
 	plain := stripANSI(m.View())
-	for _, want := range []string{"Plan failed", "Error: boom", "/tmp/wrap/.atelier/logs/tf-stderr.log"} {
+	for _, want := range []string{
+		"Plan failed",
+		"Error: boom",
+		"/tmp/wrap/.atelier/logs/tf-stderr.log",
+		// The view names the manual fallback so a constrained host is not left
+		// unaware it can run the wrapper itself (ADR-0063).
+		"terraform init && terraform plan",
+	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("failure view missing %q; got:\n%s", want, plain)
 		}

@@ -95,9 +95,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case validateErrorMsg:
-		// Validation errors are non-fatal; just clear output so the status
-		// bar stops showing stale results.
+		// The validate could not run — most often the init it depends on. Clear
+		// the stale output and say so: silently dropping it left a constrained
+		// host with no feedback at all. See ADR-0063.
 		m.validateOutput = nil
+		detail, _, _ := strings.Cut(msg.err.Error(), "\n")
+		m.statusLvl = statusError
+		m.status = "validate failed: " + detail
+		m.statusAt = time.Now()
 		return m, nil
 	case refSwitchResultMsg:
 		m.applyRefSwitch(msg.result)
