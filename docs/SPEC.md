@@ -757,6 +757,14 @@ compose into that wrapper — same clone, candidate discovery, and
 already declares decides whether its block is updated or a new one appended:
 see §6.9.1.
 
+Initialisation is a plain `terraform init` unless the compose widened the root's
+provider requirements — it appended a module, or re-pointed an existing block's
+source or ref — when it runs `terraform init -upgrade`. A re-deploy at the same
+ref therefore converges with a plain init, without re-resolving versions; a plain
+init Terraform refuses (a lock file that no longer satisfies the configuration)
+is retried with `-upgrade`. See
+[ADR-0062](adr/0062-apply-upgrades-only-when-changed.md).
+
 ### 6.9.1 `atelier apply` converges on the block it finds
 
 A compose identifies the block to write **by module, not by ref**. A block *is*
