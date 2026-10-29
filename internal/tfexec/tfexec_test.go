@@ -63,6 +63,14 @@ func TestLogDirPath(t *testing.T) {
 	}
 }
 
+func TestManualRunHint(t *testing.T) {
+	got := ManualRunHint("/tmp/w", "plan")
+	want := "cd /tmp/w && terraform init && terraform plan"
+	if got != want {
+		t.Errorf("ManualRunHint(/tmp/w, plan) = %q; want %q", got, want)
+	}
+}
+
 // TestConfigureLogging_appendsAcrossSessions guards the durable-log contract:
 // a later Atelier session must not overwrite the start of an earlier one's
 // logs (init writes before the planner seeks to the end).

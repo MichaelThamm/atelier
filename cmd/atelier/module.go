@@ -1186,13 +1186,25 @@ func applyWrapper(dir string, autoApprove, upgrade bool) error {
 	}
 
 	if err := initWrapper(ctx, tf, upgrade); err != nil {
+		printManualRunHint(dir, "apply")
 		return terraformFailure(fmt.Errorf("terraform init: %w", err))
 	}
 
 	if autoApprove {
 		fmt.Fprintln(os.Stderr, "no terminal on stdin: applying without the plan prompt.")
 	}
-	return terraformFailure(tf.ApplyDirect(ctx, autoApprove))
+	if err := tf.ApplyDirect(ctx, autoApprove); err != nil {
+		printManualRunHint(dir, "apply")
+		return terraformFailure(err)
+	}
+	return nil
+}
+
+// printManualRunHint tells the user how to finish by hand when Atelier's own
+// run failed. The wrapper needs no Atelier (ADR-0001), so naming it is the
+// fallback rather than a dead end (ADR-0063).
+func printManualRunHint(dir, verb string) {
+	fmt.Fprintf(os.Stderr, "The wrapper at %s runs without Atelier:\n  %s\n", dir, tfexec.ManualRunHint(dir, verb))
 }
 
 // initWrapper initialises the wrapper before an apply, choosing between a plain

@@ -475,15 +475,73 @@ func TestValidate_withoutValidator_noop(t *testing.T) {
 	}
 }
 
-func TestValidate_errorClearsOutput(t *testing.T) {
+func TestValidate_errorClearsOutputAndSurfaces(t *testing.T) {
 	m := New(sampleState(t), "test")
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.validateOutput = &tfjson.ValidateOutput{Valid: true}
 
-	out, _ := m.Update(validateErrorMsg{err: errors.New("boom")})
+	out, _ := m.Update(validateErrorMsg{err: errors.New("boom\nsecond line")})
 	mm := out.(*Model)
 	if mm.validateOutput != nil {
 		t.Error("validateOutput should be nil after error")
+	}
+	// A validate that could not run must not be silent (ADR-0063): the status
+	// bar names the failure instead of dropping it.
+	if mm.statusLvl != statusError {
+		t.Errorf("statusLvl = %v; want statusError", mm.statusLvl)
+	}
+	if !strings.Contains(mm.status, "validate failed") || !strings.Contains(mm.status, "boom") {
+		t.Errorf("status = %q; want it to name the validate failure", mm.status)
+	}
+	if strings.Contains(mm.status, "second line") {
+		t.Errorf("status = %q; want only the first line", mm.status)
+	}
+}
+
+// TestValidate_initialisesOnItsOwnBudget guards ADR-0063: validate runs the
+// planner's init first, so a cold init is not bounded by validate's short
+// budget, and only then calls Validate.
+func TestValidate_initialisesOnItsOwnBudget(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	planner := &stubPlanner{}
+	validator := &stubValidator{output: &tfjson.ValidateOutput{Valid: true}}
+	m.Planner = planner
+	m.Validator = validator
+
+	msg := m.startValidate()()
+	if !planner.initCalled {
+		t.Error("startValidate must run the planner's init before validate")
+	}
+	if !validator.called {
+		t.Error("Validate should have run after a successful init")
+	}
+	if _, ok := msg.(validateResultMsg); !ok {
+		t.Fatalf("msg = %T; want validateResultMsg", msg)
+	}
+}
+
+// TestValidate_initFailureIsSurfaced guards ADR-0063: when the init validate
+// depends on fails, the failure reaches the UI and validate is not attempted
+// against an uninitialised wrapper.
+func TestValidate_initFailureIsSurfaced(t *testing.T) {
+	m := New(sampleState(t), "test")
+	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	planner := &stubPlanner{initErr: errors.New("init exploded")}
+	validator := &stubValidator{output: &tfjson.ValidateOutput{Valid: true}}
+	m.Planner = planner
+	m.Validator = validator
+
+	msg := m.startValidate()()
+	ve, ok := msg.(validateErrorMsg)
+	if !ok {
+		t.Fatalf("msg = %T; want validateErrorMsg", msg)
+	}
+	if validator.called {
+		t.Error("validate must not run when init failed")
+	}
+	if !strings.Contains(ve.err.Error(), "init exploded") {
+		t.Errorf("error = %v; want it to carry the init failure", ve.err)
 	}
 }
 

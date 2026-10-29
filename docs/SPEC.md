@@ -859,7 +859,9 @@ Rules:
   even though Atelier cannot.
 - The wrapper is a normal Atelier wrapper: re-open it with `atelier`, or run
   `terraform` in it directly (SPEC §4). `atelier apply` is a convenience, not a
-  new artifact shape.
+  new artifact shape. On a Terraform failure (`init` or `apply`), the wrapper
+  path and the command to run it by hand are printed, so a failed deploy names
+  its own fallback ([ADR-0063](adr/0063-terraform-budgets-and-manual-fallback.md)).
 
 ### 6.10 `atelier wrappers` — read-only wrapper discovery
 
@@ -1065,7 +1067,9 @@ elements (panel borders, summary lines) subtract from this budget.
 
 - When a plan or validation emits errors, the first line of the error is shown
   in the footer. Terraform's full output for a plan is in `.atelier/logs/`
-  (§7.7).
+  (§7.7). A validate that could not run at all — most often the `init` it
+  depends on — is surfaced too (`validate failed: <first line>`), never
+  silently dropped ([ADR-0063](adr/0063-terraform-budgets-and-manual-fallback.md)).
 - On the first plan of each session, Atelier runs `terraform init` to
   ensure the module cache matches the wrapper's current source. After a ref
   switch, it uses `terraform init -upgrade` instead.
@@ -1150,9 +1154,11 @@ Plan: 12 to add, 0 to change, 0 to destroy.  |  State: 54 resource(s) across 8 m
   prompt a second time. The flags come before the plan file: Terraform accepts
   one positional argument and treats a trailing flag as a second. A failure is
   already on screen; the status bar says only that it failed.
-- A failed `P` opens a failure view showing terraform's first error line and the
-  path to the full output (`.atelier/logs/tf-stderr.log`); `Esc` returns to the
-  editor and `P` re-plans. See §7.7.
+- A failed `P` opens a failure view showing terraform's first error line, the
+  path to the full output (`.atelier/logs/tf-stderr.log`), and the manual
+  fallback (`cd <wrapper> && terraform init && terraform plan`); `Esc` returns to
+  the editor and `P` re-plans. See §7.7 and
+  [ADR-0063](adr/0063-terraform-budgets-and-manual-fallback.md).
 - `Esc` returns to the editor.
 - Inline per-attribute diffs *inside* tree nodes are not yet implemented; see
   [ADR-0011](adr/0011-plan-output-tree.md).
@@ -1413,8 +1419,10 @@ that succeeded, so a failed one retries as an `-upgrade`.
 | `terraform` binary missing or version too old    | CLI-level error before TUI launch.                                                              |
 | `git clone` fails (network / not found)          | CLI-level error before TUI launch.                                                              |
 | `terraform init` fails at bootstrap              | CLI-level error before TUI launch.                                                              |
+| `terraform init` is slow (cold cache)            | It runs on its own 15-minute budget, never validate's 30 seconds (ADR-0063).                     |
 | `terraform validate` errors in session           | Surface the first diagnostic in the status pane; non-blocking.                                   |
-| `terraform plan` fails in session                | Open the failure view with the first error line and the log path; `Esc` returns to the editor to fix and re-plan.               |
+| `terraform validate` cannot run (its init fails) | Surface `validate failed: <first line>` in the status pane (ADR-0063).                           |
+| `terraform plan` fails in session                | Open the failure view with the first error line, the log path, and the manual fallback; `Esc` returns to re-plan. |
 | `git ls-remote` fails when resolving ref         | Show the literal ref but hide the resolved SHA; warn in status pane; user can retry.            |
 
 ## 14. Implementation notes

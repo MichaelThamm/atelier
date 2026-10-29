@@ -67,6 +67,14 @@ func LogDirPath(workdir string) string {
 	return dir
 }
 
+// ManualRunHint is the shell command that runs a wrapper's Terraform by hand.
+// The wrapper is an ordinary Terraform project that needs no Atelier (ADR-0001),
+// so a failure surface can always offer it as the fallback when Atelier's own
+// run did not complete.
+func ManualRunHint(workdir, verb string) string {
+	return fmt.Sprintf("cd %s && terraform init && terraform %s", workdir, verb)
+}
+
 // Locate returns the path to the terraform (or tofu) binary on $PATH, or an
 // actionable error message if it isn't installed.
 func Locate() (string, error) {
