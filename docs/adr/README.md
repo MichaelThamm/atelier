@@ -68,6 +68,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0059 | [Gallery candidate discovery is an on-demand tool](0059-gallery-candidate-discovery.md) | Accepted |
 | 0060 | [Read the whole module contract — outputs are first-class](0060-module-contract-outputs.md) | Accepted |
 | 0061 | [Import derives the Juju model from the target, not the command line](0061-import-derives-the-juju-model.md) | Accepted |
+| 0062 | [`atelier apply` runs `init -upgrade` only when the wrapper changed](0062-apply-upgrades-only-when-changed.md) | Accepted |
 
 ## Conventions
 

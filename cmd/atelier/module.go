@@ -1027,6 +1027,12 @@ func runModuleApply(args []string) error {
 	if target := existingWrapperTarget(cwd, opts.Dir); target != "" {
 		// prompt=false: --yes is rejected above, so there is no escape hatch
 		// from a preflight question here — Terraform's plan prompt is the gate.
+		//
+		// Read the blocks before and after the compose to decide whether the
+		// root's provider requirements changed (ADR-0062): only then does the
+		// deploy need `init -upgrade`. A read error leaves `before` empty, which
+		// reads as "changed" and upgrades — the safe default.
+		before, _ := wrapper.ReadModuleBlocks(target)
 		state, err := composeModuleBlock(cwd, target, opts, composeApply, false)
 		if err != nil || state == nil {
 			return err
@@ -1035,7 +1041,8 @@ func runModuleApply(args []string) error {
 			"pass --var NAME=VALUE (or --var-file) and re-run"); err != nil {
 			return err
 		}
-		return applyWrapper(target, !interactive)
+		after, _ := wrapper.ReadModuleBlocks(target)
+		return applyWrapper(target, !interactive, wrapperDeclarationsChanged(before, after))
 	}
 
 	ctx, cancel := interruptContext()
@@ -1054,7 +1061,31 @@ func runModuleApply(args []string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Wrapper written to %s\n", target)
-	return applyWrapper(target, !interactive)
+	// A fresh wrapper has no lock file to reconcile, so a plain init selects the
+	// newest allowed versions without `-upgrade` (ADR-0062).
+	return applyWrapper(target, !interactive, false)
+}
+
+// wrapperDeclarationsChanged reports whether a compose widened the root's
+// provider requirements: a module was appended, or an existing block's source
+// — repository, sub-path, or ref — was re-pointed. Terraform must re-select
+// provider versions in both cases, so the deploy runs `init -upgrade`. A
+// values-only change (--var) or a re-deploy at the same ref leaves every source
+// unchanged, so a plain init converges without re-resolving. See ADR-0062.
+func wrapperDeclarationsChanged(before, after []wrapper.ModuleBlockInfo) bool {
+	if len(before) != len(after) {
+		return true
+	}
+	prev := make(map[string]string, len(before))
+	for _, b := range before {
+		prev[b.Name] = b.Source
+	}
+	for _, b := range after {
+		if src, ok := prev[b.Name]; !ok || src != b.Source {
+			return true
+		}
+	}
+	return false
 }
 
 // requireNoUnsetRequiredVars reports the variables `apply` cannot deploy
@@ -1132,18 +1163,18 @@ func unsetRequiredVars(state *wrapper.State) []string {
 	return missing
 }
 
-// applyWrapper runs `terraform init -upgrade` then `terraform apply` in dir.
-// When there is a terminal, apply is Terraform's interactive prompt
-// (autoApprove=false); otherwise it is auto-approved (autoApprove=true) so a
-// pipe or CI run does not hang on a question nobody can answer. See ADR-0034.
+// applyWrapper runs `terraform init` and then `terraform apply` in dir. When
+// there is a terminal, apply is Terraform's interactive prompt (autoApprove =
+// false); otherwise it is auto-approved (autoApprove = true) so a pipe or CI run
+// does not hang on a question nobody can answer. See ADR-0034.
 //
-// -upgrade is required, not incidental. Composing a module into an already
-// initialised root widens the root's provider constraints, and a plain init
-// then refuses the lock file's selection — "must use terraform init -upgrade to
-// allow selection of new versions" — which is the difference between a composed
-// wrapper deploying and not. It is the same condition the TUI's ResetInit marks
-// after a ref switch rewrites a module source.
-func applyWrapper(dir string, autoApprove bool) error {
+// upgrade selects `init -upgrade` over a plain `init`. It is true only when the
+// compose widened the root's provider requirements — a module was appended, or
+// an existing block's source or ref was re-pointed — because only then must
+// Terraform re-select versions. A re-deploy at the same ref converges with a
+// plain init, which is a fast no-op and, on a bandwidth-constrained host, does
+// not re-fetch. See ADR-0062.
+func applyWrapper(dir string, autoApprove, upgrade bool) error {
 	ctx, cancel := interruptContext()
 	defer cancel()
 
@@ -1154,21 +1185,7 @@ func applyWrapper(dir string, autoApprove bool) error {
 		return err
 	}
 
-	// init is non-interactive; stream Terraform's own progress (module and
-	// provider fetches) rather than animating a spinner alongside it. The two
-	// would race on the same terminal: the spinner writes carriage-return frames
-	// with no newline while Terraform writes newline-terminated lines, so a frame
-	// and Terraform's output land on the same line. Both actions are mirrored
-	// into .atelier/logs/ so a failed apply leaves evidence to read afterwards.
-	fmt.Fprintln(os.Stderr, "Running terraform init…")
-	action := tf.BeginAction("init -upgrade")
-	tf.SetStdout(action.Stdout(os.Stdout))
-	tf.SetStderr(action.Stderr(os.Stderr))
-	err = tf.InitUpgrade(ctx)
-	tf.SetStdout(nil)
-	tf.SetStderr(nil)
-	action.Close()
-	if err != nil {
+	if err := initWrapper(ctx, tf, upgrade); err != nil {
 		return terraformFailure(fmt.Errorf("terraform init: %w", err))
 	}
 
@@ -1176,6 +1193,49 @@ func applyWrapper(dir string, autoApprove bool) error {
 		fmt.Fprintln(os.Stderr, "no terminal on stdin: applying without the plan prompt.")
 	}
 	return terraformFailure(tf.ApplyDirect(ctx, autoApprove))
+}
+
+// initWrapper initialises the wrapper before an apply, choosing between a plain
+// init and `init -upgrade`.
+//
+// A plain init is enough when the compose changed nothing structural: Terraform
+// re-fetches a module whose source string changed, and a re-deploy at the same
+// ref is a no-op, so `-upgrade` would only re-resolve versions the wrapper
+// already selected. But a plain init that Terraform refuses — the lock file no
+// longer satisfies the configuration, which is what a widened provider
+// constraint produces — is retried with `-upgrade`, so an inconsistency is still
+// reconciled without the caller having to predict it.
+func initWrapper(ctx context.Context, tf *tfexec.Terraform, upgrade bool) error {
+	err := runInit(ctx, tf, upgrade)
+	if err == nil || upgrade {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "terraform init needs to re-select providers; retrying with -upgrade.")
+	return runInit(ctx, tf, true)
+}
+
+// runInit runs one init, streaming Terraform's own progress (module and provider
+// fetches) to the terminal and mirroring it into .atelier/logs/ so a failed
+// apply leaves evidence to read afterwards. Streaming avoids racing a spinner
+// against Terraform's own newline-terminated output on the same terminal.
+func runInit(ctx context.Context, tf *tfexec.Terraform, upgrade bool) error {
+	command := "init"
+	if upgrade {
+		command = "init -upgrade"
+	}
+	fmt.Fprintf(os.Stderr, "Running terraform %s…\n", command)
+	action := tf.BeginAction(command)
+	tf.SetStdout(action.Stdout(os.Stdout))
+	tf.SetStderr(action.Stderr(os.Stderr))
+	defer func() {
+		tf.SetStdout(nil)
+		tf.SetStderr(nil)
+		action.Close()
+	}()
+	if upgrade {
+		return tf.InitUpgrade(ctx)
+	}
+	return tf.Init(ctx)
 }
 
 // bootstrapFreshWrapper clones a remote module source and writes a wrapper
