@@ -39,12 +39,14 @@ func TestParseModuleAddArgs_VarFile(t *testing.T) {
 	}
 }
 
-func TestParseModuleAddArgs_VarFileCommaList(t *testing.T) {
+// --var-file takes one bundle per flag. A comma is part of the value, not a
+// separator: several bundles are passed by repeating the flag.
+func TestParseModuleAddArgs_VarFileNotCommaSplit(t *testing.T) {
 	opts, err := parseModuleArgs([]string{"url", "--var-file", "a,b", "--var-file=c"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"a", "b", "c"}; !slices.Equal(opts.VarFiles, want) {
+	if want := []string{"a,b", "c"}; !slices.Equal(opts.VarFiles, want) {
 		t.Errorf("VarFiles = %v, want %v", opts.VarFiles, want)
 	}
 }
@@ -459,4 +461,76 @@ func TestRequireNoUnsetRequiredVars(t *testing.T) {
 	if err := requireNoUnsetRequiredVars(state, "/tmp/w", "fix it"); err != nil {
 		t.Errorf("all required variables set: %v", err)
 	}
+}
+
+// --- runModuleList: --no-headers and the empty state ---
+
+// The listing's header row is brace-hideable so the table pipes into other
+// tools without a leading text line.
+func TestRunModuleList_noHeaders(t *testing.T) {
+	withWrapperDir(t, `module "demo" { source = "git::https://example.com/demo.git?ref=v1" }`)
+	out, err := captureStdout(t, func() error { return runModuleList([]string{"--no-headers"}) })
+	if err != nil {
+		t.Fatalf("runModuleList: %v", err)
+	}
+	if strings.Contains(out, "NAME") {
+		t.Errorf("--no-headers still printed the header:\n%s", out)
+	}
+	if !strings.Contains(out, "demo") {
+		t.Errorf("--no-headers dropped the row:\n%s", out)
+	}
+}
+
+// The no-wrapper and no-modules messages are diagnostics, not data: they go to
+// stderr and the command still exits 0, so a script can separate them from the
+// table.
+func TestRunModuleList_emptyGoesToStderr(t *testing.T) {
+	t.Run("not a wrapper", func(t *testing.T) {
+		withWrapperDir(t, "")
+		out, err := captureStdout(t, func() error { return runModuleList(nil) })
+		if err != nil {
+			t.Fatalf("runModuleList: %v", err)
+		}
+		if out != "" {
+			t.Errorf("empty state wrote to stdout: %q", out)
+		}
+		msg, _ := captureStderr(t, func() error { return runModuleList(nil) })
+		if !strings.Contains(msg, "Not a wrapper directory") {
+			t.Errorf("message not on stderr: %q", msg)
+		}
+	})
+	t.Run("no modules", func(t *testing.T) {
+		withWrapperDir(t, "# a wrapper with no modules\n")
+		out, err := captureStdout(t, func() error { return runModuleList(nil) })
+		if err != nil {
+			t.Fatalf("runModuleList: %v", err)
+		}
+		if out != "" {
+			t.Errorf("empty state wrote to stdout: %q", out)
+		}
+		msg, _ := captureStderr(t, func() error { return runModuleList(nil) })
+		if !strings.Contains(msg, "No modules found") {
+			t.Errorf("message not on stderr: %q", msg)
+		}
+	})
+}
+
+// withWrapperDir chdirs into a temp directory holding main.tf content (empty
+// means no main.tf at all) for the duration of the test.
+func withWrapperDir(t *testing.T, main string) {
+	t.Helper()
+	dir := t.TempDir()
+	if main != "" {
+		if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(main), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(old) })
 }

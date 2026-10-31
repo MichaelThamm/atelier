@@ -183,9 +183,10 @@ Re-open an existing wrapper (run with no arguments in the wrapper dir):
 atelier
 ```
 
-> **Note:** run `atelier --help` for the full command list, including `atelier
-> add|rm|ls`, `atelier wrappers`, and `atelier purge`. Any command also answers
-> `atelier <command> --help`.
+> **Note:** run `atelier help` (or `atelier --help`) for the full command list,
+> including `atelier add|rm|ls`, `atelier wrappers`, and `atelier purge`. Run
+> `atelier help <command>` or `atelier <command> --help` for one command's own
+> options.
 
 ## Presets
 
@@ -232,13 +233,15 @@ saves the current non-default configuration as a new
 
 `atelier add` accepts `--var-file`, which seeds a wrapper from one or
 more bundles. Redirecting stdin (`< /dev/null`) skips the TUI, so it runs
-unattended in scripts and CI. Comma-separate several bundles, or repeat the
-flag; later files win.
+unattended in scripts and CI. Repeat the flag for several bundles; later files
+win.
 
 ```bash
 atelier add https://github.com/canonical/observability-stack.git \
   --module terraform/cos \
-  --var-file single-unit,no-ingress,s3-seaweedfs < /dev/null
+  --var-file single-unit \
+  --var-file no-ingress \
+  --var-file s3-seaweedfs < /dev/null
 cd cos
 ```
 

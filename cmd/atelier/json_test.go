@@ -497,3 +497,23 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 	}
 	return buf.String(), fnErr
 }
+
+// captureStderr collects what fn writes to os.Stderr, so a test can tell a
+// message on the diagnostic stream from one on stdout.
+func captureStderr(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	fnErr := fn()
+	os.Stderr = saved
+	w.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String(), fnErr
+}

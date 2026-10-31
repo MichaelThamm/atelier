@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -16,6 +17,25 @@ func TestRunPurge_nothingToPurge(t *testing.T) {
 	err := runPurge([]string{"--force"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// An empty purge is not an error: the message goes to stderr, exit code 0.
+func TestRunPurge_nothingToPurgeGoesToStderr(t *testing.T) {
+	dir := t.TempDir()
+	out, err := captureStdout(t, func() error { return runPurge([]string{dir, "--force"}) })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out != "" {
+		t.Errorf("nothing-to-purge wrote to stdout: %q", out)
+	}
+	msg, err := captureStderr(t, func() error { return runPurge([]string{dir, "--force"}) })
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(msg, "nothing to purge") {
+		t.Errorf("nothing-to-purge message not on stderr: %q", msg)
 	}
 }
 
@@ -52,6 +72,30 @@ func TestRunPurge_partialRemoval(t *testing.T) {
 	p := filepath.Join(dir, ".clone")
 	if _, err := os.Stat(p); !os.IsNotExist(err) {
 		t.Errorf("expected %s to be removed", p)
+	}
+}
+
+// A removal failure is reported with the standard's "cannot" wording.
+func TestRunPurge_reportCannotRemove(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-based failure does not apply to root")
+	}
+	dir := t.TempDir()
+	sub := filepath.Join(dir, ".atelier")
+	os.MkdirAll(sub, 0o755)
+	os.WriteFile(filepath.Join(sub, "x"), []byte("x"), 0o644)
+	// A non-writable directory keeps its contents from being removed.
+	if err := os.Chmod(sub, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(sub, 0o755) })
+
+	err := runPurge([]string{dir, "--force"})
+	if err == nil {
+		t.Fatal("expected a removal error")
+	}
+	if !strings.Contains(err.Error(), "cannot remove") {
+		t.Errorf("error should use 'cannot remove'; got %v", err)
 	}
 }
 

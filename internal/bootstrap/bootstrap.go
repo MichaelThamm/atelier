@@ -684,7 +684,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		// no ref list to offer in this case.
 		return loadDegraded(wrapperDir, prev, &RefUnresolved{
 			Ref:     prev.LiteralRef,
-			Reason:  "couldn't reach the module remote: " + err.Error(),
+			Reason:  "cannot reach the module remote: " + err.Error(),
 			Offline: true,
 		})
 	}

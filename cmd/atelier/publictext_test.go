@@ -13,7 +13,13 @@ func TestPublicFacingUsage_hasNoInternalReferences(t *testing.T) {
 	// Every help string a user can reach, not just the top-level one.
 	help := map[string]string{
 		"usage":         usage,
+		"addUsage":      addUsage,
+		"rmUsage":       rmUsage,
+		"lsUsage":       lsUsage,
+		"applyUsage":    applyUsage,
 		"wrappersUsage": wrappersUsage,
+		"purgeUsage":    purgeUsage,
+		"importUsage":   importUsage,
 		"galleryUsage":  galleryUsage,
 		"presetsUsage":  presetsUsage,
 	}

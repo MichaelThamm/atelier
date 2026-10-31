@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -90,5 +91,42 @@ func TestRunWrappers_tooManyArgs(t *testing.T) {
 func TestRunWrappers_noWrappers(t *testing.T) {
 	if err := runWrappers([]string{t.TempDir()}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// The listing's header row is brace-hideable so the table pipes into other
+// tools without a leading text line.
+func TestRunWrappers_noHeaders(t *testing.T) {
+	parent := t.TempDir()
+	mustMkdirAll(t, filepath.Join(parent, "cos-lite"))
+	mustWriteFile(t, filepath.Join(parent, "cos-lite", "main.tf"),
+		`module "cos_lite" { source = "git::https://example.com/cos-lite.git" }`)
+
+	out, err := captureStdout(t, func() error { return runWrappers([]string{parent, "--no-headers"}) })
+	if err != nil {
+		t.Fatalf("runWrappers: %v", err)
+	}
+	if strings.Contains(out, "WRAPPER") {
+		t.Errorf("--no-headers still printed the header:\n%s", out)
+	}
+	if !strings.Contains(out, "cos-lite") {
+		t.Errorf("--no-headers dropped the row:\n%s", out)
+	}
+}
+
+// An empty result is not an error: the message goes to stderr and the exit code
+// stays 0, so a script can tell "none found" from a failure.
+func TestRunWrappers_emptyGoesToStderr(t *testing.T) {
+	dir := t.TempDir()
+	out, err := captureStdout(t, func() error { return runWrappers([]string{dir}) })
+	if err != nil {
+		t.Fatalf("runWrappers: %v", err)
+	}
+	if out != "" {
+		t.Errorf("empty result wrote to stdout: %q", out)
+	}
+	msg, _ := captureStderr(t, func() error { return runWrappers([]string{dir}) })
+	if !strings.Contains(msg, "No wrappers found") {
+		t.Errorf("empty result did not message stderr: %q", msg)
 	}
 }

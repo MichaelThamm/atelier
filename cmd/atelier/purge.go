@@ -7,19 +7,32 @@ import (
 	"strings"
 )
 
+const purgeUsage = `Usage:
+  atelier purge [PATH] [--force]
+
+Remove .atelier/ and .clone/ from PATH (default: the current directory). The
+wrapper files themselves are left in place.
+
+Options:
+  --force    Remove without asking for confirmation.
+
+Examples:
+  atelier purge
+`
+
 // purgeDirs are the directories removed by `atelier purge`.
 var purgeDirs = []string{".atelier", ".clone"}
 
 // runPurge implements `atelier purge [PATH] [--force]`.
 func runPurge(args []string) error {
-	if helpRequested(args, usage) {
+	if helpRequested(args, purgeUsage) {
 		return nil
 	}
 	var force bool
 	var target string
 
 	for _, a := range args {
-		if a == "--force" || a == "-f" || a == "--yes" || a == "-y" {
+		if a == "--force" {
 			force = true
 		} else if strings.HasPrefix(a, "-") {
 			return fmt.Errorf("unknown flag %q for purge", a)
@@ -55,7 +68,7 @@ func runPurge(args []string) error {
 	}
 
 	if len(found) == 0 {
-		fmt.Println("nothing to purge")
+		fmt.Fprintln(os.Stderr, "nothing to purge")
 		return nil
 	}
 
@@ -65,7 +78,7 @@ func runPurge(args []string) error {
 		for _, d := range found {
 			fmt.Fprintf(os.Stderr, "  %s\n", d)
 		}
-		ok, err := confirm("Continue?")
+		ok, err := confirm("Continue?", "--force")
 		if err != nil {
 			return err
 		}
@@ -78,7 +91,7 @@ func runPurge(args []string) error {
 	// Remove and report.
 	for _, d := range found {
 		if err := os.RemoveAll(d); err != nil {
-			return fmt.Errorf("failed to remove %s: %w", d, err)
+			return fmt.Errorf("cannot remove %s: %w", d, err)
 		}
 		fmt.Printf("removed %s\n", d)
 	}

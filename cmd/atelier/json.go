@@ -341,7 +341,7 @@ func importPayload(res *importer.Result, dryRun bool) jsonImport {
 	return out
 }
 
-// jsonListResources is the `atelier import --list` payload.
+// jsonListResources is the `atelier import --list-types` payload.
 type jsonListResources struct {
 	TerraformVersion string             `json:"terraformVersion"`
 	Available        []jsonListResource `json:"available"`

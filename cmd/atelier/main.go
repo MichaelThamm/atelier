@@ -49,98 +49,27 @@ import (
 const usage = `Atelier — a terminal UI for configuring Terraform modules.
 
 Usage:
+  atelier [command] [flags]
+
+Commands:
   atelier                                      Open the wrapper in the current directory.
-  atelier add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR]
-                                [--dir PATH] [--var-file PATH|NAME] [--var KEY=VALUE]
-                                [--list-var-files] [--all] [--strict] [--yes] [--json]
-                                               Add a module and open the editor on it. If the target
-                                               (--dir, else the current directory) already holds a
-                                               wrapper, appends a module block to it; otherwise creates
-                                               a directory named after the module (or by --dir/--as)
-                                               and scaffolds a wrapper there. Does not
-                                               run terraform init or apply — use 'atelier apply' for that.
-                                               Warns and asks before writing into a directory that
-                                               already holds other files; --yes skips the prompt.
-                                               --var-file seeds values from a Terraform variable file: a local
-                                               path, a name in an ancestor atelier.presets/ directory, or a name
-                                               committed to the module repo. Comma-separate or repeat for several.
-                                               --var sets a single module input (repeatable); --var wins over
-                                               --var-file.
-                                               --list-var-files prints the .tfvars bundles this module can
-                                               use: the repo's own, yours from an ancestor
-                                               atelier.presets/, and the bundled presets that
-                                               deploy this module. --all also prints every
-                                               bundled preset, for when you want the whole
-                                               gallery.
-                                               --strict makes var-file binding warnings fatal.
-                                               --json writes the result to stdout as JSON: where the wrapper
-                                               went, the block as written, and every block in it.
-                                               A gallery name (see 'atelier gallery list') may be given instead
-                                               of a URL; it resolves to the module, ref, block, and preset.
-  atelier rm <name> [--force]                  Remove a module from the wrapper.
-  atelier ls [--json]                          List modules in the wrapper. --json writes them to
-                                               stdout instead of a table.
-  atelier wrappers [PATH] [--json]             List the wrappers directly under PATH (default: the
-                                               current directory): each child directory holding a
-                                               main.tf or .atelier/, with the modules it declares.
-                                               Read-only and one level only.
-  atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--as NAME]
-                                [--dir PATH] [--var-file PATH|NAME]
-                                [--var KEY=VALUE] [--list-var-files] [--all]
-                                               Compose into the wrapper the target already holds
-                                               (--dir, else the current directory) and deploy that
-                                               root; otherwise scaffold a wrapper in a new directory
-                                               and run 'terraform init' and 'terraform apply'. A new
-                                               directory is named after the module candidate unless
-                                               --as or --dir says otherwise. When the wrapper already
-                                               declares the module, its block is updated rather than
-                                               duplicated: --var merges into the values it holds and a
-                                               changed --ref re-points it. --as names the block to
-                                               update when the wrapper declares the module more than
-                                               once, and a name matching no block falls back to the
-                                               one that does. At a terminal you confirm the plan at
-                                               Terraform's prompt; with no terminal it applies with
-                                               -auto-approve.
-  atelier purge [PATH] [--force]               Remove .atelier/ and .clone/ from a directory.
-  atelier import [PROVIDER] [--source URL|NAME] [--module PATH] [--ref REF]
-        [--dir PATH] [--type T] [--var K=V] [--var-file PATH|NAME]
-        [--list-var-files] [--query-var K=V] [--dry-run] [--list] [--yes] [--json]
-                                                Import a running deployment into Terraform state. With --source,
-                                                clones a remote module, writes an Atelier wrapper, and imports
-                                                live resources into it. --source takes a gallery name (see
-                                                'atelier gallery list') in place of a URL: it supplies the
-                                                module and its subdirectory, but none of its presets, and a
-                                                gallery-sourced import must name the revision it deployed with
-                                                --ref — the entry's pinned SHA is not assumed.
-                                                Without --source, imports into an
-                                                already-initialised directory. Discovers live resources via
-                                                'terraform query' (requires terraform >= 1.14), matches them to
-                                                your module's resource addresses by name, and runs
-                                                'terraform import' for each — a state-only operation that
-                                                cannot change infrastructure. PROVIDER (e.g. juju) sets which
-                                                list-resource types to query. For Juju the model UUID is
-                                                derived from the live deployment, so it need not be passed
-                                                as a --var. Variables the module declares without a default
-                                                must still be supplied via --var or --var-file.
-                                                --dir creates the directory when it is missing; without
-                                                --source it must already be an initialised Terraform root.
-                                                --list-var-files prints the .tfvars bundles the module can
-                                                use; --all also prints every bundled preset. Requires
-                                                --source; exits without importing.
-                                                --dry-run writes an imports.tf artifact and previews the plan
-                                                without touching state.
-                                                --json writes the report to stdout as JSON: what matched,
-                                                what was imported, and what a later apply would still
-                                                change. The human report still goes to stderr.
-  atelier gallery list [--commands]            List Atelier's bundled gallery of module quick starts:
-                                                module, pinned ref, preset, and the command to deploy them.
-                                                --commands prints the non-applying scaffold command per entry.
-  atelier presets lint --module <dir> <file.tfvars>...
-                                                Check preset .tfvars bundles against a module's variables.
-                                                Reports unknown variable names, unknown keys nested in object
-                                                values, and scalar type mismatches; exits non-zero on any finding.
-  atelier --version                            Print the version and exit.
-  atelier --help                               Print this help.
+  atelier add <git-url|gallery-name>           Add a module and open the editor on it.
+  atelier rm <name>                            Remove a module from the wrapper.
+  atelier ls                                   List the modules in the wrapper.
+  atelier wrappers [PATH]                      List the wrappers directly under a directory.
+  atelier apply <git-url|gallery-name>         Compose a module into the wrapper and deploy it.
+  atelier purge [PATH]                         Remove .atelier/ and .clone/ from a directory.
+  atelier import [PROVIDER]                    Import a running deployment into Terraform state.
+  atelier gallery list                         List the bundled gallery quick starts.
+  atelier presets lint --module <dir> <f>...   Check preset .tfvars bundles against a module.
+  atelier help [command]                       Show this help, or the help for one command.
+
+Global options:
+  -h, --help                                   Show help and exit.
+      --version                                Print the version and exit.
+
+Run 'atelier help <command>' or 'atelier <command> --help' for a command's
+usage, options, and one example.
 
 The wrapper is the durable artifact: a normal Terraform project Atelier
 writes into the current directory. The TUI can run 'terraform plan' and, from
@@ -210,6 +139,41 @@ func resolveCommand(args []string) (command, []string) {
 	}
 }
 
+// commandHelp returns the short help for a command word and whether the word
+// names a command. With no words it returns the top-level usage. It accepts the
+// same spellings resolveCommand does, so help and dispatch agree on aliases.
+func commandHelp(words []string) (string, bool) {
+	if len(words) == 0 {
+		return usage, true
+	}
+	switch words[0] {
+	case "-h", "--help":
+		return usage, true
+	case "add":
+		return addUsage, true
+	case "rm", "remove":
+		return rmUsage, true
+	case "ls", "list":
+		return lsUsage, true
+	case "apply":
+		return applyUsage, true
+	case "wrappers":
+		return wrappersUsage, true
+	case "purge":
+		return purgeUsage, true
+	case "import":
+		return importUsage, true
+	case "presets":
+		return presetsUsage, true
+	case "gallery":
+		return galleryUsage, true
+	case "help":
+		return usage, true
+	default:
+		return "", false
+	}
+}
+
 func run(args []string) error {
 	// args[0] only. helpRequested scans every argument, which is right for a
 	// subcommand that is already being dispatched to and wrong here: it would
@@ -219,8 +183,19 @@ func run(args []string) error {
 		fmt.Print(usage)
 		return nil
 	}
-	if len(args) > 0 && (args[0] == "--version" || args[0] == "-v") {
+	if len(args) > 0 && args[0] == "--version" {
 		fmt.Printf("atelier %s\n", version)
+		return nil
+	}
+	// `atelier help [command]` is the standard's help entrypoint. It resolves
+	// the same spellings the dispatcher does, so `help rm` and `help remove`
+	// agree.
+	if len(args) > 0 && args[0] == "help" {
+		text, ok := commandHelp(args[1:])
+		if !ok {
+			return fmt.Errorf("unknown help topic %q\n\n%s", args[1], usage)
+		}
+		fmt.Print(text)
 		return nil
 	}
 
@@ -259,9 +234,8 @@ func run(args []string) error {
 // with this, so -h and --help mean the same thing everywhere — bare, or after
 // other arguments — and exit 0 rather than reporting an unknown flag.
 //
-// text is what that command prints. It is normally the top-level usage, which
-// already documents the command, rather than a per-command screen that a
-// hand-rolled flag parser could drift away from.
+// text is that command's own short help: its usage, options, and one example,
+// scoped to what the command accepts.
 func helpRequested(args []string, text string) bool {
 	for _, a := range args {
 		if a == "--help" || a == "-h" {

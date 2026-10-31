@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,12 +10,6 @@ import (
 
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
-
-// errNotInteractive is returned by confirm when there is no terminal to prompt
-// on. Callers surface it as an error rather than proceeding: a destructive or
-// directory-cluttering action must not happen just because nobody was there to
-// say no. The message names the escape hatch.
-var errNotInteractive = errors.New("cannot prompt for confirmation: stdin is not a terminal (re-run with --yes to proceed without prompting)")
 
 // confirm asks a yes/no question on the terminal and reports the answer.
 //
@@ -27,9 +20,15 @@ var errNotInteractive = errors.New("cannot prompt for confirmation: stdin is not
 //
 // The prompt goes to stderr so that piping a command's stdout somewhere never
 // swallows the question.
-func confirm(prompt string) (bool, error) {
+//
+// escape is the flag the caller accepts to skip the prompt (--yes for the
+// target-directory preflight, --force for purge and rm). With no terminal there
+// is nothing to answer, so confirm fails closed — a destructive or
+// directory-cluttering action must not happen just because nobody was there to
+// say no — and names that flag in the error.
+func confirm(prompt, escape string) (bool, error) {
 	if !isTerminal(os.Stdin) {
-		return false, errNotInteractive
+		return false, fmt.Errorf("cannot prompt for confirmation: stdin is not a terminal (re-run with %s to proceed without prompting)", escape)
 	}
 	fmt.Fprintf(os.Stderr, "%s [y/N] ", prompt)
 	answer, err := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -389,7 +388,7 @@ func confirmTargetDir(dir, action string, yes bool) (bool, error) {
 		return true, nil
 	}
 
-	ok, err := confirm(fmt.Sprintf("%s %s?", action, dir))
+	ok, err := confirm(fmt.Sprintf("%s %s?", action, dir), "--yes")
 	if err != nil {
 		return false, err
 	}
