@@ -44,6 +44,8 @@ Options:
   --source URL|NAME      Module to clone and import into.
   --module SUBDIR        Subdirectory within the repository holding the module.
   --ref REF              Module revision.
+  --depth N              Shallow-clone depth written into the source (default 1).
+  --no-depth             Full clone instead of the default shallow clone.
   --dir PATH             Target directory (created when missing).
   --type T               Restrict the query to this list-resource type; repeatable.
   --var KEY=VALUE        Set a module input; repeatable.
@@ -113,6 +115,8 @@ func runImport(args []string) error {
 		dryRun       bool
 		yes          bool
 		asJSON       bool
+		depth        = 1
+		depthSet     bool
 		config       = map[string]string{}
 		queryConfig  = map[string]string{}
 	)
@@ -135,7 +139,9 @@ func runImport(args []string) error {
 			asJSON = true
 		case a == "--dry-run":
 			dryRun = true
-		case a == "--source" || a == "--module" || a == "--ref" || a == "--type" || a == "--var" || a == "--query-var" || a == "--dir" || a == "--provider-version" || a == "--var-file":
+		case a == "--no-depth":
+			depth, depthSet = 0, true
+		case a == "--source" || a == "--module" || a == "--ref" || a == "--depth" || a == "--type" || a == "--var" || a == "--query-var" || a == "--dir" || a == "--provider-version" || a == "--var-file":
 			if i+1 >= len(args) {
 				return fmt.Errorf("flag %q requires a value", a)
 			}
@@ -148,6 +154,12 @@ func runImport(args []string) error {
 				moduleArg = val
 			case "--ref":
 				refArg = val
+			case "--depth":
+				n, err := parseDepth(val)
+				if err != nil {
+					return err
+				}
+				depth, depthSet = n, true
 			case "--type":
 				types = append(types, val)
 			case "--dir":
@@ -181,6 +193,12 @@ func runImport(args []string) error {
 			moduleArg = strings.TrimPrefix(a, "--module=")
 		case strings.HasPrefix(a, "--ref="):
 			refArg = strings.TrimPrefix(a, "--ref=")
+		case strings.HasPrefix(a, "--depth="):
+			n, err := parseDepth(strings.TrimPrefix(a, "--depth="))
+			if err != nil {
+				return err
+			}
+			depth, depthSet = n, true
 		case strings.HasPrefix(a, "--type="):
 			types = append(types, strings.TrimPrefix(a, "--type="))
 		case strings.HasPrefix(a, "--dir="):
@@ -249,6 +267,9 @@ func runImport(args []string) error {
 		}
 		sourceArg, moduleArg, refArg = src.Source, src.ModulePath, src.Ref
 	}
+	if depthSet && depth > 0 && modulesource.IsFullSHA(refArg) {
+		fmt.Fprintln(os.Stderr, "note: ignoring --depth for a commit-SHA ref; a shallow clone needs a branch or tag")
+	}
 
 	dir := dirArg
 	if dir == "" {
@@ -304,7 +325,7 @@ func runImport(args []string) error {
 	var cloneDir, srcModulePath string
 	if sourceArg != "" {
 		var err error
-		dir, wrapperState, cloneDir, srcModulePath, err = setupSourceModule(ctx, dir, sourceArg, moduleArg, refArg)
+		dir, wrapperState, cloneDir, srcModulePath, err = setupSourceModule(ctx, dir, sourceArg, moduleArg, refArg, depth)
 		if err != nil {
 			return err
 		}
@@ -858,7 +879,7 @@ func loadAdoptedWrapperState(ctx context.Context, dir string) (*wrapper.State, s
 // parsed wrapper state (with variable declarations from the module). If the
 // repo has multiple module candidates and --module was not given, it prints the
 // candidates and exits with an error.
-func setupSourceModule(ctx context.Context, dir, source, modulePath, ref string) (string, *wrapper.State, string, string, error) {
+func setupSourceModule(ctx context.Context, dir, source, modulePath, ref string, depth int) (string, *wrapper.State, string, string, error) {
 	// Check terraform is available.
 	if err := tfexecLocate(); err != nil {
 		return "", nil, "", "", err
@@ -886,7 +907,7 @@ func setupSourceModule(ctx context.Context, dir, source, modulePath, ref string)
 	// The clone, wrapper authoring and failure cleanup are the same fresh
 	// bootstrap `add` runs (bootstrapFreshWrapper), so `import
 	// --source` cannot drift from it.
-	res, _, err := bootstrapFreshWrapper(dir, dir, source, ref, modulePath)
+	res, _, err := bootstrapFreshWrapper(dir, dir, source, ref, depth, modulePath)
 	if err != nil {
 		return "", nil, "", "", err
 	}
@@ -1074,7 +1095,7 @@ func checkImportTargetSource(dir, source, modulePath, ref string) error {
 		// there is nothing here being ignored.
 		return nil
 	}
-	requested := modulesource.Compose(source, modulePath, ref)
+	requested := modulesource.Compose(source, modulePath, ref, 0)
 	var conflict, declared string
 	for _, b := range blocks {
 		c := sourceConflict(requested, b.Source)

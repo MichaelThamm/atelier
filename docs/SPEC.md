@@ -144,6 +144,13 @@ Atelier supports two source forms:
 
 Terraform Registry sources are not yet supported.
 
+A git source may carry a shallow-clone depth as a `depth` query parameter, e.g.
+`git::https://example.com/m.git//subdir?ref=main&depth=1`. Atelier writes
+`depth=1` by default so `terraform init` fetches only the tip of the branch,
+and `--depth N` / `--no-depth` override it (§6). Terraform accepts `depth` only
+alongside a branch or tag ref, so a commit-SHA source — including every gallery
+pin — is written without it.
+
 ### 5.2 Clone and candidate discovery
 
 `atelier add <git-url>` performs the following sequence:
@@ -249,6 +256,7 @@ atelier                                    # open TUI on existing wrapper in CWD
 atelier add <git-url|gallery-name>  # add a module to the wrapper (bootstraps a new one if needed)
 atelier add <git-url> --as <name>   # add with explicit HCL block name
 atelier add <git-url> --ref <ref>   # add at a specific ref
+atelier add <git-url> --depth <n>   # shallow-clone depth written into the source (default 1; --no-depth for a full clone)
 atelier add <git-url> --module <subdir>  # skip the candidate picker
 atelier add <git-url> --dir <path>  # target directory; compose into it when it holds a wrapper (§6.2)
 atelier add <git-url> --yes         # skip the target-directory confirmation (§6.5)
@@ -262,6 +270,7 @@ atelier wrappers [PATH] [--json] [--no-headers]  # list wrappers directly under 
 atelier apply <git-url>             # scaffold a wrapper in a new dir, init, then apply interactively
 atelier apply <git-url> --module <subdir>  # skip the candidate picker
 atelier apply <git-url> --ref <ref>  # pin a ref; re-points the block when the wrapper already declares the module (§6.9)
+atelier apply <git-url> --depth <n>  # shallow-clone depth written into the source (default 1; --no-depth for a full clone)
 atelier apply <git-url> --as <name>  # target directory / HCL block name; selects the block to update
 atelier apply <git-url> --dir <path> # target directory; compose into and deploy it when it holds a wrapper (§6.9)
 atelier apply <git-url> --var <K=V>  # set a module input (repeatable; wins over --var-file)
@@ -336,6 +345,9 @@ Flags:
   import therefore requires `--ref`; an explicit `--module` still wins.
 - `--module <path>` — skip the candidate picker and use the given module path.
 - `--ref <ref>` — check out a specific git ref when cloning.
+- `--depth <n>` / `--no-depth` — shallow-clone depth written into the wrapper's
+  source (default 1; `--no-depth` forces a full clone). Ignored for a commit-SHA
+  ref (§5.1).
 - `--dir <path>` — target directory (default: current directory). With
   `--source` it follows the `atelier apply` rule
   ([ADR-0044](adr/0044-dir-names-the-wrapper.md)): an existing `main.tf` is

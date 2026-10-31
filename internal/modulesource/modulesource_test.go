@@ -16,6 +16,8 @@ func TestDecompose(t *testing.T) {
 		{"git prefix and subpath", "git::https://github.com/org/repo.git//subdir?ref=abc123", "https://github.com/org/repo.git", "abc123"},
 		{"no scheme", "github.com/org/repo.git", "github.com/org/repo.git", ""},
 		{"ssh", "git::ssh://git@example.com/m.git?ref=main", "ssh://git@example.com/m.git", "main"},
+		{"ref and depth", "git::https://example.com/m.git//sub?ref=main&depth=1", "https://example.com/m.git", "main"},
+		{"depth only", "git::https://example.com/m.git?depth=1", "https://example.com/m.git", ""},
 		{"local subpath", "./local//modules/x", "./local", ""},
 		{"root", "git::https://example.com/m.git", "https://example.com/m.git", ""},
 	}
@@ -68,32 +70,93 @@ func TestModulePath(t *testing.T) {
 
 func TestCompose(t *testing.T) {
 	cases := []struct {
-		remote, modulePath, ref, want string
+		remote, modulePath, ref string
+		depth                   int
+		want                    string
 	}{
-		{"https://example.com/m.git", "terraform/cos-lite", "v1.2.0",
+		{"https://example.com/m.git", "terraform/cos-lite", "v1.2.0", 0,
 			"git::https://example.com/m.git//terraform/cos-lite?ref=v1.2.0"},
-		{"git::ssh://git@example.com/m.git", "", "main",
+		{"git::ssh://git@example.com/m.git", "", "main", 0,
 			"git::ssh://git@example.com/m.git?ref=main"},
-		{"./local", "modules/x", "",
+		{"./local", "modules/x", "", 0,
 			"./local//modules/x"},
-		{"/abs/path", ".", "",
+		{"/abs/path", ".", "", 0,
 			"/abs/path"},
+		{"./local", "modules/x", "", 1,
+			"./local//modules/x"},
+		{"https://example.com/m.git", "sub", "main", 1,
+			"git::https://example.com/m.git//sub?ref=main&depth=1"},
+		{"https://example.com/m.git", "sub", "", 1,
+			"git::https://example.com/m.git//sub?depth=1"},
+		{"https://example.com/m.git", "", "main", 5,
+			"git::https://example.com/m.git?ref=main&depth=5"},
+		// A full SHA cannot carry a depth; Terraform rejects it.
+		{"https://example.com/m.git", "", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", 1,
+			"git::https://example.com/m.git?ref=a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"},
 	}
 	for _, c := range cases {
-		if got := Compose(c.remote, c.modulePath, c.ref); got != c.want {
-			t.Errorf("Compose(%q, %q, %q) = %q, want %q", c.remote, c.modulePath, c.ref, got, c.want)
+		if got := Compose(c.remote, c.modulePath, c.ref, c.depth); got != c.want {
+			t.Errorf("Compose(%q, %q, %q, %d) = %q, want %q", c.remote, c.modulePath, c.ref, c.depth, got, c.want)
+		}
+	}
+}
+
+func TestEffectiveDepth(t *testing.T) {
+	sha := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	cases := []struct {
+		name  string
+		depth int
+		ref   string
+		want  int
+	}{
+		{"default zero", 0, "main", 0},
+		{"negative", -1, "main", 0},
+		{"branch", 1, "main", 1},
+		{"tag", 3, "v1.2.0", 3},
+		{"empty ref", 1, "", 1},
+		{"sha dropped", 1, sha, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := EffectiveDepth(c.depth, c.ref); got != c.want {
+				t.Errorf("EffectiveDepth(%d, %q) = %d, want %d", c.depth, c.ref, got, c.want)
+			}
+		})
+	}
+}
+
+func TestDepth(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   int
+		wantOK bool
+	}{
+		{"git::https://example.com/m.git?ref=main&depth=1", 1, true},
+		{"git::https://example.com/m.git?depth=5", 5, true},
+		{"git::https://example.com/m.git?ref=main", 0, false},
+		{"git::https://example.com/m.git", 0, false},
+		{"git::https://example.com/m.git?depth=abc", 0, false},
+		{"git::https://example.com/m.git?depth=0", 0, false},
+	}
+	for _, c := range cases {
+		got, ok := Depth(c.in)
+		if got != c.want || ok != c.wantOK {
+			t.Errorf("Depth(%q) = (%d, %v), want (%d, %v)", c.in, got, ok, c.want, c.wantOK)
 		}
 	}
 }
 
 func TestDecomposeComposeRoundTrip(t *testing.T) {
-	src := Compose("https://github.com/org/repo.git", "terraform/cos-lite", "v1.2.0")
+	src := Compose("https://github.com/org/repo.git", "terraform/cos-lite", "v1.2.0", 1)
 	url, ref := Decompose(src)
 	if url != "https://github.com/org/repo.git" || ref != "v1.2.0" {
 		t.Errorf("round trip: Decompose(%q) = (%q, %q)", src, url, ref)
 	}
 	if got := ModulePath(src); got != "terraform/cos-lite" {
 		t.Errorf("round trip: ModulePath(%q) = %q", src, got)
+	}
+	if got, ok := Depth(src); !ok || got != 1 {
+		t.Errorf("round trip: Depth(%q) = (%d, %v)", src, got, ok)
 	}
 }
 

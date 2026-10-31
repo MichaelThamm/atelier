@@ -38,6 +38,8 @@ resolves to the module, ref, block name, and preset.
 Options:
   --as NAME              Name the module block (default: derived from the source).
   --ref REF              Module revision: branch, tag, or commit.
+  --depth N              Shallow-clone depth written into the source (default 1).
+  --no-depth             Full clone instead of the default shallow clone.
   --module SUBDIR        Subdirectory within the repository holding the module.
   --dir PATH             Target directory (default: the current directory).
   --var-file PATH|NAME   Seed values from a .tfvars bundle: a local path, a name
@@ -74,6 +76,8 @@ Options:
   --as NAME              Select the block to update when the wrapper declares the
                          module more than once.
   --ref REF              Module revision; a changed ref re-points the block.
+  --depth N              Shallow-clone depth written into the source (default 1).
+  --no-depth             Full clone instead of the default shallow clone.
   --module SUBDIR        Subdirectory within the repository holding the module.
   --dir PATH             Target directory (default: the current directory).
   --var-file PATH|NAME   Seed values from a .tfvars bundle. Repeat for several.
@@ -116,6 +120,8 @@ type moduleOpts struct {
 	Source       string   // positional git URL
 	As           string   // --as: explicit HCL block name
 	Ref          string   // --ref: git ref
+	Depth        int      // --depth: shallow-clone depth written into the source (default 1)
+	DepthSet     bool     // --depth/--no-depth given explicitly (drives the "ignored for a SHA" note)
 	ModulePath   string   // --module: candidate subdir
 	Dir          string   // --dir: target directory (add/apply)
 	VarFiles     []string // --var-file: seed values from a .tfvars file or repo-local name (repeatable)
@@ -130,7 +136,11 @@ type moduleOpts struct {
 func parseModuleArgs(args []string) (moduleOpts, error) {
 	// One parser serves `add` and `apply`, so its errors name both rather than
 	// the `module` namespace ADR-0038 removed.
-	var opts moduleOpts
+	//
+	// A shallow clone is the default; --depth sets an explicit depth and
+	// --no-depth (or --depth 0) asks for a full clone. Terraform silently
+	// drops the depth for a commit-SHA ref; warnIgnoredDepth says so.
+	opts := moduleOpts{Depth: 1}
 	var positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -157,6 +167,18 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 				return opts, fmt.Errorf("--ref requires a value")
 			}
 			opts.Ref = args[i]
+		case "--depth":
+			i++
+			if i >= len(args) {
+				return opts, fmt.Errorf("--depth requires a value")
+			}
+			n, err := parseDepth(args[i])
+			if err != nil {
+				return opts, err
+			}
+			opts.Depth, opts.DepthSet = n, true
+		case "--no-depth":
+			opts.Depth, opts.DepthSet = 0, true
 		case "--module":
 			i++
 			if i >= len(args) {
@@ -201,6 +223,14 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 				opts.Dir = strings.TrimPrefix(a, "--dir=")
 				continue
 			}
+			if strings.HasPrefix(a, "--depth=") {
+				n, err := parseDepth(strings.TrimPrefix(a, "--depth="))
+				if err != nil {
+					return opts, err
+				}
+				opts.Depth, opts.DepthSet = n, true
+				continue
+			}
 			if strings.HasPrefix(a, "-") {
 				return opts, fmt.Errorf("unknown flag %q for add/apply", a)
 			}
@@ -220,6 +250,25 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 		return opts, errors.New("--all is only meaningful with --list-var-files")
 	}
 	return opts, nil
+}
+
+// parseDepth validates a --depth value: a non-negative integer, where 0 asks
+// for a full clone.
+func parseDepth(s string) (int, error) {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("--depth expects a non-negative integer, got %q", s)
+	}
+	return n, nil
+}
+
+// warnIgnoredDepth notes that an explicit --depth cannot apply to a commit-SHA
+// ref, which Terraform rejects. It stays quiet for the implicit default, so a
+// gallery entry's pinned SHA does not print a note on every run.
+func warnIgnoredDepth(opts moduleOpts) {
+	if opts.DepthSet && opts.Depth > 0 && modulesource.IsFullSHA(opts.Ref) {
+		fmt.Fprintln(os.Stderr, "note: ignoring --depth for a commit-SHA ref; a shallow clone needs a branch or tag")
+	}
 }
 
 // validateVarPair checks a `KEY=VALUE` --var argument and reports the same
@@ -292,6 +341,7 @@ func listVarFileBundles(wrapperDir, command string, opts moduleOpts) error {
 		Source:        opts.Source,
 		LocalSource:   modulesource.IsLocal(opts.Source),
 		Ref:           opts.Ref,
+		Depth:         opts.Depth,
 		ModulePath:    opts.ModulePath,
 		AllGalleryVar: opts.AllVarFiles,
 	})
@@ -406,6 +456,7 @@ func runModuleAdd(args []string) error {
 	if err := resolveModuleSource(&opts); err != nil {
 		return err
 	}
+	warnIgnoredDepth(opts)
 
 	// --list-var-files clones the module to a scratch directory, prints the
 	// `.tfvars` bundles discoverable locally and in the repository, then exits
@@ -676,6 +727,7 @@ func composeModuleBlock(cwd, dir string, opts moduleOpts, mode composeMode, prom
 		LocalSource:   modulesource.IsLocal(opts.Source),
 		SourceBaseDir: cwd,
 		Ref:           opts.Ref,
+		Depth:         opts.Depth,
 		ModulePath:    opts.ModulePath,
 	})
 	stop()
@@ -991,7 +1043,7 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 		}
 	}()
 
-	res, cleanup, err := bootstrapFreshWrapper(cwd, staging, opts.Source, opts.Ref, opts.ModulePath)
+	res, cleanup, err := bootstrapFreshWrapper(cwd, staging, opts.Source, opts.Ref, opts.Depth, opts.ModulePath)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1088,6 +1140,7 @@ func runModuleApply(args []string) error {
 	if err := resolveModuleSource(&opts); err != nil {
 		return err
 	}
+	warnIgnoredDepth(opts)
 	if opts.ListVarFiles {
 		return listVarFileBundles(cwd, "apply", opts)
 	}
@@ -1342,7 +1395,7 @@ func runInit(ctx context.Context, tf *tfexec.Terraform, upgrade bool) error {
 // to dir, which is right when the wrapper is written where the user invoked the
 // command. `apply` stages the wrapper elsewhere and passes the
 // invocation directory so a local source still resolves.
-func bootstrapFreshWrapper(sourceBaseDir, dir, source, ref, modulePath string) (*bootstrap.Result, func(), error) {
+func bootstrapFreshWrapper(sourceBaseDir, dir, source, ref string, depth int, modulePath string) (*bootstrap.Result, func(), error) {
 	if _, err := tfexec.Locate(); err != nil {
 		return nil, nil, err
 	}
@@ -1361,6 +1414,7 @@ func bootstrapFreshWrapper(sourceBaseDir, dir, source, ref, modulePath string) (
 		LocalSource:   modulesource.IsLocal(source),
 		SourceBaseDir: sourceBaseDir,
 		Ref:           ref,
+		Depth:         depth,
 		ModulePath:    modulePath,
 	})
 	stop()
