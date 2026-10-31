@@ -99,6 +99,10 @@ on Canonical K8s; for a module whose providers you already have credentials for,
 the same two commands run it. [Presets](#presets) seed values from a named
 `.tfvars` bundle instead of the defaults.
 
+Atelier installs providers through a shared, per-user plugin cache, so a
+provider is downloaded once and reused across wrappers rather than re-fetched
+for each one. Set `TF_PLUGIN_CACHE_DIR` to choose a different location.
+
 The same flow works for any module. This is the gallery's `gke` quick start,
 [`terraform-google-modules/terraform-google-kubernetes-engine`](https://github.com/terraform-google-modules/terraform-google-kubernetes-engine),
 which targets Google Cloud rather than Juju; a gallery entry name stands in for

@@ -86,6 +86,10 @@ Either way the wrapper stays runnable on its own without Atelier installed.
 var version = "dev"
 
 func main() {
+	// Share one provider plugin cache across every wrapper Atelier drives, so
+	// terraform downloads each provider once per machine instead of once per
+	// wrapper. Best-effort; a user-set TF_PLUGIN_CACHE_DIR is left alone.
+	tfexec.EnablePluginCache()
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "atelier:", err)
 		// The code says which side failed: Atelier's, or Terraform's (exit.go).

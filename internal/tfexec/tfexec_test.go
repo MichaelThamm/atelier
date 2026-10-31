@@ -269,3 +269,40 @@ func TestConfigureLogging_integration(t *testing.T) {
 		t.Errorf("trace log %s created without %s set", traceLog, DebugEnvVar)
 	}
 }
+
+func TestPluginCacheDir(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", base)
+	t.Setenv("HOME", base)
+	want := filepath.Join(base, "atelier", "terraform", "plugins")
+	if got := PluginCacheDir(); got != want {
+		t.Errorf("PluginCacheDir() = %q; want %q", got, want)
+	}
+}
+
+func TestEnablePluginCache(t *testing.T) {
+	t.Run("creates the cache and points terraform at it", func(t *testing.T) {
+		base := t.TempDir()
+		t.Setenv("XDG_CACHE_HOME", base)
+		t.Setenv("HOME", base)
+		t.Setenv(PluginCacheEnvVar, "")
+
+		EnablePluginCache()
+
+		want := filepath.Join(base, "atelier", "terraform", "plugins")
+		if got := os.Getenv(PluginCacheEnvVar); got != want {
+			t.Fatalf("%s = %q; want %q", PluginCacheEnvVar, got, want)
+		}
+		if info, err := os.Stat(want); err != nil || !info.IsDir() {
+			t.Errorf("cache directory not created: %v", err)
+		}
+	})
+
+	t.Run("never overrides a user-set cache", func(t *testing.T) {
+		t.Setenv(PluginCacheEnvVar, "/custom/plugins")
+		EnablePluginCache()
+		if got := os.Getenv(PluginCacheEnvVar); got != "/custom/plugins" {
+			t.Errorf("EnablePluginCache overrode a user-set value: %q", got)
+		}
+	})
+}
