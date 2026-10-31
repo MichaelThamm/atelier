@@ -377,3 +377,14 @@ func mustVarT(t *testing.T, name, typeSrc string, def cty.Value, hasDef bool) tf
 	}
 	return tfvars.Variable{Name: name, Type: tp, HasDefault: hasDef, Default: def, Nullable: true}
 }
+
+// The type-listing flag is --list-types; the old --list is gone so it cannot be
+// confused with --list-var-files. -y is gone; --yes is the only confirmation
+// spelling. Both reach the unknown-flag error before any I/O.
+func TestRunImport_rejectsRemovedFlags(t *testing.T) {
+	for _, flag := range []string{"--list", "-y"} {
+		if err := runImport([]string{"juju", flag}); err == nil {
+			t.Errorf("runImport accepted the removed flag %s", flag)
+		}
+	}
+}

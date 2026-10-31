@@ -12,12 +12,19 @@ import (
 )
 
 const wrappersUsage = `Usage:
-  atelier wrappers [PATH]
-                                               List the wrappers directly under PATH (default: the
-                                               current directory): each child directory holding a
-                                               main.tf or .atelier/, with the modules it declares.
-                                               Read-only and one level deep; no wrapper is opened
-                                               or changed.
+  atelier wrappers [PATH] [flags]
+
+List the wrappers directly under PATH (default: the current directory): each
+child directory holding a main.tf or .atelier/, with the modules it declares.
+Read-only and one level deep; no wrapper is opened or changed.
+
+Options:
+  --json          Write the wrappers to stdout as JSON.
+  --no-headers    Omit the table header row.
+
+Examples:
+  atelier wrappers
+  atelier wrappers ../scratch
 `
 
 // runWrappers implements `atelier wrappers [PATH]`. It is a read-only view of
@@ -29,10 +36,13 @@ func runWrappers(args []string) error {
 	}
 	var target string
 	asJSON := false
+	noHeaders := false
 	for _, a := range args {
 		switch {
 		case a == "--json":
 			asJSON = true
+		case a == "--no-headers":
+			noHeaders = true
 		case strings.HasPrefix(a, "-"):
 			return fmt.Errorf("unknown flag %q for wrappers", a)
 		default:
@@ -65,7 +75,7 @@ func runWrappers(args []string) error {
 		if asJSON {
 			return renderJSON(os.Stdout, "wrappers", wrappersPayload(nil, target))
 		}
-		fmt.Printf("No wrappers found under %s.\n", target)
+		fmt.Fprintf(os.Stderr, "No wrappers found under %s.\n", target)
 		return nil
 	}
 
@@ -74,7 +84,9 @@ func runWrappers(args []string) error {
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "WRAPPER\tMODULES")
+	if !noHeaders {
+		fmt.Fprintln(tw, "WRAPPER\tMODULES")
+	}
 	for _, w := range found {
 		mods := "-"
 		if len(w.Modules) > 0 {

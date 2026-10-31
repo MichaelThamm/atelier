@@ -252,13 +252,13 @@ atelier add <git-url> --ref <ref>   # add at a specific ref
 atelier add <git-url> --module <subdir>  # skip the candidate picker
 atelier add <git-url> --dir <path>  # target directory; compose into it when it holds a wrapper (§6.2)
 atelier add <git-url> --yes         # skip the target-directory confirmation (§6.5)
-atelier add <git-url> --var-file <path|name>  # seed values from a .tfvars file (local path or repo-local name; repeatable/comma-separated)
+atelier add <git-url> --var-file <path|name>  # seed values from a .tfvars file (local path or repo-local name; repeatable)
 atelier add <git-url> --var <K=V>   # set a single module input (repeatable; wins over --var-file)
 atelier add <git-url> --list-var-files  # print the .tfvars bundles available (local + module repo)
 atelier add <git-url> --json      # report where the wrapper went and what was added, as JSON (§6.11)
 atelier rm <name> [--force]         # remove a module from the wrapper
-atelier ls [--json]                 # list modules in the wrapper
-atelier wrappers [PATH] [--json]    # list wrappers directly under PATH (default: CWD)
+atelier ls [--json] [--no-headers]  # list modules in the wrapper
+atelier wrappers [PATH] [--json] [--no-headers]  # list wrappers directly under PATH (default: CWD)
 atelier apply <git-url>             # scaffold a wrapper in a new dir, init, then apply interactively
 atelier apply <git-url> --module <subdir>  # skip the candidate picker
 atelier apply <git-url> --ref <ref>  # pin a ref; re-points the block when the wrapper already declares the module (§6.9)
@@ -274,10 +274,12 @@ atelier presets lint --module <dir> <file.tfvars>  # check preset bundles agains
 atelier --help                             # print usage
 ```
 
-Every command above also accepts `-h` and `--help`, on its own or after other
-arguments, and prints the same usage text rather than reporting an unknown
-flag. `atelier import --help` is therefore the same output as `atelier --help`,
-which documents every command's flags; help always exits 0.
+`atelier help [command]` prints the top-level usage, or the named command's own
+usage, options, and one example. Every command also accepts `-h` and `--help`,
+on its own or after other arguments, and prints that command's help rather than
+the top-level usage or an unknown-flag error. Help always exits 0. `--version`
+is the only spelling for the version; there is no `-v`, because `import` spells
+`--verbose` long and a short `-v` would be ambiguous.
 
 See [ADR-0038](adr/0038-flat-cli-surface.md) for the flat top-level command
 surface (which supersedes [ADR-0018](adr/0018-additive-module-command.md)'s
@@ -360,10 +362,10 @@ Flags:
 - `--dry-run` — write an `imports.tf` artifact of the matched resources, plan
   with it in place, report the preview, and stop. Terraform state is untouched.
 - `--provider-version <ver>` — pin the provider version constraint.
-- `--list` — print the provider's importable list-resource types and exit.
+- `--list-types` — print the provider's importable list-resource types and exit.
 - `--no-init` — skip `terraform init` before importing.
-- `--yes` / `-y` — skip the target-directory confirmation (§6.5). Only relevant
-  with `--source`, which is the mode that scaffolds a wrapper.
+- `--yes` — skip the target-directory confirmation (§6.5). Only relevant with
+  `--source`, which is the mode that scaffolds a wrapper.
 - `--strict` — treat list-resource query errors as fatal (no automatic retry with fewer types).
 - `--verbose` — print the full match trace, including every live object.
 
@@ -434,9 +436,12 @@ adding modules:
 outputs (§7.6) but changes no Terraform state. Does not run
 `terraform apply -destroy` — state cleanup is the user's responsibility.
 
-`atelier ls` prints a table (name, source, ref) without launching
-the TUI. If the current directory has no `main.tf`, it reports that it is not
-a wrapper and points at `atelier wrappers` (§6.10).
+`atelier ls` prints a table (name, source, ref) without launching the TUI.
+`--no-headers` drops the header row so the table can be piped. If the current
+directory has no `main.tf`, it writes a "not a wrapper" message to stderr and
+points at `atelier wrappers` (§6.10); a wrapper with no module blocks writes
+"No modules found" to stderr too. Both empty cases still exit 0, so a script can
+tell them from a failure.
 
 ### 6.3 Purge
 
@@ -446,8 +451,8 @@ a wrapper and points at `atelier wrappers` (§6.10).
 - Only top-level directories in the target are removed; no recursion.
 - Without `--force`, prompts for confirmation listing the directories to be
   removed.
-- Prints each removed directory on success; prints "nothing to purge" if
-  neither directory exists.
+- Prints each removed directory on stdout; writes "nothing to purge" to stderr
+  (still exiting 0) if neither directory exists.
 - Does **not** touch `.terraform/`, `*.tfstate`, or any user files.
 
 This is useful for cleaning up Atelier state without disturbing the wrapper
@@ -469,7 +474,7 @@ re-introspection on next open.
 | `--dir` names a non-empty directory with no `main.tf` | `atelier add <url> --dir PATH` | Refused; nothing written.                          |
 | Wrapper already has this module at this ref | `atelier add <url>` | Error naming the existing block; nothing written (§6.7).                |
 | Any (has `.atelier/` or `.clone/`)  | `atelier purge`    | Prompt, then remove `.atelier/` and `.clone/`. Wrapper files untouched.                    |
-| Any (neither exists)               | `atelier purge`    | Print "nothing to purge".                                                                  |
+| Any (neither exists)               | `atelier purge`    | Write "nothing to purge" to stderr; exit 0.                                                |
 
 See [ADR-0002](adr/0002-author-and-plan-scope.md).
 
@@ -505,7 +510,7 @@ Rules:
 - Files Atelier authors itself (`README.md`, `.gitignore`, `LICENSE`, `.git/`,
   `.terraform/`, state files) do not count as clutter. A warning users learn to
   dismiss unread is worse than no warning.
-- `--yes` / `-y` skips the prompt. Findings are still printed.
+- `--yes` skips the prompt. Findings are still printed.
 - Without a terminal on stdin the command **fails** rather than proceeding,
   naming `--yes` in the error. Silence is not consent.
 
@@ -589,8 +594,8 @@ entry composes only what it needs to deploy: `cos` composes
 exactly like any other `--var-file`.
 
 - `--var-file <path|name>` seeds values from a Terraform variable file
-  (repeatable; comma-separated names accepted; later files win over earlier
-  ones). A local path is used as-is; a bare name is resolved first against
+  (repeatable; repeat the flag for several, in order — later files win over
+  earlier ones). A local path is used as-is; a bare name is resolved first against
   personal walk-up bundles (`<ancestor>/atelier.presets/<name>.tfvars`, nearest
   ancestor wins), then in the cloned module repository (`<module>/presets/`,
   `<module>/examples/`, `<repo>/terraform/presets/`,
@@ -870,6 +875,9 @@ current directory): each immediate child directory holding a `main.tf` or an
 `.atelier/`, with the module block names that wrapper declares. Hidden
 directories are skipped and the result is sorted by name.
 
+`--json` writes the result as JSON (§6.11); `--no-headers` drops the table's
+header row. An empty result writes "No wrappers found" to stderr and exits 0.
+
 It is read-only and one level deep: it does not open, plan, apply, or
 otherwise address a child, and it does not recurse. It exists because
 `atelier add`/`atelier apply` create sibling wrappers under a shared parent (e.g.
@@ -924,7 +932,7 @@ Conventions:
 | `ls` | `isWrapper` (false when the directory holds no `main.tf`), `modules` |
 | `wrappers` | `wrappers`: each `name`, absolute `path`, `modules` (block names) |
 | `import` | `matched` (address → import ID), `imported`, `alreadyInState`, `matchedNothing`, `unresolved`, `unmatchedModule`, `unmatchedLive`, `queriedTypes`, `skippedTypes`, `dryRun`, `preview`, `postImportPlan`, `importsFile`, `queryFile`, `terraformVersion` |
-| `import --list` | `terraformVersion`, `available`: each list resource's `type`, `providerKey`, `providerLocal`, `configAttrs` |
+| `import --list-types` | `terraformVersion`, `available`: each list resource's `type`, `providerKey`, `providerLocal`, `configAttrs` |
 
 `alreadyInState` and `matchedNothing` are the point of the `import` payload.
 A successful import that imported nothing is one of three states, and the

@@ -266,16 +266,18 @@ func TestSummariseEntries_bounded(t *testing.T) {
 }
 
 func TestParseModuleAddArgs_yesFlag(t *testing.T) {
-	for _, flag := range []string{"--yes", "-y"} {
-		opts, err := parseModuleArgs([]string{"https://example.com/m.git", flag})
-		if err != nil {
-			t.Fatalf("%s: unexpected error: %v", flag, err)
-		}
-		if !opts.Yes {
-			t.Errorf("%s: expected Yes to be set", flag)
-		}
+	opts, err := parseModuleArgs([]string{"https://example.com/m.git", "--yes"})
+	if err != nil {
+		t.Fatalf("--yes: unexpected error: %v", err)
 	}
-	opts, err := parseModuleArgs([]string{"https://example.com/m.git"})
+	if !opts.Yes {
+		t.Error("--yes: expected Yes to be set")
+	}
+	// One spelling per action: the short -y is gone.
+	if _, err := parseModuleArgs([]string{"https://example.com/m.git", "-y"}); err == nil {
+		t.Error("-y was accepted; --yes is the only confirmation spelling")
+	}
+	opts, err = parseModuleArgs([]string{"https://example.com/m.git"})
 	if err != nil {
 		t.Fatal(err)
 	}

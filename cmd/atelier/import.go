@@ -24,6 +24,51 @@ import (
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
+const importUsage = `Usage:
+  atelier import [PROVIDER] [flags]
+
+Import a running deployment into Terraform state. With --source, clones a
+remote module, writes an Atelier wrapper, and imports live resources into it.
+--source takes a gallery name (see 'atelier gallery list') in place of a URL: it
+supplies the module and its subdirectory, but none of its presets, and a
+gallery-sourced import must name the revision it deployed with --ref.
+
+Without --source, imports into an already-initialised Terraform root. Terraform
+query (requires terraform >= 1.14) discovers live objects, the module's resource
+addresses are matched by name, and 'terraform import' runs for each match — a
+state-only operation that cannot change infrastructure. PROVIDER (e.g. juju)
+selects which list-resource types to query. Variables the module declares
+without a default must still be supplied via --var or --var-file.
+
+Options:
+  --source URL|NAME      Module to clone and import into.
+  --module SUBDIR        Subdirectory within the repository holding the module.
+  --ref REF              Module revision.
+  --dir PATH             Target directory (created when missing).
+  --type T               Restrict the query to this list-resource type; repeatable.
+  --var KEY=VALUE        Set a module input; repeatable.
+  --var-file PATH|NAME   Seed values from a .tfvars bundle; repeatable. Requires
+                         --source.
+  --list-var-files       Print the .tfvars bundles the module can use and exit.
+                         Requires --source.
+  --query-var KEY=VALUE  Set an input used only for the query; repeatable.
+  --provider-version V   Pin the provider version to scaffold.
+  --dry-run              Write an imports.tf artifact and preview the plan without
+                         touching state.
+  --list-types           Print the provider's importable list-resource types and
+                         exit.
+  --no-init              Skip 'terraform init'.
+  --strict               Make query errors fatal instead of skipped.
+  --verbose              Print every address in the report.
+  --yes                  Skip the prompt before bootstrapping a wrapper.
+  --json                 Write the report to stdout as JSON; the human report
+                         still goes to stderr.
+
+Examples:
+  atelier import juju --source github.com/canonical/cos-lite//terraform --ref main
+  atelier import juju --list-types
+`
+
 // runImport implements `atelier import [PROVIDER] [flags]`.
 //
 // Two modes:
@@ -48,7 +93,7 @@ import (
 // list-resource types to discover). When --source is omitted, PROVIDER is
 // also used to scaffold provider config if the directory has none.
 func runImport(args []string) error {
-	if helpRequested(args, usage) {
+	if helpRequested(args, importUsage) {
 		return nil
 	}
 	var (
@@ -74,11 +119,11 @@ func runImport(args []string) error {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
-		case a == "--list":
+		case a == "--list-types":
 			listOnly = true
 		case a == "--list-var-files":
 			listVarFiles = true
-		case a == "--yes" || a == "-y":
+		case a == "--yes":
 			yes = true
 		case a == "--no-init":
 			noInit = true
@@ -110,7 +155,7 @@ func runImport(args []string) error {
 			case "--provider-version":
 				provVersion = val
 			case "--var-file":
-				varFiles = appendVarFileList(varFiles, val)
+				varFiles = append(varFiles, val)
 			case "--var":
 				k, v, ok := strings.Cut(val, "=")
 				if !ok || k == "" {
@@ -143,7 +188,7 @@ func runImport(args []string) error {
 		case strings.HasPrefix(a, "--provider-version="):
 			provVersion = strings.TrimPrefix(a, "--provider-version=")
 		case strings.HasPrefix(a, "--var-file="):
-			varFiles = appendVarFileList(varFiles, strings.TrimPrefix(a, "--var-file="))
+			varFiles = append(varFiles, strings.TrimPrefix(a, "--var-file="))
 		case strings.HasPrefix(a, "--var="):
 			kv := strings.TrimPrefix(a, "--var=")
 			k, v, ok := strings.Cut(kv, "=")
@@ -268,7 +313,7 @@ func runImport(args []string) error {
 		// be a wrapper. Rehydrating it is what lets provider preflight steps
 		// fold live-derived identity values (e.g. a Juju model UUID) into
 		// main.tf before the plan, and what lets post-import steps normalise it.
-		// --list only reads the provider schema, so it skips the clone.
+		// --list-types only reads the provider schema, so it skips the clone.
 		var err error
 		wrapperState, cloneDir, srcModulePath, err = loadAdoptedWrapperState(ctx, dir)
 		if err != nil {
@@ -317,8 +362,8 @@ func runImport(args []string) error {
 	// providers would otherwise wire nothing and import nothing.
 	detected := append([]string{provider}, importer.DeclaredProviderSources(dir)...)
 	providerImpl := providers.For(detected)
-	// --list only reads the provider schema; a model recorded in the target
-	// must not turn listing into a conflict check.
+	// --list-types only reads the provider schema; a model recorded in the
+	// target must not turn listing into a conflict check.
 	if providerImpl != nil && !listOnly {
 		defaults, derr := providerImpl.QueryDefaults(queryConfig, wrapperState, dir)
 		if derr != nil {

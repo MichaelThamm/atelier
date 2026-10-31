@@ -14,6 +14,9 @@ const presetsUsage = `Usage:
                                                variables. Reports names the module does not declare, keys
                                                nested in object values that the object type does not declare,
                                                and scalar type mismatches. Exits non-zero on any finding.
+
+Examples:
+  atelier presets lint --module ./terraform my.tfvars
 `
 
 // runPresets dispatches the `atelier presets` subcommand. A preset is a

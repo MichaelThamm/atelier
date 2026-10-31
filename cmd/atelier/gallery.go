@@ -25,6 +25,10 @@ const galleryUsage = `Usage:
                                                Clone each entry's pinned module and check that every
                                                required input (a variable with no default) is covered by
                                                the entry's presets or requires. Exits non-zero on drift.
+
+Examples:
+  atelier gallery list
+  atelier gallery requires cos-lite
 `
 
 // runGallery dispatches the `atelier gallery` subcommand. The gallery is

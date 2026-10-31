@@ -23,6 +23,94 @@ import (
 	"github.com/MichaelThamm/atelier/internal/wrapper"
 )
 
+const addUsage = `Usage:
+  atelier add <git-url|gallery-name> [flags]
+
+Add a module to the wrapper and open the editor on it. If the target (--dir,
+else the current directory) already holds a wrapper, appends a module block to
+it; otherwise creates a directory named after the module (or by --dir/--as) and
+scaffolds a wrapper there. 'add' does not run terraform init or apply — use
+'atelier apply' for that.
+
+A gallery name (see 'atelier gallery list') may be given instead of a URL; it
+resolves to the module, ref, block name, and preset.
+
+Options:
+  --as NAME              Name the module block (default: derived from the source).
+  --ref REF              Module revision: branch, tag, or commit.
+  --module SUBDIR        Subdirectory within the repository holding the module.
+  --dir PATH             Target directory (default: the current directory).
+  --var-file PATH|NAME   Seed values from a .tfvars bundle: a local path, a name
+                         in an ancestor atelier.presets/ directory, or a name
+                         committed to the module repo. Repeat for several.
+  --var KEY=VALUE        Set a module input. Repeatable; wins over --var-file.
+  --list-var-files       Print the .tfvars bundles this module can use and exit.
+  --all                  With --list-var-files, also print every bundled preset.
+  --strict               Make var-file binding warnings fatal.
+  --yes                  Skip the prompt before writing into a non-empty directory.
+  --json                 Write the result to stdout as JSON.
+
+Examples:
+  atelier add github.com/canonical/cos-lite//terraform
+  atelier add cos-lite --var-file single-unit --var model_uuid=abc
+`
+
+const applyUsage = `Usage:
+  atelier apply <git-url|gallery-name> [flags]
+
+Compose into the wrapper the target already holds (--dir, else the current
+directory) and deploy that root; otherwise scaffold a wrapper in a new directory
+and run 'terraform init' and 'terraform apply'. A new directory is named after
+the module candidate unless --as or --dir says otherwise. When the wrapper
+already declares the module, its block is updated rather than duplicated: --var
+merges into the values it holds and a changed --ref re-points it. At a terminal
+you confirm the plan at Terraform's prompt; with no terminal it applies with
+-auto-approve.
+
+A gallery name (see 'atelier gallery list') may be given instead of a URL; it
+resolves to the module, ref, block name, and preset.
+
+Options:
+  --as NAME              Select the block to update when the wrapper declares the
+                         module more than once.
+  --ref REF              Module revision; a changed ref re-points the block.
+  --module SUBDIR        Subdirectory within the repository holding the module.
+  --dir PATH             Target directory (default: the current directory).
+  --var-file PATH|NAME   Seed values from a .tfvars bundle. Repeat for several.
+  --var KEY=VALUE        Set a module input. Repeatable; wins over --var-file.
+  --list-var-files       Print the .tfvars bundles this module can use and exit.
+  --all                  With --list-var-files, also print every bundled preset.
+
+Examples:
+  atelier apply cos-lite
+  atelier apply github.com/canonical/cos-lite//terraform --ref v1.2.3
+`
+
+const rmUsage = `Usage:
+  atelier rm <name> [--force]
+
+Remove a module block from the wrapper in the current directory.
+
+Options:
+  --force    Remove without asking for confirmation.
+
+Examples:
+  atelier rm cos_lite
+`
+
+const lsUsage = `Usage:
+  atelier ls [--json] [--no-headers]
+
+List the module blocks in the wrapper in the current directory.
+
+Options:
+  --json          Write the modules to stdout as JSON.
+  --no-headers    Omit the table header row.
+
+Examples:
+  atelier ls
+`
+
 // moduleOpts holds the flags shared by `atelier add` and `atelier apply`.
 type moduleOpts struct {
 	Source       string   // positional git URL
@@ -32,7 +120,7 @@ type moduleOpts struct {
 	Dir          string   // --dir: target directory (add/apply)
 	VarFiles     []string // --var-file: seed values from a .tfvars file or repo-local name (repeatable)
 	Vars         []string // --var: KEY=VALUE overrides applied after all var-files (repeatable)
-	Yes          bool     // --yes/-y: skip the target-directory confirmation
+	Yes          bool     // --yes: skip the target-directory confirmation
 	ListVarFiles bool     // --list-var-files: print the .tfvars files available to a module and exit
 	AllVarFiles  bool     // --all: with --list-var-files, print every bundled bundle, not just this module's
 	Strict       bool     // --strict: make var-file binding warnings fatal
@@ -47,7 +135,7 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch a {
-		case "--yes", "-y":
+		case "--yes":
 			opts.Yes = true
 		case "--list-var-files":
 			opts.ListVarFiles = true
@@ -86,7 +174,7 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 			if i >= len(args) {
 				return opts, fmt.Errorf("--var-file requires a path")
 			}
-			opts.VarFiles = appendVarFileList(opts.VarFiles, args[i])
+			opts.VarFiles = append(opts.VarFiles, args[i])
 		case "--var":
 			i++
 			if i >= len(args) {
@@ -98,7 +186,7 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 			opts.Vars = append(opts.Vars, args[i])
 		default:
 			if strings.HasPrefix(a, "--var-file=") {
-				opts.VarFiles = appendVarFileList(opts.VarFiles, strings.TrimPrefix(a, "--var-file="))
+				opts.VarFiles = append(opts.VarFiles, strings.TrimPrefix(a, "--var-file="))
 				continue
 			}
 			if strings.HasPrefix(a, "--var=") {
@@ -132,18 +220,6 @@ func parseModuleArgs(args []string) (moduleOpts, error) {
 		return opts, errors.New("--all is only meaningful with --list-var-files")
 	}
 	return opts, nil
-}
-
-// appendVarFileList splits a comma-separated --var-file value into individual
-// names/paths. Commas are the one-shot syntax for several bundles
-// (`--var-file cos-s3,cos-units`); repeating the flag remains equivalent.
-func appendVarFileList(dst []string, raw string) []string {
-	for _, part := range strings.Split(raw, ",") {
-		if p := strings.TrimSpace(part); p != "" {
-			dst = append(dst, p)
-		}
-	}
-	return dst
 }
 
 // validateVarPair checks a `KEY=VALUE` --var argument and reports the same
@@ -313,7 +389,7 @@ func applyVarFlags(state *wrapper.State, wrapperDir, cloneDir, modulePath string
 // `apply`, it does not run `terraform init`/`apply`, and it never picks a
 // revision for you (the gallery name supplies one).
 func runModuleAdd(args []string) error {
-	if helpRequested(args, usage) {
+	if helpRequested(args, addUsage) {
 		return nil
 	}
 	opts, err := parseModuleArgs(args)
@@ -983,7 +1059,7 @@ func scaffoldIntoTarget(ctx context.Context, cwd string, opts moduleOpts) (strin
 // run `terraform init` and `terraform apply` (ADR-0034). It saves the user from
 // `mkdir && cd && terraform init && terraform apply`.
 func runModuleApply(args []string) error {
-	if helpRequested(args, usage) {
+	if helpRequested(args, applyUsage) {
 		return nil
 	}
 	opts, err := parseModuleArgs(args)
@@ -1304,13 +1380,13 @@ func bootstrapFreshWrapper(sourceBaseDir, dir, source, ref, modulePath string) (
 
 // runModuleRm implements `atelier rm <name>`.
 func runModuleRm(args []string) error {
-	if helpRequested(args, usage) {
+	if helpRequested(args, rmUsage) {
 		return nil
 	}
 	var force bool
 	var name string
 	for _, a := range args {
-		if a == "--force" || a == "-f" || a == "--yes" || a == "-y" {
+		if a == "--force" {
 			force = true
 		} else if strings.HasPrefix(a, "-") {
 			return fmt.Errorf("unknown flag %q for rm", a)
@@ -1350,7 +1426,7 @@ func runModuleRm(args []string) error {
 	if !force {
 		fmt.Fprintf(os.Stderr, "Removing module %q deletes its block from main.tf.\n", name)
 		fmt.Fprintf(os.Stderr, "Note: existing Terraform state for this module is NOT destroyed. Run 'terraform destroy -target=module.%s' first if needed.\n", name)
-		ok, err := confirm("Proceed?")
+		ok, err := confirm("Proceed?", "--force")
 		if err != nil {
 			return err
 		}
@@ -1387,14 +1463,17 @@ func runModuleList(args []string) error {
 	// The unknown-flag check below used to exempt --help and -h without
 	// consuming them, so `atelier ls --help` printed this command's table and
 	// exited 0. helpRequested consumes them first.
-	if helpRequested(args, usage) {
+	if helpRequested(args, lsUsage) {
 		return nil
 	}
 	asJSON := false
+	noHeaders := false
 	for _, a := range args {
 		switch {
 		case a == "--json":
 			asJSON = true
+		case a == "--no-headers":
+			noHeaders = true
 		case strings.HasPrefix(a, "-"):
 			return fmt.Errorf("unknown flag %q for ls", a)
 		}
@@ -1409,7 +1488,7 @@ func runModuleList(args []string) error {
 		if asJSON {
 			return renderJSON(os.Stdout, "ls", lsPayload(false, nil))
 		}
-		fmt.Println("Not a wrapper directory (no main.tf). Run 'atelier wrappers' to find wrappers under here.")
+		fmt.Fprintln(os.Stderr, "Not a wrapper directory (no main.tf). Run 'atelier wrappers' to find wrappers under here.")
 		return nil
 	}
 
@@ -1421,7 +1500,7 @@ func runModuleList(args []string) error {
 		if asJSON {
 			return renderJSON(os.Stdout, "ls", lsPayload(true, nil))
 		}
-		fmt.Println("No modules found in this wrapper.")
+		fmt.Fprintln(os.Stderr, "No modules found in this wrapper.")
 		return nil
 	}
 
@@ -1430,7 +1509,9 @@ func runModuleList(args []string) error {
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSOURCE\tREF")
+	if !noHeaders {
+		fmt.Fprintln(tw, "NAME\tSOURCE\tREF")
+	}
 	for _, blk := range blocks {
 		src, ref := modulesource.Decompose(blk.Source)
 		if ref == "" {
