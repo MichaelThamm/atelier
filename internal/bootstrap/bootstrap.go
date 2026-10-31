@@ -38,6 +38,11 @@ type InitOptions struct {
 	ModulePath  string // candidate path within the cloned repo; empty → pick interactively / auto-pick if one
 	GitRunner   gitops.Runner
 
+	// Depth is the shallow-clone depth written into the wrapper's source as
+	// ?depth=N. Zero omits it (a full clone). A positive depth is dropped for
+	// a commit-SHA ref, which Terraform rejects; see modulesource.EffectiveDepth.
+	Depth int
+
 	// AllGalleryVar widens a ListVarFiles call to every bundle Atelier ships,
 	// not just the ones that deploy Source//ModulePath. Only --list-var-files
 	// reads it.
@@ -248,7 +253,7 @@ func LoadRequiredVars(ctx context.Context, source, ref, subdir string) ([]string
 // path, and required-provider information. This is the pure assembly step:
 // no git, no terraform. The caller has already cloned and (optionally) run
 // `terraform init` to fetch providers.
-func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sourceURL string) (*wrapper.State, error) {
+func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sourceURL string, depth int) (*wrapper.State, error) {
 	candidateDir := filepath.Join(cloneDir, modulePath)
 	vars, err := tfvars.LoadDir(candidateDir)
 	if err != nil {
@@ -258,7 +263,7 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 	if err != nil {
 		return nil, fmt.Errorf("read required_providers: %w", err)
 	}
-	wrappedSource := modulesource.Compose(sourceURL, modulePath, literalRef)
+	wrappedSource := modulesource.Compose(sourceURL, modulePath, literalRef, depth)
 
 	providers := DefaultProviderBlocks(req)
 	values := map[string]cty.Value{}
@@ -284,11 +289,11 @@ func PrepareState(wrapperDir, cloneDir, modulePath, resolvedSHA, literalRef, sou
 // Keeping this separate from PrepareState (which requires a real clone)
 // documents that empty Vars here is intentional, not a read failure, and
 // avoids masking genuine clone problems on the normal path.
-func PrepareStateFromMain(wrapperDir, modulePath, literalRef, sourceURL string) *wrapper.State {
+func PrepareStateFromMain(wrapperDir, modulePath, literalRef, sourceURL string, depth int) *wrapper.State {
 	return &wrapper.State{
 		Dir:             wrapperDir,
 		ModuleBlockName: ModuleBlockName(modulePath, modulesource.RepoBasename(sourceURL)),
-		Source:          modulesource.Compose(sourceURL, modulePath, literalRef),
+		Source:          modulesource.Compose(sourceURL, modulePath, literalRef, depth),
 		Vars:            nil,
 		Values:          map[string]cty.Value{},
 	}
@@ -372,7 +377,7 @@ func PrepareModule(ctx context.Context, opts InitOptions) (*ModulePrep, error) {
 		}
 	}
 
-	state, err := PrepareState(opts.WrapperDir, cloneDir, modulePath, sha, opts.Ref, opts.Source)
+	state, err := PrepareState(opts.WrapperDir, cloneDir, modulePath, sha, opts.Ref, opts.Source, opts.Depth)
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +419,7 @@ func (b *BlockLoader) LoadModuleBlock(ctx context.Context, wrapperDir, blockName
 		return nil, "", "", err
 	}
 
-	state, err := PrepareState(wrapperDir, cloneDir, modulePath, sha, ref, remote)
+	state, err := PrepareState(wrapperDir, cloneDir, modulePath, sha, ref, remote, modulesource.DepthOf(source))
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -455,7 +460,7 @@ func LoadRefState(ctx context.Context, opts InitOptions, blockName string, prior
 	if err != nil {
 		return nil, "", "", err
 	}
-	state, err := PrepareState(opts.WrapperDir, cloneDir, opts.ModulePath, sha, opts.Ref, opts.Source)
+	state, err := PrepareState(opts.WrapperDir, cloneDir, opts.ModulePath, sha, opts.Ref, opts.Source, opts.Depth)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -689,7 +694,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 		})
 	}
 
-	state, err := PrepareState(wrapperDir, cloneDir, prev.ModuleCandidatePath, currentSHA, prev.LiteralRef, prev.SourceURL)
+	state, err := PrepareState(wrapperDir, cloneDir, prev.ModuleCandidatePath, currentSHA, prev.LiteralRef, prev.SourceURL, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -702,6 +707,12 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 	}
 	if pm != nil {
 		state.ModuleBlockName = pm.ModuleBlockName
+		// Take the source verbatim from main.tf, not the recomposed form, so
+		// a hand-edit — including a ?depth= the session does not track — is
+		// preserved across a later save.
+		if pm.Source != "" {
+			state.Source = pm.Source
+		}
 		for k, v := range pm.Values {
 			state.Values[k] = v
 		}
@@ -738,7 +749,7 @@ func LoadExisting(ctx context.Context, wrapperDir string, gitRunner gitops.Runne
 // ref-switch modal. The wrapper's on-disk files are never mutated here — this
 // is a read-only recovery path.
 func loadDegraded(wrapperDir string, prev *session.Session, unresolved *RefUnresolved) (*Result, error) {
-	state := PrepareStateFromMain(wrapperDir, prev.ModuleCandidatePath, prev.LiteralRef, prev.SourceURL)
+	state := PrepareStateFromMain(wrapperDir, prev.ModuleCandidatePath, prev.LiteralRef, prev.SourceURL, 0)
 
 	// Overlay user values and wired expressions from disk. Vars is nil, so
 	// ReadMain can't type-check values against a schema; it recovers them
@@ -746,6 +757,9 @@ func loadDegraded(wrapperDir string, prev *session.Session, unresolved *RefUnres
 	if pm, err := wrapper.ReadMain(wrapperDir, state.Vars); err == nil && pm != nil {
 		if pm.ModuleBlockName != "" {
 			state.ModuleBlockName = pm.ModuleBlockName
+		}
+		if pm.Source != "" {
+			state.Source = pm.Source
 		}
 		for k, v := range pm.Values {
 			state.Values[k] = v

@@ -534,3 +534,37 @@ func withWrapperDir(t *testing.T, main string) {
 	}
 	t.Cleanup(func() { os.Chdir(old) })
 }
+
+// --- parseModuleArgs: --depth ---
+
+func TestParseModuleArgs_Depth(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      []string
+		wantDepth int
+		wantSet   bool
+	}{
+		{"default is shallow", []string{"url"}, 1, false},
+		{"explicit value", []string{"url", "--depth", "5"}, 5, true},
+		{"explicit equals", []string{"url", "--depth=3"}, 3, true},
+		{"zero is full clone", []string{"url", "--depth", "0"}, 0, true},
+		{"no-depth is full clone", []string{"url", "--no-depth"}, 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			opts, err := parseModuleArgs(c.args)
+			if err != nil {
+				t.Fatalf("parse(%v): %v", c.args, err)
+			}
+			if opts.Depth != c.wantDepth || opts.DepthSet != c.wantSet {
+				t.Errorf("parse(%v) depth = (%d, set %v), want (%d, %v)",
+					c.args, opts.Depth, opts.DepthSet, c.wantDepth, c.wantSet)
+			}
+		})
+	}
+	for _, bad := range [][]string{{"url", "--depth", "-1"}, {"url", "--depth", "abc"}, {"url", "--depth"}} {
+		if _, err := parseModuleArgs(bad); err == nil {
+			t.Errorf("parse(%v) accepted an invalid --depth", bad)
+		}
+	}
+}

@@ -71,6 +71,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0062 | [`atelier apply` runs `init -upgrade` only when the wrapper changed](0062-apply-upgrades-only-when-changed.md) | Accepted |
 | 0063 | [Per-phase Terraform budgets and naming the manual fallback](0063-terraform-budgets-and-manual-fallback.md) | Accepted |
 | 0064 | [Command-scoped help and one spelling per flag](0064-command-scoped-help-and-single-flag-spellings.md) | Accepted |
+| 0065 | [Shallow git module clones by default](0065-shallow-git-clones-by-default.md) | Accepted |
 
 ## Conventions
 

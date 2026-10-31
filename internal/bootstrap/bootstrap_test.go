@@ -130,7 +130,7 @@ terraform {
 	}
 
 	wrapperDir := t.TempDir()
-	state, err := PrepareState(wrapperDir, cloneDir, modPath, "abc123", "v1.2.0", "https://example.com/m.git")
+	state, err := PrepareState(wrapperDir, cloneDir, modPath, "abc123", "v1.2.0", "https://example.com/m.git", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -597,5 +597,31 @@ func TestResolveAndClone_reclonesWhenSHADiffers(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Errorf("expected stale clone to be wiped, marker stat err = %v", err)
+	}
+}
+
+func TestPrepareState_depth(t *testing.T) {
+	cloneDir := t.TempDir()
+	const sha = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	cases := []struct {
+		name    string
+		ref     string
+		depth   int
+		wantSrc string
+	}{
+		{"branch shallow", "main", 1, "git::https://example.com/m.git?ref=main&depth=1"},
+		{"sha drops depth", sha, 1, "git::https://example.com/m.git?ref=" + sha},
+		{"explicit full", "main", 0, "git::https://example.com/m.git?ref=main"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			state, err := PrepareState(t.TempDir(), cloneDir, "", "abc123", c.ref, "https://example.com/m.git", c.depth)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state.Source != c.wantSrc {
+				t.Errorf("Source = %q, want %q", state.Source, c.wantSrc)
+			}
+		})
 	}
 }

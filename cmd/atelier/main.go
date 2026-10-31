@@ -3,13 +3,13 @@
 // Surface (SPEC §6):
 //
 //	atelier                                     open the wrapper in CWD
-//	atelier add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR] [--dir PATH] [--yes]
+//	atelier add <git-url|gallery-name> [--as NAME] [--ref REF] [--module SUBDIR] [--dir PATH] [--depth N] [--yes]
 //	                                            add a module and open the editor (bootstraps a new
 //	                                            wrapper, or appends to one the target already holds)
 //	atelier rm <name> [--force]                 remove a module from the wrapper
 //	atelier ls                                  list modules in the wrapper
 //	atelier wrappers [PATH]                     list wrappers directly under a directory
-//	atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH]
+//	atelier apply <git-url|gallery-name> [--module SUBDIR] [--ref REF] [--dir PATH] [--depth N]
 //	                                            compose into the wrapper the target holds and deploy
 //	                                            it, or scaffold a new one and init and apply it
 //	atelier purge [PATH] [--force]              remove .atelier/ and .clone/
@@ -336,6 +336,7 @@ func launchTUI(res *bootstrap.Result, wrapperDir string) error {
 			modulePath:          modulesource.ModulePath(state.Source),
 			blockName:           state.ModuleBlockName,
 			isPrimary:           true,
+			depth:               modulesource.DepthOf(state.Source),
 			currentVars:         state.Vars,
 			currentValues:       state.Values,
 			currentUnknownAttrs: state.UnknownAttrs,
@@ -468,6 +469,7 @@ func moduleEntry(wrapperDir string, mod bootstrap.LoadedModule) tui.ModuleEntry 
 			modulePath:          modulesource.ModulePath(mod.State.Source),
 			blockName:           mod.Name,
 			isPrimary:           false,
+			depth:               modulesource.DepthOf(mod.State.Source),
 			currentVars:         mod.State.Vars,
 			currentValues:       mod.State.Values,
 			currentUnknownAttrs: mod.State.UnknownAttrs,
@@ -488,6 +490,7 @@ type prodRefSwitcher struct {
 	modulePath    string
 	blockName     string
 	isPrimary     bool
+	depth         int
 	currentVars   []tfvars.Variable
 	currentValues map[string]cty.Value
 	// currentUnknownAttrs holds wired expressions (e.g.
@@ -506,6 +509,7 @@ func (s *prodRefSwitcher) SwitchRef(ctx context.Context, newRef string) (*tui.Re
 		WrapperDir: s.wrapperDir,
 		Source:     s.sourceURL,
 		Ref:        newRef,
+		Depth:      s.depth,
 		ModulePath: s.modulePath,
 	}, s.blockName, s.currentValues, s.currentUnknownAttrs)
 	if err != nil {
