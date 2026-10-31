@@ -75,6 +75,46 @@ func ManualRunHint(workdir, verb string) string {
 	return fmt.Sprintf("cd %s && terraform init && terraform %s", workdir, verb)
 }
 
+// PluginCacheEnvVar is Terraform's environment variable for a shared provider
+// plugin cache: Terraform installs a provider into the cache once and symlinks
+// it into each root's .terraform/providers, instead of downloading it for
+// every wrapper. See ADR-0066.
+const PluginCacheEnvVar = "TF_PLUGIN_CACHE_DIR"
+
+// PluginCacheDir returns Atelier's shared provider plugin cache directory
+// (<user cache>/atelier/terraform/plugins), or "" when the user cache
+// directory cannot be determined.
+func PluginCacheDir() string {
+	base, err := os.UserCacheDir()
+	if err != nil || base == "" {
+		return ""
+	}
+	return filepath.Join(base, "atelier", "terraform", "plugins")
+}
+
+// EnablePluginCache points Terraform at a shared, per-user provider plugin
+// cache so a provider is downloaded once per machine rather than once per
+// wrapper. It is best-effort and never overrides a value the user already set:
+// a cache that cannot be created must not stop Terraform from running.
+//
+// It sets the process environment rather than a per-command one because
+// terraform-exec reads os.Environ for every command, and an explicit env would
+// have to drop the TF_VAR_* / TF_CLI_ARGS_* entries terraform-exec refuses to
+// manage.
+func EnablePluginCache() {
+	if os.Getenv(PluginCacheEnvVar) != "" {
+		return
+	}
+	dir := PluginCacheDir()
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	_ = os.Setenv(PluginCacheEnvVar, dir)
+}
+
 // Locate returns the path to the terraform (or tofu) binary on $PATH, or an
 // actionable error message if it isn't installed.
 func Locate() (string, error) {

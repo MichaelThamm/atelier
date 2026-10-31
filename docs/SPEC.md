@@ -184,6 +184,12 @@ attributes. See [ROADMAP.md](ROADMAP.md).
 See [ADR-0003](adr/0003-gitops-loading.md) and
 [ADR-0008](adr/0008-provider-schema-discovery.md).
 
+Providers are installed through a shared, per-user plugin cache: Atelier points
+Terraform at `<user cache>/atelier/terraform/plugins` so a provider is
+downloaded once per machine and symlinked into each wrapper, rather than
+re-downloaded for every wrapper. A `TF_PLUGIN_CACHE_DIR` the user set is left
+alone. See [ADR-0066](adr/0066-shared-provider-plugin-cache.md).
+
 ### 5.3 Ref handling
 
 When the user types a ref (e.g. `main`, `v1.2.0`, `abc123`), Atelier:
