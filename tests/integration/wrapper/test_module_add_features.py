@@ -59,7 +59,8 @@ def test_add_writes_module_block_with_subdir_source(tmp_path):
     # THEN the block is named after the repo, at //terraform
     main_tf = _main_tf(tmp_path)
     assert re.search(rf'module\s+"{PROM_BLOCK}"', main_tf), main_tf
-    assert _source(main_tf) == PROM_SOURCE
+    # A git source is shallow-cloned by default; there is no ref to pin here.
+    assert _source(main_tf) == f"{PROM_SOURCE}?depth=1"
     # AND the payload reports where the wrapper went, so the test need not guess
     assert Path(added["wrapper"]) == tmp_path / WRAPPER_DIR
     assert added["added"]["name"] == PROM_BLOCK
@@ -70,9 +71,33 @@ def test_ref_is_pinned_in_the_source(tmp_path):
     added = json.loads(atelier(f"add {PROM_REPO} --module {PROM_MODULE} --ref {PROM_REF}"
                                f" --dir {WRAPPER_DIR} --strict --yes --json",
                                cwd=tmp_path).stdout)["data"]
-    # THEN the git source pins that ref
-    assert _source(_main_tf(tmp_path)) == f"{PROM_SOURCE}?ref={PROM_REF}"
+    # THEN the git source pins that ref, shallow by default
+    assert _source(_main_tf(tmp_path)) == f"{PROM_SOURCE}?ref={PROM_REF}&depth=1"
     assert added["added"]["ref"] == PROM_REF
+
+
+def test_depth_defaults_to_shallow_and_can_be_overridden(tmp_path):
+    # WHEN a branch module is added with no depth flag
+    atelier(f"add {PROM_REPO} --module {PROM_MODULE} --ref {PROM_REF}"
+            f" --dir {WRAPPER_DIR} --strict --yes --json",
+            cwd=tmp_path)
+    # THEN the source is shallow by default
+    assert _source(_main_tf(tmp_path)) == f"{PROM_SOURCE}?ref={PROM_REF}&depth=1"
+
+    # WHEN it is added again with --no-depth into a fresh wrapper
+    shutil.rmtree(tmp_path / WRAPPER_DIR)
+    atelier(f"add {PROM_REPO} --module {PROM_MODULE} --ref {PROM_REF} --no-depth"
+            f" --dir {WRAPPER_DIR} --strict --yes --json",
+            cwd=tmp_path)
+    # THEN no depth is written
+    assert _source(_main_tf(tmp_path)) == f"{PROM_SOURCE}?ref={PROM_REF}"
+
+    # AND an explicit depth is honoured
+    shutil.rmtree(tmp_path / WRAPPER_DIR)
+    atelier(f"add {PROM_REPO} --module {PROM_MODULE} --ref {PROM_REF} --depth 5"
+            f" --dir {WRAPPER_DIR} --strict --yes --json",
+            cwd=tmp_path)
+    assert _source(_main_tf(tmp_path)) == f"{PROM_SOURCE}?ref={PROM_REF}&depth=5"
 
 
 def test_var_file_applies_typed_values(tmp_path):
