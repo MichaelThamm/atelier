@@ -173,6 +173,14 @@
     "requires": ["model_uuid"]
   },
   {
+    "name": "pyroscope-operators",
+    "description": "Pyroscope for Kubernetes: a horizontally scalable, multi-tenant continuous profiling backend.",
+    "module": "https://github.com/canonical/pyroscope-operators",
+    "subdir": "terraform",
+    "ref": "160be647c7de3d49d2558e0f7bc7a9fdda7b35c0",
+    "requires": ["channel=dev/edge", "model_uuid", "s3_access_key", "s3_secret_key", "s3_endpoint"]
+  },
+  {
     "name": "saml-integrator",
     "description": "A SAML integrator on Kubernetes, for signing in to a product with an external identity provider.",
     "module": "https://github.com/canonical/saml-integrator-operator",
