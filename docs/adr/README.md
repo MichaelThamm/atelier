@@ -73,6 +73,7 @@ Format follows the Michael Nygard template, lightly extended.
 | 0064 | [Command-scoped help and one spelling per flag](0064-command-scoped-help-and-single-flag-spellings.md) | Accepted |
 | 0065 | [Shallow git module clones by default](0065-shallow-git-clones-by-default.md) | Accepted |
 | 0066 | [Share one Terraform provider plugin cache](0066-shared-provider-plugin-cache.md) | Accepted |
+| 0067 | [A live deployment exports as a module wrapper, never flat configuration](0067-no-flat-live-export.md) | Accepted |
 
 ## Conventions
 
