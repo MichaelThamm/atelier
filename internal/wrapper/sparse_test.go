@@ -152,3 +152,46 @@ func TestSparseValue_primitive_passthrough(t *testing.T) {
 		t.Errorf("got %v", got.GoString())
 	}
 }
+
+// A ref switch that changes a variable's declared type (string → object) can
+// leave a stale scalar under the object schema. SparseValue must hand it back
+// rather than treat it as an object, or AsValueMap panics on a non-collection.
+func TestSparseValue_objectSchema_scalarValue(t *testing.T) {
+	v := &tfvars.Variable{
+		Name:       "model",
+		Type:       mustParseType(t, `object({ uuid = optional(string) })`),
+		HasDefault: true,
+		Default:    cty.EmptyObjectVal,
+	}
+	cur := cty.StringVal("charmarr")
+
+	if got := SparseValue(v, cur); !got.RawEquals(cur) {
+		t.Errorf("SparseValue = %#v, want the scalar unchanged", got)
+	}
+	if !ShouldEmit(v, cur) {
+		t.Error("a present, non-default value should still emit")
+	}
+}
+
+// The same drift can occur on a nested object field; the field must be kept
+// rather than dropped when the recursion hands it back unchanged.
+func TestSparseValue_nestedObjectSchema_scalarValue(t *testing.T) {
+	v := &tfvars.Variable{
+		Name: "model",
+		Type: mustParseType(t, `object({
+			name  = optional(string)
+			cloud = optional(object({ name = string }))
+		})`),
+		HasDefault: true,
+		Default:    cty.EmptyObjectVal,
+	}
+	cur := cty.ObjectVal(map[string]cty.Value{
+		"name":  cty.StringVal("charmarr"),
+		"cloud": cty.StringVal("stale"),
+	})
+
+	got := SparseValue(v, cur)
+	if cloud := got.AsValueMap()["cloud"]; cloud.AsString() != "stale" {
+		t.Errorf("mismatched nested field = %#v, want the scalar preserved", cloud)
+	}
+}

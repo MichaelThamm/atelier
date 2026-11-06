@@ -72,6 +72,13 @@ func sparseFor(t *tftypes.Type, current, defVal cty.Value) cty.Value {
 	if current.IsNull() {
 		return current
 	}
+	if !current.Type().IsObjectType() {
+		// The schema declares an object but the stored value is a different
+		// shape — a stale scalar left in main.tf when a ref switch changed the
+		// variable's type. There are no sub-fields to subset, so hand it back
+		// rather than dereferencing a non-collection.
+		return current
+	}
 
 	// Object: build a partial-object value containing only fields whose
 	// values differ from their declared defaults (the optional(T, default)

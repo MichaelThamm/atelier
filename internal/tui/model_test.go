@@ -321,6 +321,23 @@ func TestVarMarker(t *testing.T) {
 	}
 }
 
+// A stale scalar under an object-typed schema must not panic varMarker and
+// should read as modified (the value is present and differs from the default).
+func TestVarMarker_objectSchema_scalarValue(t *testing.T) {
+	state := &wrapper.State{
+		Vars: []tfvars.Variable{{
+			Name:       "model",
+			Type:       mustParseType(t, `object({ uuid = optional(string) })`),
+			HasDefault: true,
+			Default:    cty.EmptyObjectVal,
+		}},
+		Values: map[string]cty.Value{"model": cty.StringVal("charmarr")},
+	}
+	if got := stripANSI(varMarker(state, "model")); got != "[✓]" {
+		t.Errorf("object schema + scalar value = %q, want [✓]", got)
+	}
+}
+
 func TestView_doesNotPanic(t *testing.T) {
 	m := New(sampleState(t), "cos_lite")
 	m = feed(m, tea.WindowSizeMsg{Width: 80, Height: 24})

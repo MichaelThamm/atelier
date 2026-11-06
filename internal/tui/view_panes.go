@@ -425,10 +425,14 @@ func varMarker(state *wrapper.State, name string) string {
 	}
 	if v.Type != nil && v.Type.Kind == tftypes.KindObject && !current.IsNull() {
 		sparse := wrapper.SparseValue(v, current)
-		if sparse.Type().IsObjectType() && sparse.LengthInt() > 0 {
-			return styleMarkerModified.Render(fmt.Sprintf("[✓%d]", sparse.LengthInt()))
+		if sparse.Type().IsObjectType() {
+			if sparse.LengthInt() > 0 {
+				return styleMarkerModified.Render(fmt.Sprintf("[✓%d]", sparse.LengthInt()))
+			}
+			return styleMarkerAtDefault.Render("[ ]")
 		}
-		return styleMarkerAtDefault.Render("[ ]")
+		// Schema says object but the stored value is a different shape;
+		// fall through to the generic present-vs-default marker.
 	}
 	if !wrapper.ShouldEmit(v, current) {
 		return styleMarkerAtDefault.Render("[ ]")
