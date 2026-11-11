@@ -243,7 +243,10 @@ Two further reasons not to build it:
 output pairing each offer with its interface, and a consumer input declaring
 what it requires — at which point a generic matcher exists and a curated mapping
 becomes checkable against the pinned ref. Worth raising with the module teams;
-it is their modelling gap, not an Atelier one.
+it is their modelling gap, not an Atelier one. The convention the products
+adopt to satisfy it is specified in
+[SPEC-interfaces.md](SPEC-interfaces.md), with the naming rule in
+[ADR-0067](adr/0067-interface-keys-are-charm-interface-names.md).
 
 Independently of that, **Atelier cannot read `output` blocks at all**:
 `internal/tfvars` parses `variable` blocks and nothing else, and `outputs.tf` is
