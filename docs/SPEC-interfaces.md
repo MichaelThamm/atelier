@@ -7,7 +7,7 @@ operator pasting live offer URLs by hand.
 This document is the concrete, product-facing convention. It is normative for
 any module that wants to interoperate with COS: producers publish an
 **interface catalog**, consumers declare the interfaces they require, and a
-wire is a plain `module.<producer>.interfaces` reference keyed by product. The
+wire is a plain `module.<producer>.interfaces` reference keyed by family. The
 interface-naming rule is recorded in
 [ADR-0067](adr/0067-interface-keys-are-charm-interface-names.md).
 
@@ -31,9 +31,9 @@ The convention makes the relation itself the contract:
 
 - A **producer** publishes a typed `interfaces` output whose keys are the Juju
   interface names and whose values are the offer URLs.
-- A **consumer** declares a product-keyed `interfaces` input naming the
+- A **consumer** declares a family-keyed `interfaces` input naming the
   interfaces it requires.
-- A wire is `interfaces = { <product> = module.<producer>.interfaces }` — plain
+- A wire is `interfaces = { <family> = module.<producer>.interfaces }` — plain
   Terraform, no new format, and the wrapper still runs without Atelier.
 
 ## 2. Status and scope
@@ -47,6 +47,10 @@ The convention makes the relation itself the contract:
 - **Out of scope:** how a producer builds its offers, which charms it backs them
   with, and any tool that consumes the catalog. The convention is Terraform and
   Juju only.
+- **Not part of this contract:** a producer's raw `offers` output, where one
+  exists (COS keeps it for backward compatibility). It is a product-specific
+  surface; the catalog is the contract, and new producers publish `interfaces`
+  alone.
 
 ## 3. Terminology
 
@@ -56,9 +60,9 @@ The convention makes the relation itself the contract:
 | **Producer** | A product module that publishes an interface catalog — every relation it can integrate over, as offer URLs. COS and Cos Lite are producers. |
 | **Consumer** | A product module that requires some of those interfaces and declares them in an input. Charmed Spark is a consumer. |
 | **Catalog** | The producer's typed `interfaces` output: a set of interface keys, each value an offer URL. |
-| **Product key** | The key a consumer uses in its `interfaces` input to name the producer's interface family (`cos`). A documented convention, not an output the producer declares. |
+| **Family key** | The key a consumer uses in its `interfaces` input to name the producer's interface family (`cos`). A documented convention, not an output the producer declares. |
 | **Key** | One attribute of the catalog: the interface name. |
-| **Wire** | `interfaces = { <product> = module.<producer>.interfaces }` written into the consumer's `module` block. |
+| **Wire** | `interfaces = { <family> = module.<producer>.interfaces }` written into the consumer's `module` block. |
 
 ## 4. The convention
 
@@ -93,12 +97,16 @@ output "interfaces" {
 
 Rules:
 
-- **One key per relation.** The key is the interface name, never the endpoint
-  or offer name (`grafana_dashboard`, not `grafana-dashboards` or
-  `grafana_dashboards`). See §5.
-- **Value is the offer URL string.** Not the `juju_offer` resource object. The
-  catalog is a stable, typed surface; the producer maps offers to URLs
-  internally.
+- **One key per relation, one offer per interface.** The key is the interface
+  name, never the endpoint or offer name (`grafana_dashboard`, not
+  `grafana-dashboards` or `grafana_dashboards`). See §5. A catalog keys by
+  interface, so it exposes at most one offer per interface.
+- **Value is the offer URL the consumer integrates to.** Not the `juju_offer`
+  resource object. The catalog is a stable, typed surface; the producer maps
+  offers to URLs internally. The interface name tells the consumer which of its
+  own endpoints to use, so whether the product provides or requires the relation
+  does not change the wiring. This is the cross-model mechanism: the values are
+  Juju offer URLs.
 - **Publish every interface the product participates in**, whether the product
   provides it or requires it. The catalog is the product's participation, not
   only what it serves. Cos Lite lists `prometheus_scrape` even though COS's
@@ -110,21 +118,21 @@ Rules:
 - **The catalog name is fixed.** Every producer names its catalog `interfaces`,
   so a consumer wires the same way regardless of product. Producers that satisfy
   the same interfaces publish the same keys — COS and Cos Lite do — so a
-  consumer works against either. The interface family (`cos`) is a documented
+  consumer works against either. The family key (`cos`) is a documented
   convention the consumer keys by, not an output the producer declares. COS and
   Cos Lite sharing the `cos` key is a deliberate exception, revisitable if the
   two ever diverge.
 
 ### 4.2 Consumer: declare the interfaces it requires
 
-A consumer declares one input, always named `interfaces`, keyed by product; the
-value for each product is typed as exactly the interfaces it requires. The type
+A consumer declares one input, always named `interfaces`, keyed by family; the
+value for each family is typed as exactly the interfaces it requires. The type
 *is* the declaration:
 
 ```hcl
 # terraform/products/charmed-spark/variables.tf
 variable "interfaces" {
-  description = "Observability products Spark integrates with, keyed by product (`cos`)."
+  description = "Observability products Spark integrates with, keyed by family (`cos`)."
   type = object({
     cos = optional(object({
       grafana_dashboard       = string
@@ -137,7 +145,7 @@ variable "interfaces" {
 ```
 
 The consumer integrates each declared interface and ignores the rest. The
-component receives the product value (`var.interfaces.cos`) and reads it by
+component receives the family value (`var.interfaces.cos`) and reads it by
 interface name:
 
 ```hcl
@@ -155,71 +163,51 @@ data "juju_offer" "loki_logging" {
 }
 ```
 
-### 4.3 The join: family key, interface keys, and type
+### 4.3 The join: interface keys and type
 
-A producer output and a consumer input join when:
+A producer output and a consumer input join when the consumer's required
+interface set is a subset of the producer's published set. For the family key
+`cos`:
 
-1. **The family matches.** The consumer's product key (`cos`) names the
-   interface family the producer belongs to (COS and Cos Lite both integrate as
-   `cos`).
-2. **The consumer's product value is structurally compatible** with the
-   producer's `interfaces` value: every attribute the consumer names under that
-   product exists in the producer with a compatible type.
+1. **The interfaces match.** Every interface the consumer names under `cos`
+   exists in the producer's `interfaces` output with a compatible type
+   (`required ⊆ offered`).
+2. **The family key is the consumer's label.** `cos` is the name the consumer
+   gives this producer. It is a convention, not something Terraform or a tool
+   verifies; two producers with the same keys are interchangeable for the
+   consumer whatever their backing charms.
 
 Terraform drops the producer's extra attributes on assignment, so a producer
 may offer more interfaces than a consumer names and the same consumer works
 against COS or Cos Lite.
 
-### 4.4 Whole object, subset, and optional products
+### 4.4 Whole object, one producer per family
 
-- Each product is **optional**: declare it as `optional(object({ … }))` and a
-  consumer wires only the products it integrates with.
-- An **`object({ … })`-typed** product value requires exactly the named
-  interfaces and is wired **whole** — none or all. This is the recommended
-  default: the requirement is readable from the input type, and Terraform
-  enforces it.
-- A **`map(string)`-typed** product value can take an arbitrary subset. A
-  consumer that needs this gates on the keys it was given:
-
-  ```hcl
-  # subset-capable consumer
-  variable "interfaces" {
-    type = object({
-      cos = optional(map(string), {})
-    })
-    default = {}
-  }
-
-  module "observability" {
-    count      = contains(keys(var.interfaces.cos), "loki_push_api") ? 1 : 0
-    interfaces = var.interfaces.cos
-  }
-  ```
-
-  This is the only case where a per-interface choice is possible, and it pays
-  for itself in ceremony. Prefer the object type unless a product genuinely
-  needs to accept a varying set.
+- Each family is **optional**: declare it as `optional(object({ … }))` and a
+  consumer wires only the families it integrates with.
+- A family value is **whole**: a consumer names exactly the interfaces it
+  requires and is wired **none or all** of that family. There is no
+  per-interface subset; the requirement is readable from the input type, and
+  Terraform enforces it.
+- **One producer per family.** A consumer wires one producer per family key.
+  Cases that need more are variants, not the default; see §4.7.
 
 ### 4.5 Gate on structure, never on values
 
 A wired value's **values** are unknown until the producer applies, but its
-**structure** — whether a product is null, and an object's or a map's keys — is
-known at plan. `count` and `for_each` may therefore depend on structure and must
-never depend on a value:
+**structure** — whether a family is null — is known at plan. `count` and
+`for_each` may therefore depend on structure and must never depend on a value:
 
 ```hcl
-# OK at plan: the product value is a known object even when its attributes are not
+# OK at plan: the family value is a known object even when its attributes are not
 count = var.interfaces.cos == null ? 0 : 1
-
-# OK at plan: a map's keys are known even when its values are not (map form, §4.4)
-count = contains(keys(var.interfaces.cos), "loki_push_api") ? 1 : 0
 
 # NOT ok: fails when interfaces is wired to another module's output
 count = var.interfaces.cos.prometheus_remote_write != null ? 1 : 0
 ```
 
-The third form fails because an attribute of a module output is unknown at
-plan. The first two are safe because they read the type's shape.
+The second form fails because an attribute of a module output is unknown at
+plan. The first is safe because it reads the type's shape.
 
 ### 4.6 What a wire looks like
 
@@ -237,6 +225,37 @@ module "charmed_spark" {
 Only the interfaces Spark requires are carried; the producer's other keys are
 dropped by Terraform. `terraform apply` is the deployment mechanism — the wire
 is data, not orchestration.
+
+### 4.7 Variants and escape hatches
+
+The default is one producer per family (§4.4). Two cases fall outside it, and
+neither is the default for adoption:
+
+- **Multiple producers of one family.** To wire a consumer to two producers of
+  the same family (for example two COS deployments), nest an instance map under
+  the family key:
+
+  ```hcl
+  variable "interfaces" {
+    type = object({
+      cos = optional(map(object({
+        grafana_dashboard       = string
+        loki_push_api           = string
+        prometheus_remote_write = string
+      })))
+    })
+    default = {}
+  }
+  # interfaces = { cos = { prod = module.cos_prod.interfaces, eu = module.cos_eu.interfaces } }
+  ```
+
+- **Per-interface composition.** Sourcing different interfaces of one family
+  from different producers is not specified; it would need its own shape.
+
+For anything else — several products in one consumer, or a shape that does not
+fit — declare a **custom input** outside `interfaces`. It is a supported escape
+hatch, but it is outside the convention: a matcher does not see it, and it is a
+manual wire like the `offers` output it replaces.
 
 ## 5. Key naming
 
@@ -304,6 +323,9 @@ rule is:
   duplicate: each interface carries a distinct signal.
 - **Selecting is the consumer's job.** The producer publishes the whole set;
   the consumer's input type is where the selection is declared and reviewed.
+- **Two producers mean two sends.** The same applies to §4.7's instance map: a
+  consumer wired to two producers of one family sends each declared signal to
+  both unless the shape says otherwise.
 
 ### 5.5 Stability and breaking changes
 
@@ -359,9 +381,9 @@ output "interfaces" {
 
 A consumer of that product wires `interfaces = { postgresql = module.postgresql.interfaces }`.
 Two producers of the same interface family publish the same keys so they stay
-interchangeable, and Atelier — or any matcher — joins on the family key and type
-alone. Atelier itself carries no interface vocabulary; the names are the
-products' own.
+interchangeable, and a matcher joins on the interface keys and types; the
+family key is only the consumer's label. Atelier itself carries no interface
+vocabulary; the names are the products' own.
 
 ### Producers
 
@@ -369,6 +391,9 @@ products' own.
 | --- | --- | --- | --- |
 | `canonical/observability-stack` `terraform/cos` | `interfaces` | `cos` | `grafana_dashboard`, `karma_dashboard`, `loki_push_api`, `otlp`, `prometheus_remote_write`, `tracing` |
 | `canonical/observability-stack` `terraform/cos-lite` | `interfaces` | `cos` | `grafana_dashboard`, `karma_dashboard`, `loki_push_api`, `otlp`, `prometheus_remote_write`, `prometheus_scrape` |
+
+"Family key" is the key a consumer uses for that producer, not an output the
+producer declares.
 
 ### Consumers
 
@@ -378,7 +403,7 @@ products' own.
 
 A consumer that predates the convention (for example, a product whose input
 still keys on `dashboard`, `logging`, `metrics`, `tracing`) adopts it by
-renaming the input to `interfaces`, keying it by product, and re-keying the
+renaming the input to `interfaces`, keying it by family, and re-keying the
 interfaces to the charm interface names.
 
 ## 8. Adoption
@@ -393,46 +418,43 @@ interfaces to the charm interface names.
    `object({ <interface> = string, … })`, each value the offer `.url`.
 4. Publish the full set the product participates in; do not narrow it for a
    particular consumer.
-5. Use the same interface family key and keys as other producers of the same
-   family.
+5. Publish the same interface keys as other producers of the same interface
+   family, so a consumer written for one works against either.
 6. Gate CI with `atelier contract lint --module <dir> --output interfaces`.
 7. Treat a key removal or rename as a breaking change and announce it.
 
 ### Consumer checklist
 
-1. Declare an input named `interfaces`, keyed by product.
-2. Type each product value `object({ <interface> = string, … })` naming exactly
+1. Declare an input named `interfaces`, keyed by family.
+2. Type each family value `object({ <interface> = string, … })` naming exactly
    the interfaces the product requires — the type is the requirement, and the
-   wire is whole-or-none. Declare each supported product as `optional`, and use
-   `map(string)` plus `contains(keys(…))` only if an arbitrary subset must be
-   accepted.
-3. Never gate `count`/`for_each` on a value; gate on product null-ness or keys
-   (§4.5).
+   wire is whole-or-none. Declare each supported family as `optional`.
+3. Never gate `count`/`for_each` on a value; gate on family null-ness (§4.5).
 4. Name at most one transport per signal per producer (§5.4).
-5. Wire with `interfaces = { <product> = module.<producer>.interfaces }` and
+5. Wire with `interfaces = { <family> = module.<producer>.interfaces }` and
    leave the producer's extra keys to Terraform.
+6. For anything beyond one producer per family, use a variant or a custom input
+   outside the convention (§4.7).
 
 ## 9. Conformance
 
 - **Shape.** `atelier contract lint --module <dir> --output interfaces` verifies
   the `interfaces` output exists, is an object of strings, and — with
   `--require <interface>` — contains the interfaces a consumer asserts.
-- **Match.** Interface matching is over the family key, names, and declared
-  types only; no tool reads charm metadata, and no provider vocabulary is
-  embedded anywhere.
-- **Interchange.** A consumer's product value type is the test: if it
-  type-checks against two producers with the same family key, they are
-  interchangeable for that consumer.
+- **Match.** Interface matching is subset (`required ⊆ offered`) over interface
+  names and declared types only; the family key is a label and is not verified.
+  No tool reads charm metadata, and no provider vocabulary is embedded anywhere.
+- **Interchange.** A consumer's family value type is the test: if it type-checks
+  against two producers' catalogs, they are interchangeable for that consumer.
 
 ## 10. Open questions
 
-- **Per-interface composition.** Sourcing different interfaces of one product
-  from different producers is not specified; a product value is wired whole
-  (or, for a `map`, one producer's keys).
-- **A catalog registry / compatibility matrix.** The interface family is a
-  documented convention, so pairing a consumer's key with a producer needs that
-  mapping (a small registry, or a machine-readable declaration if one is ever
-  added); deriving the full per-interface matrix is future work.
+- **Per-interface composition.** Sourcing different interfaces of one family
+  from different producers is not specified; a family value is wired whole.
+- **A catalog registry / compatibility matrix.** The family key is a documented
+  convention, so pairing a consumer's key with a producer needs that mapping (a
+  gallery entry or a small registry; matching itself is by interface set).
+  Deriving the full per-interface matrix is future work.
 - **Splitting `otlp` by signal.** Today `otlp` is one interface; whether a
   product that must distinguish OTLP logs from OTLP traces needs finer keys is
   open, and would be a producer decision, not a category reintroduction.

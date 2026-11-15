@@ -45,9 +45,8 @@ declare it in `charmcraft.yaml` — never a product-defined category.**
   key per interface (`prometheus_remote_write`, `otlp`, `prometheus_scrape`) and
   lets the consumer choose.
 - A consumer names the exact interfaces it requires, in its input's type — an
-  `object({ … })` for whole-or-none, or `map(string)` plus
-  `contains(keys(…))` for a subset. Because it names transports, not signals, it
-  selects one metrics path and does not double-count.
+  `object({ … })`, wired whole (none or all). Because it names transports, not
+  signals, it selects one metrics path and does not double-count.
 - The vocabulary is producer- and ecosystem-owned. The name is defined by the
   relation, not by Atelier and not by an individual module, so Atelier carries
   no provider vocabulary.
