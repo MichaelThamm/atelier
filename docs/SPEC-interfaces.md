@@ -30,8 +30,7 @@ side.
 The convention makes the relation itself the contract:
 
 - A **producer** publishes a typed `interfaces` output whose keys are the Juju
-  interface names and whose values are the offer URLs, plus a `product` key
-  naming its interface family.
+  interface names and whose values are the offer URLs.
 - A **consumer** declares a product-keyed `interfaces` input naming the
   interfaces it requires.
 - A wire is `interfaces = { <product> = module.<producer>.interfaces }` — plain
@@ -43,8 +42,8 @@ The convention makes the relation itself the contract:
   (canonical/observability-stack#557) and for the Charmed Spark consumer
   (canonical/spark-k8s-bundle#384). New producers and consumers adopt it by
   following §8.
-- **In scope:** the shape of the producer catalog output, the product key, the
-  consumer input, the key vocabulary, and the wire between them.
+- **In scope:** the shape of the producer catalog output, the consumer input,
+  the key vocabulary, and the wire between them.
 - **Out of scope:** how a producer builds its offers, which charms it backs them
   with, and any tool that consumes the catalog. The convention is Terraform and
   Juju only.
@@ -57,7 +56,7 @@ The convention makes the relation itself the contract:
 | **Producer** | A product module that publishes an interface catalog — every relation it can integrate over, as offer URLs. COS and Cos Lite are producers. |
 | **Consumer** | A product module that requires some of those interfaces and declares them in an input. Charmed Spark is a consumer. |
 | **Catalog** | The producer's typed `interfaces` output: a set of interface keys, each value an offer URL. |
-| **Product key** | The producer's `product` output, the name of its interface family (`cos`). A consumer uses it as the key in its `interfaces` input. |
+| **Product key** | The key a consumer uses in its `interfaces` input to name the producer's interface family (`cos`). A documented convention, not an output the producer declares. |
 | **Key** | One attribute of the catalog: the interface name. |
 | **Wire** | `interfaces = { <product> = module.<producer>.interfaces }` written into the consumer's `module` block. |
 
@@ -66,8 +65,8 @@ The convention makes the relation itself the contract:
 ### 4.1 Producer: publish an interface catalog
 
 A producer publishes one output, always named `interfaces`, keyed by the
-interface name and valued by the offer URL, plus a `product` output naming its
-interface family. COS and Cos Lite publish `product = "cos"`:
+interface name and valued by the offer URL. COS and Cos Lite both integrate as
+the `cos` family:
 
 ```hcl
 # outputs.tf (cos-lite)
@@ -90,11 +89,6 @@ output "interfaces" {
     prometheus_scrape       = juju_offer.prometheus_metrics_endpoint.url
   }
 }
-
-output "product" {
-  description = "The product key for this module's `interfaces` output."
-  value       = "cos"
-}
 ```
 
 Rules:
@@ -113,13 +107,13 @@ Rules:
   set; a consumer narrows it. A key a product does not implement is simply
   absent (Cos Lite has no `tracing`, COS has no `prometheus_scrape`), and a
   consumer that requires it fails to type-check — correctly, and at plan time.
-- **The output names are fixed; the product key is the family.** Every producer
-  names its catalog `interfaces` and its family `product`, so a consumer wires
-  the same way regardless of product. Two producers that satisfy the same
-  interfaces publish the same `product` value and the same keys — COS and Cos
-  Lite both publish `product = "cos"` — so a consumer works against either.
-  COS and Cos Lite sharing the `cos` key is a deliberate exception, revisitable
-  if the two ever diverge.
+- **The catalog name is fixed.** Every producer names its catalog `interfaces`,
+  so a consumer wires the same way regardless of product. Producers that satisfy
+  the same interfaces publish the same keys — COS and Cos Lite do — so a
+  consumer works against either. The interface family (`cos`) is a documented
+  convention the consumer keys by, not an output the producer declares. COS and
+  Cos Lite sharing the `cos` key is a deliberate exception, revisitable if the
+  two ever diverge.
 
 ### 4.2 Consumer: declare the interfaces it requires
 
@@ -161,12 +155,13 @@ data "juju_offer" "loki_logging" {
 }
 ```
 
-### 4.3 The join: product key, interface keys, and type
+### 4.3 The join: family key, interface keys, and type
 
 A producer output and a consumer input join when:
 
-1. **The product key matches.** The consumer's product key (`cos`) equals a
-   producer's `product` output.
+1. **The family matches.** The consumer's product key (`cos`) names the
+   interface family the producer belongs to (COS and Cos Lite both integrate as
+   `cos`).
 2. **The consumer's product value is structurally compatible** with the
    producer's `interfaces` value: every attribute the consumer names under that
    product exists in the producer with a compatible type.
@@ -322,9 +317,9 @@ rule is:
   on the interface name for one relation, that is a charm-side defect to fix
   upstream, not a translation to add to the catalog.
 
-## 6. Catalog reference: the COS family (`product = "cos"`)
+## 6. Catalog reference: the COS family (`cos`)
 
-COS and Cos Lite publish the same catalog under `product = "cos"`. The keys
+COS and Cos Lite publish the same catalog under the `cos` family key. The keys
 they share are interchangeable; each adds the interfaces only it implements.
 
 | Key (interface) | COS role | COS offer | Cos Lite offer |
@@ -350,7 +345,7 @@ interface, not the backing charm.
 ## 7. Other catalogs
 
 The convention is not COS-specific. Any producer publishes an `interfaces`
-output and a `product` key, with keys from its charms' `charmcraft.yaml`:
+output, with keys from its charms' `charmcraft.yaml`:
 
 ```hcl
 # illustrative: a database product
@@ -360,28 +355,24 @@ output "interfaces" {
   })
   value = { postgresql_client = juju_offer.client.url }
 }
-
-output "product" {
-  value = "postgresql"
-}
 ```
 
 A consumer of that product wires `interfaces = { postgresql = module.postgresql.interfaces }`.
-Two producers of the same interface family publish the same `product` value and
-the same keys so they stay interchangeable, and Atelier — or any matcher — joins
-on product and type alone. Atelier itself carries no interface vocabulary; the
-names are the products' own.
+Two producers of the same interface family publish the same keys so they stay
+interchangeable, and Atelier — or any matcher — joins on the family key and type
+alone. Atelier itself carries no interface vocabulary; the names are the
+products' own.
 
 ### Producers
 
-| Module | Output | Product | Keys |
+| Module | Output | Family key | Keys |
 | --- | --- | --- | --- |
 | `canonical/observability-stack` `terraform/cos` | `interfaces` | `cos` | `grafana_dashboard`, `karma_dashboard`, `loki_push_api`, `otlp`, `prometheus_remote_write`, `tracing` |
 | `canonical/observability-stack` `terraform/cos-lite` | `interfaces` | `cos` | `grafana_dashboard`, `karma_dashboard`, `loki_push_api`, `otlp`, `prometheus_remote_write`, `prometheus_scrape` |
 
 ### Consumers
 
-| Module | Input | Product | Required keys |
+| Module | Input | Family key | Required keys |
 | --- | --- | --- | --- |
 | `canonical/spark-k8s-bundle` `terraform/products/charmed-spark` | `interfaces` | `cos` | `grafana_dashboard`, `loki_push_api`, `prometheus_remote_write` |
 
@@ -399,11 +390,11 @@ interfaces to the charm interface names.
    `charmcraft.yaml`. Do not use the endpoint or offer name, and do not invent
    a category.
 3. Publish one output named `interfaces`, typed
-   `object({ <interface> = string, … })`, each value the offer `.url`, and one
-   `output "product"` with the interface family key.
+   `object({ <interface> = string, … })`, each value the offer `.url`.
 4. Publish the full set the product participates in; do not narrow it for a
    particular consumer.
-5. Use the same `product` value and keys as other producers of the same family.
+5. Use the same interface family key and keys as other producers of the same
+   family.
 6. Gate CI with `atelier contract lint --module <dir> --output interfaces`.
 7. Treat a key removal or rename as a breaking change and announce it.
 
@@ -426,11 +417,11 @@ interfaces to the charm interface names.
 - **Shape.** `atelier contract lint --module <dir> --output interfaces` verifies
   the `interfaces` output exists, is an object of strings, and — with
   `--require <interface>` — contains the interfaces a consumer asserts.
-- **Match.** Interface matching is over the product key, names, and declared
+- **Match.** Interface matching is over the family key, names, and declared
   types only; no tool reads charm metadata, and no provider vocabulary is
   embedded anywhere.
 - **Interchange.** A consumer's product value type is the test: if it
-  type-checks against two producers with the same `product` key, they are
+  type-checks against two producers with the same family key, they are
   interchangeable for that consumer.
 
 ## 10. Open questions
@@ -438,10 +429,10 @@ interfaces to the charm interface names.
 - **Per-interface composition.** Sourcing different interfaces of one product
   from different producers is not specified; a product value is wired whole
   (or, for a `map`, one producer's keys).
-- **A catalog registry / compatibility matrix.** The `product` output names each
-  producer's family, so a matcher can pair a consumer's product key with a
-  producer without a curated mapping; deriving the full per-interface matrix is
-  future work.
+- **A catalog registry / compatibility matrix.** The interface family is a
+  documented convention, so pairing a consumer's key with a producer needs that
+  mapping (a small registry, or a machine-readable declaration if one is ever
+  added); deriving the full per-interface matrix is future work.
 - **Splitting `otlp` by signal.** Today `otlp` is one interface; whether a
   product that must distinguish OTLP logs from OTLP traces needs finer keys is
   open, and would be a producer decision, not a category reintroduction.
