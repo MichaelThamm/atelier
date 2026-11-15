@@ -51,9 +51,10 @@ declare it in `charmcraft.yaml` — never a product-defined category.**
 - The vocabulary is producer- and ecosystem-owned. The name is defined by the
   relation, not by Atelier and not by an individual module, so Atelier carries
   no provider vocabulary.
-- The catalog's output name (`cos_offers`) is part of the contract, so
-  interchangeable producers publish the same name and keys and a consumer works
-  against either.
+- The catalog output is always named `interfaces`, and each producer publishes a
+  `product` key naming its interface family. Interchangeable producers publish
+  the same `product` value and the same keys, so a consumer keys its input by
+  product and works against either.
 
 The full convention is specified in
 [SPEC-interfaces.md](../SPEC-interfaces.md).
